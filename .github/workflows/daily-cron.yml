@@ -1,0 +1,36 @@
+name: Daily YC Scraper & Email Digests
+
+on:
+  schedule:
+    # Daily scrape at 2 AM UTC
+    - cron: '0 2 * * *'
+    # Send digests at 10 AM UTC
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  daily-scrape:
+    runs-on: ubuntu-latest
+    # Only run scrape at 2 AM UTC
+    if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Scrape YC Companies
+        run: |
+          curl -X POST "${{ secrets.BACKEND_URL }}/api/cron/daily-scrape" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -v
+        timeout-minutes: 10
+
+  send-digests:
+    runs-on: ubuntu-latest
+    # Only run digests at 10 AM UTC
+    if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Send Daily Email Digests
+        run: |
+          curl -X POST "${{ secrets.BACKEND_URL }}/api/cron/send-digests" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -v
+        timeout-minutes: 5

@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+!frontend/src/lib/
+!frontend/src/lib/**
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Output files
+*.json
+*.csv
+!requirements.txt
+!package.json
+!package-lock.json
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig*.json
+!vercel.json
+!frontend/vercel.json
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.vercel
+.env*.local
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Private working files — internal docs, scratch scripts, local data
+private/
+
+# Accidental venv
+path/

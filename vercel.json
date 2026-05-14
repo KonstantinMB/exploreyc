@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "frontend/dist",
+  "framework": null,
+  "installCommand": "cd frontend && npm install",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://api.exploreyc.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

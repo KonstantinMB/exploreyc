@@ -1,0 +1,36 @@
+name: 💡 Idea / feature request
+description: Suggest a new feature, view, integration, or any improvement.
+title: "[Idea] "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to share an idea. Half-baked is fine — that's my problem to figure out. Drawings, screenshots, links to similar features elsewhere are all welcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Who is the user, and what are they trying to do that ExploreYC doesn't help with today?
+      placeholder: "Example: I'm a founder researching what European Fintech companies YC has funded that are currently hiring, and I can't filter on all three at once."
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What do you wish existed?
+      description: Describe the feature, view, or behavior. Don't worry about feasibility.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References (optional)
+      description: Links to similar features elsewhere, screenshots, sketches, related issues.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I checked the [Open ideas](https://github.com/KonstantinMB/exploreyc#open-ideas) list and existing issues — this is new.
+          required: true

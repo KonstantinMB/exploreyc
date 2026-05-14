@@ -1,0 +1,15 @@
+# Render.com Blueprint - Backend API
+# Set Root Directory to "backend" in Render dashboard
+# Add DATABASE_URL from Supabase (Settings > Database > Connection string)
+services:
+  - type: web
+    name: yc-company-scraper-api
+    runtime: python
+    region: oregon
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"

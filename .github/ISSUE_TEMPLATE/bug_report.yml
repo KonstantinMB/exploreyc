@@ -1,0 +1,48 @@
+name: 🐛 Bug report
+description: Something on exploreyc.com or in the code doesn't work as expected.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, and what did you see?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did this happen?
+      options:
+        - On exploreyc.com (production)
+        - On a local dev setup
+        - In a deployed fork
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / environment
+      placeholder: "Chrome 140 on macOS, or 'backend, Python 3.11, FastAPI 0.115'"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots (optional)
+      description: Paste console output, network errors, or attach screenshots.

@@ -1,0 +1,10 @@
+{
+  "name": "yc-company-scraper",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/KonstantinMB/exploreyc/security/policy
+    about: Please disclose security issues privately. See SECURITY.md.
+  - name: Live site
+    url: https://exploreyc.com
+    about: Try ExploreYC at exploreyc.com before filing.

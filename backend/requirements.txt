@@ -1,0 +1,14 @@
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+requests>=2.31.0
+pydantic>=2.4.0
+python-multipart>=0.0.6
+websockets>=12.0
+psycopg2-binary>=2.9.9
+resend>=0.8.0
+python-dateutil>=2.8.2
+python-dotenv>=1.0.0
+openai>=1.0.0
+pgvector>=0.2.0
+numpy>=1.24.0
+playwright>=1.40.0
