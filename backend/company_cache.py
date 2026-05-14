@@ -81,6 +81,15 @@ class CompanyCache:
             s = c.get("status") or "unknown"
             by_status[s] = by_status.get(s, 0) + 1
 
+        by_batch_industry: Dict[str, Dict[str, int]] = {}
+        for c in companies:
+            b = c.get("batch")
+            ind = c.get("industry")
+            if b and ind:
+                if b not in by_batch_industry:
+                    by_batch_industry[b] = {}
+                by_batch_industry[b][ind] = by_batch_industry[b].get(ind, 0) + 1
+
         self._stats = {
             "total_companies": total,
             "hiring": hiring,
@@ -88,6 +97,7 @@ class CompanyCache:
             "by_industry": by_industry,
             "by_country": by_country,
             "by_status": by_status,
+            "by_batch_industry": by_batch_industry,
         }
 
         # Filter lists

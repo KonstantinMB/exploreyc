@@ -180,6 +180,40 @@ class Database:
                 )
             ''')
 
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS company_changes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id INTEGER NOT NULL,
+                    change_type TEXT NOT NULL,
+                    field_name TEXT,
+                    old_value TEXT,
+                    new_value TEXT,
+                    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id TEXT PRIMARY KEY,
+                    idea_description TEXT,
+                    team_info TEXT,
+                    industry TEXT,
+                    location TEXT,
+                    market_type TEXT,
+                    idea_score REAL,
+                    team_score REAL,
+                    market_score REAL,
+                    combined_score REAL,
+                    percentile REAL,
+                    tier TEXT,
+                    top_matches TEXT,
+                    achievements TEXT,
+                    challenges TEXT,
+                    username TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
             # Create indexes
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_batch ON companies(batch)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring ON companies(is_hiring)')

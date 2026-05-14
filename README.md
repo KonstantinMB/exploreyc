@@ -67,9 +67,11 @@ cd exploreyc
 
 # Backend
 cd backend
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 cp ../.env.example ../.env   # fill in the keys you have
-uvicorn main:app --reload    # → http://localhost:8000
+python3 -m uvicorn main:app --reload    # → http://localhost:8000
 
 # Frontend (new shell)
 cd ../frontend
@@ -80,6 +82,25 @@ npm run dev                  # → http://localhost:5173
 The Vite dev server proxies `/api` and `/ws` to `localhost:8000`, so the frontend talks to your local backend automatically.
 
 **Minimum viable local setup:** leave `DATABASE_URL` unset (falls back to SQLite) and provide just an `OPENAI_API_KEY` for the idea-validator features. Every other integration degrades gracefully if its key is missing — see [`.env.example`](.env.example) for the full list.
+
+### Seeding local data
+
+The local SQLite database starts empty. To populate it, scrape YC company data from the public Algolia API (no API keys needed):
+
+```bash
+# With the backend running, seed the last 3 batches (~500+ companies)
+curl -X POST http://localhost:8000/api/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"batch": ["Winter 2025", "Summer 2024", "Winter 2024"], "hits_per_page": 1000, "max_pages": 20}'
+
+# Check progress (replace 1 with the job_id returned above)
+curl http://localhost:8000/api/scrape/status/1
+
+# Verify data loaded
+curl http://localhost:8000/api/stats
+```
+
+Once the scrape completes (usually under a minute), refresh the frontend to see charts and data populate. To scrape all batches, omit the `batch` filter — but this takes longer and hits the 3-requests-per-hour rate limit.
 
 ## Project layout
 
