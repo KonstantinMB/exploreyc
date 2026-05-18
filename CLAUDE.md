@@ -21,7 +21,7 @@ ExploreYC — a full-stack web app that scrapes Y Combinator's Algolia API for c
 cd frontend && npm install && npm run dev
 
 # Backend dev server
-cd backend && pip install -r requirements.txt && uvicorn main:app --reload
+cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 -m uvicorn main:app --reload
 
 # Production frontend build (from repo root)
 npm run build
@@ -32,6 +32,18 @@ python -m pytest test_pagination.py
 ```
 
 No frontend test suite exists. Backend tests are integration-focused (`test_*.py` files in `backend/`).
+
+**Seeding local data:** With `DATABASE_URL` unset the backend uses SQLite (`backend/yc_companies.db`, auto-created). Scrape YC data from the public Algolia API (no keys needed):
+
+```bash
+# Seed last 3 batches (with backend running)
+curl -X POST http://localhost:8000/api/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"batch": ["Winter 2025", "Summer 2024", "Winter 2024"], "hits_per_page": 1000, "max_pages": 20}'
+
+# Check progress
+curl http://localhost:8000/api/scrape/status/1
+```
 
 ## Architecture
 

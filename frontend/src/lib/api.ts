@@ -81,6 +81,7 @@ export interface Stats {
   by_industry: Record<string, number>
   by_country: Record<string, number>
   by_status: Record<string, number>
+  by_batch_industry?: Record<string, Record<string, number>>
 }
 
 export interface ScrapeJob {
