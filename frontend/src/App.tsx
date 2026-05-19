@@ -30,6 +30,7 @@ import { ShareHub } from './pages/ShareHub';
 import { CompanyCardPage } from './pages/CompanyCardPage';
 import { HiringBoardPagePaginated } from './pages/HiringBoardPagePaginated';
 import { HiringAnalyticsPage } from './pages/HiringAnalyticsPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -185,6 +186,7 @@ function AnimatedRoutes() {
         <Route path="founders" element={<FoundersPage />} />
         <Route path="roadmap" element={<RoadmapPage />} />
         <Route path="share" element={<ShareHub />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   );
