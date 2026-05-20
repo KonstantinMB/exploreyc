@@ -31,8 +31,8 @@ class EmailService:
             return
 
         resend.api_key = self.api_key
-        # Use your verified domain. Set RESEND_FROM_EMAIL in Railway (e.g. YC Explorer <digest@exploreyc.com>)
-        self.from_email = os.environ.get("RESEND_FROM_EMAIL", "YC Explorer <digest@exploreyc.com>")
+        # Override via RESEND_FROM_EMAIL on the host (e.g. "ExploreYC <digest@exploreyc.com>").
+        self.from_email = os.environ.get("RESEND_FROM_EMAIL", "ExploreYC <digest@exploreyc.com>")
         self.frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 
     def send_verification_email(self, email: str, verification_token: str) -> bool:
@@ -47,7 +47,7 @@ class EmailService:
             params = {
                 "from": self.from_email,
                 "to": [email],
-                "subject": "Welcome to YC Explorer — confirm your email",
+                "subject": "Welcome to ExploreYC — confirm your email",
                 "html": self._render_verification_email(verification_link)
             }
 
@@ -79,40 +79,98 @@ class EmailService:
 
     def _render_welcome_confirmation(self) -> str:
         """Render post-verification welcome email"""
+        github_url = "https://github.com/KonstantinMB/exploreyc"
         return f"""
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>You're in — ExploreYC</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #F6F6EF; line-height: 1.6; }}
-        .container {{ max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }}
-        .header {{ background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 36px; text-align: center; }}
-        .header h1 {{ color: white; margin: 0; font-size: 24px; font-weight: 700; }}
-        .content {{ padding: 36px 32px; }}
-        .content p {{ color: #444; font-size: 16px; margin: 0 0 16px 0; }}
-        .cta {{ text-align: center; margin: 28px 0; }}
-        .cta a {{ display: inline-block; background: #FB651E; color: white !important; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; }}
-        .footer {{ background: #F6F6EF; padding: 24px; text-align: center; font-size: 13px; color: #666; }}
-        .footer a {{ color: #FB651E; text-decoration: none; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; margin: 0; padding: 0; background-color: #f6f6ef; line-height: 1.5; }}
+        .container {{ max-width: 600px; margin: 32px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }}
+        .content {{ padding: 32px; }}
     </style>
 </head>
 <body style="padding: 24px 0;">
+    <!-- Preheader -->
+    <div style="display: none; max-height: 0; overflow: hidden;">Your first ExploreYC digest is on the way — tomorrow by 10am.</div>
+
     <div class="container">
-        <div class="header">
-            <h1>You're all set! ✓</h1>
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 28px 32px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px;">
+                ExploreYC <span style="opacity: 0.6;">·</span> You're in ✓
+            </h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 6px 0 0 0; font-size: 13px; font-weight: 500;">
+                Subscription confirmed
+            </p>
         </div>
+
         <div class="content">
-            <p>Your email is verified. You're now subscribed to YC Explorer daily digests.</p>
-            <p>We scan Y Combinator's directory every day. When new companies join or existing ones start hiring, you'll get an email with the details — usually in your inbox by 10am.</p>
-            <p>Nothing to do now. Just sit back and we'll keep you in the loop.</p>
-            <div class="cta">
-                <a href="{self.frontend_url}">Explore companies now →</a>
+            <h2 style="color: #1a1a1a; font-size: 20px; margin: 0 0 12px 0; font-weight: 600; letter-spacing: -0.2px;">
+                You're all set.
+            </h2>
+            <p style="color: #444; font-size: 15px; margin: 0 0 24px 0;">
+                Your first digest lands in your inbox tomorrow by 10am UTC. After that, expect one email a day — only on days something actually changed in the YC portfolio.
+            </p>
+
+            <!-- What to expect -->
+            <div style="background: #FFF8F4; border: 1px solid #FFE5D6; padding: 16px 20px; border-radius: 8px; margin: 0 0 28px 0;">
+                <p style="margin: 0 0 10px 0; font-size: 13px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;">What to expect</p>
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td style="padding: 4px 0; font-size: 14px; color: #333;">
+                            <span style="color: #FB651E; font-weight: 700;">🆕</span>
+                            &nbsp;New YC companies the moment they're added
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0; font-size: 14px; color: #333;">
+                            <span style="color: #10B981; font-weight: 700;">💼</span>
+                            &nbsp;Companies that just started hiring
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0; font-size: 14px; color: #333;">
+                            <span style="color: #6366F1; font-weight: 700;">📊</span>
+                            &nbsp;Batch transitions and portfolio changes
+                        </td>
+                    </tr>
+                </table>
             </div>
+
+            <p style="color: #444; font-size: 14px; margin: 0 0 18px 0;">
+                In the meantime — the full directory, the idea validator, the hiring board, and a few other things are live on the site. Worth a look:
+            </p>
+
+            <!-- CTA button -->
+            <table border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto;">
+                <tr>
+                    <td style="background-color: #FB651E; border-radius: 8px;">
+                        <a href="{self.frontend_url}" style="display: inline-block; padding: 14px 32px; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px;">
+                            Explore on ExploreYC →
+                        </a>
+                    </td>
+                </tr>
+            </table>
+
+            <p style="margin: 28px 0 0 0; font-size: 13px; color: #888; text-align: center;">
+                Quick favor — if you like it, tell one founder friend. Word-of-mouth is what's growing this thing.
+            </p>
         </div>
-        <div class="footer">
-            <p>YC Explorer • <a href="{self.frontend_url}">exploreyc.com</a></p>
+
+        <!-- Footer -->
+        <div style="background: #f6f6ef; padding: 24px 32px; text-align: center; font-size: 13px; color: #666; border-top: 1px solid #ececec;">
+            <p style="margin: 0 0 8px 0;">
+                <strong style="color: #1a1a1a;">ExploreYC</strong> · Built for the YC-curious
+            </p>
+            <p style="margin: 0;">
+                <a href="{self.frontend_url}" style="color: #FB651E; text-decoration: none; margin: 0 6px;">Live site</a>
+                <span style="color: #ccc;">·</span>
+                <a href="{github_url}" style="color: #FB651E; text-decoration: none; margin: 0 6px;">Now open source on GitHub</a>
+            </p>
         </div>
     </div>
 </body>
@@ -167,70 +225,107 @@ class EmailService:
         total_changes = len(new_companies) + len(newly_hiring) + len(batch_changes)
 
         if new_companies:
-            return f"YC Daily Digest - {len(new_companies)} New Companies ({today})"
+            return f"ExploreYC Digest — {len(new_companies)} New Companies ({today})"
         elif newly_hiring:
-            return f"YC Daily Digest - {len(newly_hiring)} Now Hiring ({today})"
+            return f"ExploreYC Digest — {len(newly_hiring)} Now Hiring ({today})"
         else:
-            return f"YC Daily Digest - {total_changes} Updates ({today})"
+            return f"ExploreYC Digest — {total_changes} Updates ({today})"
 
     def _render_verification_email(self, verification_link: str) -> str:
-        """Render welcome + verification email HTML (themed, friendly)"""
+        """Render welcome + verification email HTML"""
+        github_url = "https://github.com/KonstantinMB/exploreyc"
         return f"""
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to ExploreYC</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; margin: 0; padding: 0; background-color: #F6F6EF; line-height: 1.6; }}
-        .container {{ max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }}
-        .header {{ background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 36px 32px; text-align: center; }}
-        .header h1 {{ color: white; margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }}
-        .header p {{ color: rgba(255,255,255,0.95); margin: 8px 0 0 0; font-size: 15px; }}
-        .content {{ padding: 36px 32px; }}
-        .content h2 {{ color: #1a1a1a; font-size: 20px; margin: 0 0 16px 0; font-weight: 600; }}
-        .content p {{ color: #444; font-size: 16px; margin: 0 0 16px 0; }}
-        .highlight {{ background: #FFF8F4; border-left: 4px solid #FB651E; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }}
-        .highlight p {{ margin: 0; color: #333; font-size: 15px; }}
-        .button {{ display: inline-block; background: #FB651E; color: white !important; padding: 16px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; margin: 24px 0; box-shadow: 0 2px 12px rgba(251,101,30,0.35); }}
-        .button:hover {{ background: #E65C00; }}
-        .features {{ margin: 28px 0; }}
-        .feature {{ display: flex; align-items: flex-start; margin-bottom: 16px; }}
-        .feature-icon {{ font-size: 20px; margin-right: 12px; flex-shrink: 0; }}
-        .feature-text {{ color: #444; font-size: 15px; }}
-        .feature-text strong {{ color: #1a1a1a; }}
-        .footer {{ background: #F6F6EF; padding: 24px 32px; text-align: center; font-size: 13px; color: #666; }}
-        .footer a {{ color: #FB651E; text-decoration: none; }}
-        .verify-note {{ font-size: 13px; color: #888; margin-top: 20px; }}
-        .verify-note code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; word-break: break-all; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; margin: 0; padding: 0; background-color: #f6f6ef; line-height: 1.5; }}
+        .container {{ max-width: 600px; margin: 32px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }}
+        .content {{ padding: 32px; }}
     </style>
 </head>
 <body style="padding: 24px 0;">
-    <div class="container">
-        <div class="header">
-            <h1>Welcome to YC Explorer 🚀</h1>
-            <p>You're one click away from staying in the loop</p>
-        </div>
-        <div class="content">
-            <h2>Hey there!</h2>
-            <p>Thanks for signing up. We're excited to have you.</p>
-            <p>We scan Y Combinator's directory <strong>every day</strong> to catch new startups and hiring updates. Once you verify your email, you'll get a daily digest with exactly what's new.</p>
+    <!-- Preheader (preview text shown in inbox) -->
+    <div style="display: none; max-height: 0; overflow: hidden;">One click to confirm your email and start receiving the daily YC digest.</div>
 
-            <div class="highlight">
-                <p><strong>What you'll get:</strong></p>
-                <p style="margin-top: 8px;">🆕 <strong>New companies</strong> — Fresh YC startups as soon as they're added</p>
-                <p>💼 <strong>Hiring alerts</strong> — Companies that just opened roles</p>
-                <p>📊 <strong>Batch updates</strong> — When companies move batches</p>
+    <div class="container">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 28px 32px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px;">
+                ExploreYC <span style="opacity: 0.6;">·</span> Welcome
+            </h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 6px 0 0 0; font-size: 13px; font-weight: 500;">
+                One click to confirm
+            </p>
+        </div>
+
+        <div class="content">
+            <h2 style="color: #1a1a1a; font-size: 20px; margin: 0 0 12px 0; font-weight: 600; letter-spacing: -0.2px;">
+                Thanks for signing up.
+            </h2>
+            <p style="color: #444; font-size: 15px; margin: 0 0 24px 0;">
+                We scan Y Combinator's directory every day. Confirm your email and you'll get a digest in your inbox by 10am whenever something new lands.
+            </p>
+
+            <!-- CTA button -->
+            <table border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto 8px auto;">
+                <tr>
+                    <td style="background-color: #FB651E; border-radius: 8px;">
+                        <a href="{verification_link}" style="display: inline-block; padding: 14px 36px; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px;">
+                            Confirm my email →
+                        </a>
+                    </td>
+                </tr>
+            </table>
+
+            <p style="text-align: center; font-size: 12px; color: #999; margin: 12px 0 28px 0;">
+                Or paste this link into your browser:<br>
+                <code style="background: #f0f0f0; padding: 4px 8px; border-radius: 4px; font-size: 11px; color: #555; word-break: break-all; display: inline-block; margin-top: 6px; max-width: 100%;">{verification_link}</code>
+            </p>
+
+            <!-- What you'll get -->
+            <div style="background: #FFF8F4; border: 1px solid #FFE5D6; padding: 16px 20px; border-radius: 8px; margin: 8px 0 0 0;">
+                <p style="margin: 0 0 10px 0; font-size: 13px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;">What you'll get</p>
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td style="padding: 4px 0; font-size: 14px; color: #333;">
+                            <span style="color: #FB651E; font-weight: 700;">🆕</span>
+                            &nbsp;<strong>New YC companies</strong> — as soon as they're added to the directory
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0; font-size: 14px; color: #333;">
+                            <span style="color: #10B981; font-weight: 700;">💼</span>
+                            &nbsp;<strong>Hiring alerts</strong> — companies that just opened roles
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0; font-size: 14px; color: #333;">
+                            <span style="color: #6366F1; font-weight: 700;">📊</span>
+                            &nbsp;<strong>Batch updates</strong> — when companies move batches
+                        </td>
+                    </tr>
+                </table>
             </div>
 
-            <p style="text-align: center;">
-                <a href="{verification_link}" class="button">Confirm my email</a>
+            <p style="margin: 24px 0 0 0; font-size: 13px; color: #888; text-align: center;">
+                Didn't sign up? Just ignore this — we won't email you again.
             </p>
-            <p class="verify-note">Or copy this link: <br><code>{verification_link}</code></p>
         </div>
-        <div class="footer">
-            <p>YC Explorer • Explore Y Combinator startups</p>
-            <p><a href="{self.frontend_url}">exploreyc.com</a></p>
+
+        <!-- Footer -->
+        <div style="background: #f6f6ef; padding: 24px 32px; text-align: center; font-size: 13px; color: #666; border-top: 1px solid #ececec;">
+            <p style="margin: 0 0 8px 0;">
+                <strong style="color: #1a1a1a;">ExploreYC</strong> · Built for the YC-curious
+            </p>
+            <p style="margin: 0;">
+                <a href="{self.frontend_url}" style="color: #FB651E; text-decoration: none; margin: 0 6px;">Live site</a>
+                <span style="color: #ccc;">·</span>
+                <a href="{github_url}" style="color: #FB651E; text-decoration: none; margin: 0 6px;">Now open source on GitHub</a>
+            </p>
         </div>
     </div>
 </body>
@@ -245,85 +340,116 @@ class EmailService:
         unsubscribe_link: str
     ) -> str:
         """Render daily digest email HTML"""
-        today = date.today().strftime("%B %d, %Y")
+        today = date.today().strftime("%A, %B %d, %Y")
 
-        # Build sections
-        sections = []
+        # Section accent colors — orange for new, green for hiring, indigo for updates.
+        new_accent = "#FB651E"
+        hiring_accent = "#10B981"
+        batch_accent = "#6366F1"
 
+        # Stats banner — a compact one-line summary right under the header.
+        stats_parts = []
         if new_companies:
-            companies_html = "\n".join([
-                self._render_company_card(company) for company in new_companies[:20]
-            ])
-            sections.append(f"""
-                <div class="section">
-                    <h2>🆕 {len(new_companies)} New Companies Added</h2>
-                    {companies_html}
-                </div>
-            """)
-
+            stats_parts.append(
+                f'<strong style="color: {new_accent};">{len(new_companies)}</strong> new'
+            )
         if newly_hiring:
-            companies_html = "\n".join([
-                self._render_company_card(company) for company in newly_hiring[:20]
-            ])
-            sections.append(f"""
-                <div class="section">
-                    <h2>💼 {len(newly_hiring)} Now Hiring</h2>
-                    {companies_html}
-                </div>
-            """)
-
+            stats_parts.append(
+                f'<strong style="color: {hiring_accent};">{len(newly_hiring)}</strong> hiring'
+            )
         if batch_changes:
-            companies_html = "\n".join([
-                self._render_company_card(company) for company in batch_changes[:10]
-            ])
-            sections.append(f"""
-                <div class="section">
-                    <h2>📊 {len(batch_changes)} Batch Updates</h2>
-                    {companies_html}
+            stats_parts.append(
+                f'<strong style="color: {batch_accent};">{len(batch_changes)}</strong> updated'
+            )
+        stats_html = (
+            '<span style="color: #cbd5e0;"> &nbsp;·&nbsp; </span>'.join(stats_parts)
+        )
+
+        # Build content sections.
+        def render_section(emoji: str, count: int, label: str, items: List[Dict], accent: str) -> str:
+            cards = "\n".join(self._render_company_card(c, accent) for c in items)
+            return f"""
+                <div style="margin: 0 0 32px 0;">
+                    <div style="margin: 0 0 14px 0; padding-bottom: 10px; border-bottom: 2px solid {accent};">
+                        <h2 style="color: {accent}; margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.2px;">
+                            {emoji} {count} {label}
+                        </h2>
+                    </div>
+                    {cards}
                 </div>
-            """)
+            """
+
+        sections = []
+        if new_companies:
+            sections.append(render_section("🆕", len(new_companies), "New Companies", new_companies[:20], new_accent))
+        if newly_hiring:
+            sections.append(render_section("💼", len(newly_hiring), "Now Hiring", newly_hiring[:20], hiring_accent))
+        if batch_changes:
+            sections.append(render_section("📊", len(batch_changes), "Batch Updates", batch_changes[:10], batch_accent))
+
+        github_url = "https://github.com/KonstantinMB/exploreyc"
+        stats_banner = (
+            f'<div style="background: #FFF8F4; border: 1px solid #FFE5D6; padding: 14px 20px; '
+            f'border-radius: 8px; text-align: center; margin: 0 0 28px 0; font-size: 14px; color: #555;">'
+            f"<span>Today's update: </span>&nbsp;{stats_html}"
+            f'</div>'
+        ) if stats_html else ""
 
         return f"""
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExploreYC Daily Digest</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f6f6ef; }}
-        .container {{ max-width: 600px; margin: 40px auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
-        .header {{ background: #FB651E; padding: 30px; text-align: center; }}
-        .header h1 {{ color: white; margin: 0; font-size: 24px; }}
-        .header p {{ color: rgba(255,255,255,0.9); margin: 5px 0 0 0; }}
-        .content {{ padding: 30px; }}
-        .section {{ margin-bottom: 30px; }}
-        .section h2 {{ color: #FB651E; margin-bottom: 15px; font-size: 18px; }}
-        .company-card {{ background: #f9f9f9; border-left: 3px solid #FB651E; padding: 15px; margin-bottom: 12px; border-radius: 4px; min-height: 60px; }}
-        .company-name {{ font-weight: 600; color: #333; margin-bottom: 5px; font-size: 16px; }}
-        .company-batch {{ display: inline-block; background: #FB651E; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-right: 8px; }}
-        .company-hiring {{ display: inline-block; background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; }}
-        .company-description {{ color: #666; font-size: 14px; margin-top: 5px; margin-bottom: 8px; line-height: 1.4; }}
-        .company-links {{ margin-top: 8px; font-size: 13px; }}
-        .company-link {{ color: #FB651E; text-decoration: none; font-size: 13px; }}
-        .footer {{ background: #f6f6ef; padding: 20px; text-align: center; font-size: 12px; color: #666; }}
-        .footer a {{ color: #FB651E; text-decoration: none; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; margin: 0; padding: 0; background-color: #f6f6ef; line-height: 1.5; }}
+        .container {{ max-width: 600px; margin: 32px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }}
+        .content {{ padding: 32px; }}
     </style>
 </head>
-<body>
+<body style="padding: 24px 0;">
     <div class="container">
-        <div class="header">
-            <h1>🎯 YC Explorer Daily Digest</h1>
-            <p>{today}</p>
-        </div>
-        <div class="content">
-            {"".join(sections)}
-            <p style="text-align: center; margin-top: 30px;">
-                <a href="{self.frontend_url}" style="color: #FB651E; text-decoration: none; font-weight: 600;">
-                    View all companies →
-                </a>
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 28px 32px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px;">
+                ExploreYC <span style="opacity: 0.6;">·</span> Daily Digest
+            </h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 6px 0 0 0; font-size: 13px; font-weight: 500;">
+                {today}
             </p>
         </div>
-        <div class="footer">
-            <p>YC Explorer • Made for developers and founders</p>
-            <p><a href="{unsubscribe_link}">Unsubscribe</a></p>
+
+        <div class="content">
+            {stats_banner}
+
+            {"".join(sections)}
+
+            <!-- CTA button -->
+            <table border="0" cellpadding="0" cellspacing="0" align="center" style="margin: 8px auto 0 auto;">
+                <tr>
+                    <td style="background-color: #FB651E; border-radius: 8px;">
+                        <a href="{self.frontend_url}" style="display: inline-block; padding: 14px 32px; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px;">
+                            Browse all on ExploreYC →
+                        </a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- Footer -->
+        <div style="background: #f6f6ef; padding: 24px 32px; text-align: center; font-size: 13px; color: #666; border-top: 1px solid #ececec;">
+            <p style="margin: 0 0 8px 0;">
+                <strong style="color: #1a1a1a;">ExploreYC</strong> · Built for the YC-curious
+            </p>
+            <p style="margin: 0;">
+                <a href="{self.frontend_url}" style="color: #FB651E; text-decoration: none; margin: 0 6px;">Live site</a>
+                <span style="color: #ccc;">·</span>
+                <a href="{github_url}" style="color: #FB651E; text-decoration: none; margin: 0 6px;">Now open source on GitHub</a>
+            </p>
+            <p style="margin: 16px 0 0 0; font-size: 12px; color: #999;">
+                <a href="{unsubscribe_link}" style="color: #999; text-decoration: underline;">Unsubscribe</a>
+            </p>
         </div>
     </div>
 </body>
@@ -360,52 +486,83 @@ class EmailService:
             logger.error(f"Failed to send contact form: {e}")
             return False
 
-    def _render_company_card(self, company: Dict) -> str:
-        """Render a single company card in email"""
+    def _render_company_card(self, company: Dict, accent: str = "#FB651E") -> str:
+        """Render a single company card in email.
+
+        Uses table layout for email-client compatibility (Outlook, etc.).
+        All links inline-styled so they render consistently even when
+        clients strip <style> blocks.
+        """
         name = company.get("name", "Unknown")
         batch = company.get("batch", "N/A")
-        one_liner = company.get("one_liner", "")
-        website = company.get("website", "#")
+        one_liner = (company.get("one_liner") or "").strip()
+        website = company.get("website", "")
         slug = company.get("slug", "")
-        company_id = company.get("id")
         is_hiring = company.get("is_hiring", False)
         logo = company.get("logo", "")
 
-        hiring_badge = '<span class="company-hiring">Hiring</span>' if is_hiring else ""
+        hiring_badge = (
+            '<span style="display: inline-block; background: #10B981; color: #ffffff; '
+            'padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 500; margin-left: 6px;">Hiring</span>'
+            if is_hiring else ""
+        )
 
-        # Logo section - show if available
-        logo_html = ""
+        # Logo cell — only emit if we have one.
+        logo_cell = ""
         if logo:
-            logo_html = f'''
-                <img src="{logo}"
-                     alt="{name} logo"
-                     style="width: 48px; height: 48px; border-radius: 8px; object-fit: cover; margin-right: 12px; float: left;"
-                     onerror="this.style.display='none'">
-            '''
+            logo_cell = (
+                f'<td width="56" valign="top" style="padding-right: 12px;">'
+                f'<img src="{logo}" alt="" width="48" height="48" '
+                f'style="display: block; width: 48px; height: 48px; border-radius: 8px; '
+                f'object-fit: cover; border: 1px solid #eee;">'
+                f'</td>'
+            )
 
+        # Links — every one inline-styled to render consistently in Gmail / Outlook / Apple Mail.
+        link_style = (
+            f'color: {accent}; text-decoration: none; font-weight: 500; font-size: 13px;'
+        )
         links = []
-        # Link to dedicated company page with funding info
         if self.frontend_url and slug:
             company_page_url = f"{self.frontend_url.rstrip('/')}/company/{slug}"
-            links.append(f'<a href="{company_page_url}" class="company-link" style="font-weight: 600; color: #FB651E;">View Full Profile →</a>')
-        if website and website != "#":
-            links.append(f'<a href="{website}" class="company-link">Website →</a>')
+            links.append(
+                f'<a href="{company_page_url}" style="{link_style} font-weight: 600;">View profile →</a>'
+            )
+        if website:
+            links.append(f'<a href="{website}" style="{link_style}">Website →</a>')
         if slug:
             yc_url = f"https://www.ycombinator.com/companies/{slug}"
-            links.append(f'<a href="{yc_url}" class="company-link">YC Page →</a>')
-        links_html = " &nbsp;|&nbsp; ".join(links) if links else ""
+            links.append(f'<a href="{yc_url}" style="{link_style}">YC →</a>')
+        sep = '<span style="color: #ccc; margin: 0 8px;">·</span>'
+        links_html = sep.join(links) if links else ""
+
+        description_html = (
+            f'<p style="color: #555; font-size: 14px; margin: 8px 0 0 0; line-height: 1.45;">{one_liner}</p>'
+            if one_liner else ""
+        )
+        links_block = (
+            f'<div style="margin-top: 10px;">{links_html}</div>'
+            if links_html else ""
+        )
 
         return f"""
-            <div class="company-card" style="overflow: auto;">
-                {logo_html}
-                <div style="overflow: hidden;">
-                    <div class="company-name">{name}</div>
-                    <div>
-                        <span class="company-batch">{batch}</span>
-                        {hiring_badge}
-                    </div>
-                    {f'<p class="company-description">{one_liner}</p>' if one_liner else ""}
-                    {f'<div class="company-links">{links_html}</div>' if links_html else ""}
-                </div>
-            </div>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: #fafafa; border-left: 3px solid {accent}; border-radius: 0 6px 6px 0; margin-bottom: 10px;">
+                <tr>
+                    <td style="padding: 14px 16px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                {logo_cell}
+                                <td valign="top">
+                                    <div style="font-weight: 600; color: #1a1a1a; font-size: 15px; line-height: 1.3;">{name}</div>
+                                    <div style="margin-top: 6px;">
+                                        <span style="display: inline-block; background: {accent}; color: #ffffff; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 500;">{batch}</span>{hiring_badge}
+                                    </div>
+                                    {description_html}
+                                    {links_block}
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
         """
