@@ -14,6 +14,16 @@ from datetime import datetime, timedelta
 import json
 from hiring_analytics import HiringAnalyticsCompute
 
+try:
+    from currency_utils import job_salary_to_usd
+except ImportError:
+    def job_salary_to_usd(job, company=None):
+        min_sal = job.get("salary_min")
+        max_sal = job.get("salary_max")
+        if min_sal and max_sal:
+            return (min_sal + max_sal) / 2
+        return min_sal or max_sal or None
+
 logger = logging.getLogger(__name__)
 
 WORK_AT_STARTUP_API = "https://www.workatastartup.com/api/latest/companies"
@@ -127,20 +137,28 @@ class HiringBoardCache:
         return count
 
     def _calculate_avg_salary(self) -> Optional[float]:
-        """Calculate average salary"""
+        """Average salary, currency-normalized to USD.
+
+        Without conversion, INR/EUR/etc. amounts were summed with USD as
+        raw numbers, badly inflating the average (a 50,000 INR salary
+        being counted as $50,000).
+        """
+        company_map: Dict[Any, Dict[str, Any]] = {}
+        for c in self.companies:
+            cid = c.get("id")
+            if isinstance(cid, list):
+                cid = cid[0] if cid else None
+            if cid is not None:
+                company_map[cid] = c
+
         salaries = []
-
         for job in self.jobs:
-            min_salary = job.get("salary_min")
-            max_salary = job.get("salary_max")
-
-            if min_salary and max_salary:
-                avg = (min_salary + max_salary) / 2
-                salaries.append(avg)
-            elif min_salary:
-                salaries.append(min_salary)
-            elif max_salary:
-                salaries.append(max_salary)
+            cid = job.get("company_id")
+            if isinstance(cid, list):
+                cid = cid[0] if cid else None
+            usd = job_salary_to_usd(job, company_map.get(cid))
+            if usd is not None:
+                salaries.append(usd)
 
         if salaries:
             return sum(salaries) / len(salaries)

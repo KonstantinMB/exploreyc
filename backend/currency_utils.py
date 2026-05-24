@@ -96,26 +96,137 @@ LOCATION_CURRENCY_MAP = {
     'Amsterdam': 'EUR',
     'Tokyo': 'JPY',
     'Sydney': 'AUD',
+    'Melbourne': 'AUD',
     'Toronto': 'CAD',
+    'Vancouver': 'CAD',
+    'Montreal': 'CAD',
     'Singapore': 'SGD',
     'Hong Kong': 'HKD',
     'Dubai': 'AED',
+    'Abu Dhabi': 'AED',
+
+    # Indian cities (expanded — many YC India hires are outside the big four)
     'Mumbai': 'INR',
     'Delhi': 'INR',
+    'New Delhi': 'INR',
     'Bangalore': 'INR',
+    'Bengaluru': 'INR',
     'Gurugram': 'INR',
+    'Gurgaon': 'INR',
+    'Noida': 'INR',
+    'Pune': 'INR',
+    'Hyderabad': 'INR',
+    'Chennai': 'INR',
+    'Kolkata': 'INR',
+    'Ahmedabad': 'INR',
+    'Jaipur': 'INR',
+    'Chandigarh': 'INR',
+    'Kochi': 'INR',
+    'Indore': 'INR',
+    'Surat': 'INR',
+    'Coimbatore': 'INR',
+    'Lucknow': 'INR',
+    'Bhubaneswar': 'INR',
+
     'São Paulo': 'BRL',
+    'Sao Paulo': 'BRL',
+    'Rio de Janeiro': 'BRL',
     'Mexico City': 'MXN',
     'Tel Aviv': 'ILS',
     'Moscow': 'RUB',
     'Istanbul': 'TRY',
     'Bangkok': 'THB',
     'Ho Chi Minh': 'VND',
+    'Hanoi': 'VND',
     'Manila': 'PHP',
     'Kuala Lumpur': 'MYR',
     'Jakarta': 'IDR',
     'Cape Town': 'ZAR',
+    'Johannesburg': 'ZAR',
     'Cairo': 'EGP',
+    'Lagos': 'NGN',
+    'Nairobi': 'KES',
+    'Seoul': 'KRW',
+    'Taipei': 'TWD',
+    'Karachi': 'PKR',
+    'Lahore': 'PKR',
+    'Islamabad': 'PKR',
+    'Dhaka': 'BDT',
+    'Buenos Aires': 'ARS',
+    'Santiago': 'CLP',
+    'Bogotá': 'COP',
+    'Bogota': 'COP',
+    'Lima': 'PEN',
+    'Warsaw': 'PLN',
+    'Prague': 'CZK',
+    'Zurich': 'CHF',
+    'Geneva': 'CHF',
+    'Stockholm': 'SEK',
+    'Copenhagen': 'DKK',
+    'Oslo': 'NOK',
+    'Auckland': 'NZD',
+    'Wellington': 'NZD',
+}
+
+
+# In-memory USD exchange rates.
+# Values are "1 unit of <CCY> in USD" — multiply a local-currency salary by
+# the rate to get USD. Snapshot rates (rounded), not live; intentional
+# trade-off so analytics aren't blocked on an FX API. Refresh every few
+# months if rates drift materially.
+EXCHANGE_RATES: Dict[str, float] = {
+    'USD': 1.0,
+    'EUR': 1.08,
+    'GBP': 1.27,
+    'CHF': 1.12,
+    'CAD': 0.74,
+    'AUD': 0.66,
+    'NZD': 0.61,
+    'SEK': 0.094,
+    'NOK': 0.092,
+    'DKK': 0.145,
+    'PLN': 0.25,
+    'CZK': 0.043,
+    'RUB': 0.011,
+    'UAH': 0.024,
+    'TRY': 0.029,
+
+    # Asia
+    'INR': 0.012,
+    'CNY': 0.14,
+    'JPY': 0.0067,
+    'KRW': 0.00073,
+    'HKD': 0.13,
+    'SGD': 0.74,
+    'TWD': 0.031,
+    'THB': 0.029,
+    'VND': 0.000040,
+    'PHP': 0.018,
+    'MYR': 0.22,
+    'IDR': 0.000064,
+    'PKR': 0.0036,
+    'BDT': 0.0084,
+
+    # Middle East
+    'AED': 0.27,
+    'SAR': 0.27,
+    'ILS': 0.27,
+    'QAR': 0.27,
+    'KWD': 3.25,
+
+    # Africa
+    'ZAR': 0.054,
+    'EGP': 0.020,
+    'NGN': 0.00065,
+    'KES': 0.0077,
+
+    # Latin America
+    'MXN': 0.058,
+    'BRL': 0.20,
+    'ARS': 0.0010,
+    'CLP': 0.0011,
+    'COP': 0.00024,
+    'PEN': 0.27,
 }
 
 
@@ -248,3 +359,38 @@ CURRENCY_SYMBOLS = {
 def get_currency_symbol(currency: str) -> str:
     """Get the currency symbol for a currency code"""
     return CURRENCY_SYMBOLS.get(currency, currency)
+
+
+def convert_to_usd(amount: Optional[float], currency: Optional[str]) -> Optional[float]:
+    """Convert an amount from `currency` to USD using static EXCHANGE_RATES."""
+    if amount is None:
+        return None
+    if not currency:
+        return amount
+    rate = EXCHANGE_RATES.get(currency.upper())
+    if rate is None:
+        # Unknown currency — return as-is rather than zeroing it out.
+        return amount
+    return amount * rate
+
+
+def job_salary_to_usd(job: Dict, company: Optional[Dict] = None) -> Optional[float]:
+    """Get a job's mid-point salary in USD, or None if no salary data.
+
+    Combines currency inference (from job/company location) with conversion,
+    so analytics can include non-USD jobs after normalizing.
+    """
+    min_sal = job.get("salary_min")
+    max_sal = job.get("salary_max")
+
+    if min_sal and max_sal:
+        local = (min_sal + max_sal) / 2
+    elif min_sal:
+        local = min_sal
+    elif max_sal:
+        local = max_sal
+    else:
+        return None
+
+    currency = infer_currency_from_job(job, company)
+    return convert_to_usd(local, currency)
