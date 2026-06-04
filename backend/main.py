@@ -8,7 +8,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import asyncio
@@ -1755,14 +1755,15 @@ async def send_daily_digests(request: Request):
         newly_hiring_raw = db.get_changes_by_type('hiring_started', hours=24)
         batch_changes_raw = db.get_changes_by_type('batch_changed', hours=24)
 
-        # Transform change log data into the format expected by email service
         new_companies = [
             {
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
             }
             for change in new_companies_raw
         ]
@@ -1772,8 +1773,11 @@ async def send_daily_digests(request: Request):
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
+                "is_hiring": True,
             }
             for change in newly_hiring_raw
         ]
@@ -1784,11 +1788,11 @@ async def send_daily_digests(request: Request):
                 "name": change["company_name"],
                 "old_batch": change.get("old_value", ""),
                 "new_batch": change.get("new_value", ""),
+                "slug": change.get("company_slug", ""),
             }
             for change in batch_changes_raw
         ]
 
-        # Get active subscriptions
         subscribers = db.get_active_subscriptions()
 
         sent_count = 0
@@ -1833,22 +1837,27 @@ async def send_daily_digests(request: Request):
 
 
 @app.get("/api/admin/digest-preview")
-async def get_digest_preview():
-    """Preview what would be sent in the daily digest (no emails sent)"""
+async def get_digest_preview(format: str = "html"):
+    """Preview what would be sent in the daily digest (no emails sent).
+
+    Defaults to rendering the actual email HTML so admins can verify the design
+    in a browser tab. Pass ?format=json for raw counts and sample payloads.
+    Falls back to sample data when no real changes exist in the last 24h.
+    """
     try:
-        # Get changes from the last 24 hours using change log
         new_companies_raw = db.get_changes_by_type('created', hours=24)
         newly_hiring_raw = db.get_changes_by_type('hiring_started', hours=24)
         batch_changes_raw = db.get_changes_by_type('batch_changed', hours=24)
 
-        # Transform change log data into the format expected by email service
         new_companies = [
             {
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
             }
             for change in new_companies_raw
         ]
@@ -1858,8 +1867,11 @@ async def get_digest_preview():
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
+                "is_hiring": True,
             }
             for change in newly_hiring_raw
         ]
@@ -1870,22 +1882,61 @@ async def get_digest_preview():
                 "name": change["company_name"],
                 "old_batch": change.get("old_value", ""),
                 "new_batch": change.get("new_value", ""),
+                "slug": change.get("company_slug", ""),
             }
             for change in batch_changes_raw
         ]
 
-        sample_size = 5
+        if format == "json":
+            sample_size = 5
+            return {
+                "new_companies": len(new_companies),
+                "newly_hiring": len(newly_hiring),
+                "batch_changes": len(batch_changes),
+                "sample": {
+                    "new_companies": new_companies[:sample_size],
+                    "newly_hiring": newly_hiring[:sample_size],
+                    "batch_changes": batch_changes[:sample_size],
+                },
+            }
 
-        return {
-            "new_companies": len(new_companies),
-            "newly_hiring": len(newly_hiring),
-            "batch_changes": len(batch_changes),
-            "sample": {
-                "new_companies": new_companies[:sample_size],
-                "newly_hiring": newly_hiring[:sample_size],
-                "batch_changes": batch_changes[:sample_size],
-            },
-        }
+        # HTML preview: if nothing changed in the last 24h, show illustrative
+        # samples so the design can still be reviewed end-to-end.
+        if not new_companies and not newly_hiring and not batch_changes:
+            new_companies = [
+                {
+                    "id": 1, "name": "Acme AI", "batch": "S25",
+                    "one_liner": "Self-hosted LLM gateway for regulated industries.",
+                    "website": "https://acme.example", "slug": "acme-ai", "logo": "",
+                },
+                {
+                    "id": 2, "name": "Lumen Robotics", "batch": "S25",
+                    "one_liner": "Warehouse picking arms that retrain themselves overnight.",
+                    "website": "https://lumen.example", "slug": "lumen-robotics", "logo": "",
+                },
+            ]
+            newly_hiring = [
+                {
+                    "id": 3, "name": "Pebble Data", "batch": "W25",
+                    "one_liner": "Postgres-native feature store.",
+                    "website": "https://pebble.example", "slug": "pebble-data", "logo": "",
+                    "is_hiring": True,
+                },
+            ]
+            batch_changes = [
+                {
+                    "id": 4, "name": "Northstar Labs",
+                    "old_batch": "W24", "new_batch": "S25", "slug": "northstar-labs",
+                },
+            ]
+
+        html = email_service._render_daily_digest(
+            new_companies=new_companies,
+            newly_hiring=newly_hiring,
+            batch_changes=batch_changes,
+            unsubscribe_link=f"{email_service.frontend_url}/unsubscribe?token=preview",
+        )
+        return HTMLResponse(content=html)
     except Exception as e:
         logger.error(f"Digest preview error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
