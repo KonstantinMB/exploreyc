@@ -9,11 +9,18 @@ from datetime import datetime, timedelta, timezone
 from statistics import median, stdev
 
 try:
-    from currency_utils import infer_currency_from_job
+    from currency_utils import infer_currency_from_job, job_salary_to_usd
 except ImportError:
     # Fallback if currency_utils not available
     def infer_currency_from_job(job, company=None):
         return job.get("salary_currency", "USD")
+
+    def job_salary_to_usd(job, company=None):
+        min_sal = job.get("salary_min")
+        max_sal = job.get("salary_max")
+        if min_sal and max_sal:
+            return (min_sal + max_sal) / 2
+        return min_sal or max_sal or None
 
 logger = logging.getLogger(__name__)
 
@@ -84,43 +91,27 @@ class HiringAnalyticsCompute:
             return {}
 
     def _compute_avg_salary(self) -> Optional[float]:
-        """Compute average salary across all USD jobs with salary data"""
+        """Compute average salary in USD across all jobs with salary data.
+
+        Non-USD salaries are converted to USD via static rates (see
+        currency_utils.EXCHANGE_RATES) rather than dropped — otherwise jobs in
+        e.g. INR were either skipped (analytics) or treated as USD (service
+        layer), both wrong.
+        """
         salaries = []
         for job in self.jobs:
-            # Only include USD salaries for meaningful average
-            # Infer currency if not explicitly set
-            currency = infer_currency_from_job(job, self.company_map.get(job.get("company_id")))
-            if currency != "USD":
-                continue
-
-            min_sal = job.get("salary_min")
-            max_sal = job.get("salary_max")
-            if min_sal and max_sal:
-                salaries.append((min_sal + max_sal) / 2)
-            elif min_sal:
-                salaries.append(min_sal)
-            elif max_sal:
-                salaries.append(max_sal)
+            usd = job_salary_to_usd(job, self.company_map.get(job.get("company_id")))
+            if usd is not None:
+                salaries.append(usd)
         return round(sum(salaries) / len(salaries)) if salaries else None
 
     def _compute_median_salary(self) -> Optional[float]:
-        """Compute median salary for USD jobs"""
+        """Compute median salary (USD-normalized) across all jobs with salary data."""
         salaries = []
         for job in self.jobs:
-            # Only include USD salaries for meaningful median
-            # Infer currency if not explicitly set
-            currency = infer_currency_from_job(job, self.company_map.get(job.get("company_id")))
-            if currency != "USD":
-                continue
-
-            min_sal = job.get("salary_min")
-            max_sal = job.get("salary_max")
-            if min_sal and max_sal:
-                salaries.append((min_sal + max_sal) / 2)
-            elif min_sal:
-                salaries.append(min_sal)
-            elif max_sal:
-                salaries.append(max_sal)
+            usd = job_salary_to_usd(job, self.company_map.get(job.get("company_id")))
+            if usd is not None:
+                salaries.append(usd)
         return round(median(salaries)) if salaries else None
 
     def _count_jobs_with_salary(self) -> int:
@@ -138,14 +129,12 @@ class HiringAnalyticsCompute:
         return round((self._count_jobs_with_salary() / len(self.jobs)) * 100, 1)
 
     def _salary_by_role(self) -> List[Dict[str, Any]]:
-        """Get salary statistics broken down by role (USD only)"""
+        """Get salary statistics broken down by role (USD-normalized)"""
         role_salaries: Dict[str, List[float]] = {}
 
         for job in self.jobs:
-            # Only include USD salaries
-            # Infer currency if not explicitly set
-            currency = infer_currency_from_job(job, self.company_map.get(job.get("company_id")))
-            if currency != "USD":
+            usd = job_salary_to_usd(job, self.company_map.get(job.get("company_id")))
+            if usd is None:
                 continue
 
             role = job.get("pretty_role", "Other")
@@ -154,21 +143,9 @@ class HiringAnalyticsCompute:
                 role = role[0] if role else "Other"
             role = str(role) if role else "Other"
 
-            min_sal = job.get("salary_min")
-            max_sal = job.get("salary_max")
-
-            if min_sal or max_sal:
-                if role not in role_salaries:
-                    role_salaries[role] = []
-
-                if min_sal and max_sal:
-                    avg = (min_sal + max_sal) / 2
-                elif min_sal:
-                    avg = min_sal
-                else:
-                    avg = max_sal
-
-                role_salaries[role].append(avg)
+            if role not in role_salaries:
+                role_salaries[role] = []
+            role_salaries[role].append(usd)
 
         result = []
         for role, salaries in role_salaries.items():
@@ -469,36 +446,24 @@ class HiringAnalyticsCompute:
         return sorted(result, key=lambda x: x["count"], reverse=True)[:15]
 
     def _top_paying_companies(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get companies with highest average salary (USD only)"""
+        """Get companies with highest average salary (USD-normalized)"""
         company_salaries: Dict[int, List[float]] = {}
 
         for job in self.jobs:
-            # Only include USD salaries
-            # Infer currency if not explicitly set
-            currency = infer_currency_from_job(job, self.company_map.get(job.get("company_id")))
-            if currency != "USD":
-                continue
-
             company_id = job.get("company_id")
             # Ensure company_id is not a list
             if isinstance(company_id, list):
                 company_id = company_id[0] if company_id else None
+            if company_id is None:
+                continue
 
-            min_sal = job.get("salary_min")
-            max_sal = job.get("salary_max")
+            usd = job_salary_to_usd(job, self.company_map.get(company_id))
+            if usd is None:
+                continue
 
-            if (min_sal or max_sal) and company_id is not None:
-                if company_id not in company_salaries:
-                    company_salaries[company_id] = []
-
-                if min_sal and max_sal:
-                    avg = (min_sal + max_sal) / 2
-                elif min_sal:
-                    avg = min_sal
-                else:
-                    avg = max_sal
-
-                company_salaries[company_id].append(avg)
+            if company_id not in company_salaries:
+                company_salaries[company_id] = []
+            company_salaries[company_id].append(usd)
 
         result = []
         for company_id, salaries in company_salaries.items():
@@ -518,14 +483,12 @@ class HiringAnalyticsCompute:
         return sorted(result, key=lambda x: x["avgSalary"], reverse=True)[:limit]
 
     def _highest_paying_roles(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get roles with highest average salary (USD only)"""
+        """Get roles with highest average salary (USD-normalized)"""
         role_salaries: Dict[str, List[float]] = {}
 
         for job in self.jobs:
-            # Only include USD salaries
-            # Infer currency if not explicitly set
-            currency = infer_currency_from_job(job, self.company_map.get(job.get("company_id")))
-            if currency != "USD":
+            usd = job_salary_to_usd(job, self.company_map.get(job.get("company_id")))
+            if usd is None:
                 continue
 
             role = job.get("pretty_role", "Other")
@@ -534,21 +497,9 @@ class HiringAnalyticsCompute:
                 role = role[0] if role else "Other"
             role = str(role) if role else "Other"
 
-            min_sal = job.get("salary_min")
-            max_sal = job.get("salary_max")
-
-            if min_sal or max_sal:
-                if role not in role_salaries:
-                    role_salaries[role] = []
-
-                if min_sal and max_sal:
-                    avg = (min_sal + max_sal) / 2
-                elif min_sal:
-                    avg = min_sal
-                else:
-                    avg = max_sal
-
-                role_salaries[role].append(avg)
+            if role not in role_salaries:
+                role_salaries[role] = []
+            role_salaries[role].append(usd)
 
         result = []
         for role, salaries in role_salaries.items():

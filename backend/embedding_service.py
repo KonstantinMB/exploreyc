@@ -167,8 +167,15 @@ class EmbeddingService:
 
     def generate_embedding_for_idea(self, idea: str) -> List[float]:
         """
-        Generate embedding specifically for a startup idea
-        Adds context to improve matching quality
+        Generate embedding for a user-submitted startup idea.
+
+        MUST match how company descriptions are embedded in
+        scripts/generate_embeddings.py — that script calls
+        generate_embedding(search_text) directly, with no prefix. Any
+        asymmetry between the two pipelines (e.g. prefixing the user's
+        idea with "Startup idea: ") shifts the query embedding into a
+        different region of vector space than where company embeddings
+        live, which destroys cosine-similarity relevance ranking.
 
         Args:
             idea: The startup idea description
@@ -176,11 +183,7 @@ class EmbeddingService:
         Returns:
             Embedding vector
         """
-        # Add context to improve matching
-        # This helps the embedding understand it's a startup concept
-        enhanced_text = f"Startup idea: {idea}"
-
-        return self.generate_embedding(enhanced_text)
+        return self.generate_embedding(idea)
 
     def get_cache_stats(self) -> Dict[str, int]:
         """Get statistics about the cache"""

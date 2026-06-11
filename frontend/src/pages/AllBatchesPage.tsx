@@ -6,6 +6,7 @@ import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
 import { GridPattern } from '../components/ui/grid-pattern';
 import { TrendingUp, Building2, Users, Calendar, Globe2, Briefcase, Terminal, ArrowLeft } from 'lucide-react';
+import { BatchIndustryChart } from '../components/BatchIndustryChart';
 import { Link } from 'react-router-dom';
 
 const container = {
@@ -268,6 +269,21 @@ export function AllBatchesPage() {
             </div>
           </HackerCard>
         </motion.div>
+
+        {/* Industry Mix by Batch */}
+        {stats?.by_batch_industry && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="mb-8"
+          >
+            <BatchIndustryChart
+              byBatch={stats.by_batch}
+              byBatchIndustry={stats.by_batch_industry}
+            />
+          </motion.div>
+        )}
 
         {/* Two Column Layout for Industry and Country Trends */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">

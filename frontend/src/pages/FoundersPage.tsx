@@ -3,7 +3,7 @@ import { useApp } from '../contexts/AppContext';
 import { PaulGrahamEssays } from '../components/PaulGrahamEssays';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { DataInsightsSVG } from '../components/illustrations/CustomSVGs';
-import { TrendingUp, ArrowRight } from 'lucide-react';
+import { TrendingUp, ArrowRight, Wrench, Map } from 'lucide-react';
 
 export function FoundersPage() {
   const { stats } = useApp();
@@ -49,7 +49,7 @@ export function FoundersPage() {
               className="flex items-center gap-3 p-4 rounded-xl border border-border bg-card hover:border-[#FB651E]/50 hover:bg-[#FB651E]/5 transition-all group"
             >
               <div className="w-10 h-10 bg-[#FB651E] rounded-lg flex items-center justify-center flex-shrink-0">
-                <span className="text-lg">🛠</span>
+                <Wrench className="w-5 h-5 text-white" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold">All Founder Tools</div>
@@ -62,7 +62,7 @@ export function FoundersPage() {
               className="flex items-center gap-3 p-4 rounded-xl border border-border bg-card hover:border-blue-500/50 hover:bg-blue-500/5 transition-all group"
             >
               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                <span className="text-lg">🗺</span>
+                <Map className="w-5 h-5 text-white" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold">Product Roadmap</div>

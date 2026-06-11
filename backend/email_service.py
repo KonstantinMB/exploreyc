@@ -410,6 +410,8 @@ class EmailService:
 
         sections = []
 
+        # Stats banner — a compact one-line summary right under the header.
+        stats_parts = []
         if new_companies:
             cards = "\n".join(self._render_company_card(c) for c in new_companies[:20])
             sections.append(self._render_section(
@@ -424,6 +426,11 @@ class EmailService:
                 cards,
             ))
 
+        sections = []
+        if new_companies:
+            sections.append(render_section("🆕", len(new_companies), "New Companies", new_companies[:20], new_accent))
+        if newly_hiring:
+            sections.append(render_section("💼", len(newly_hiring), "Now Hiring", newly_hiring[:20], hiring_accent))
         if batch_changes:
             cards = "\n".join(self._render_batch_change_card(c) for c in batch_changes[:10])
             sections.append(self._render_section(

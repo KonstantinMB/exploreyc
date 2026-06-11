@@ -30,6 +30,7 @@ import { ShareHub } from './pages/ShareHub';
 import { CompanyCardPage } from './pages/CompanyCardPage';
 import { HiringBoardPagePaginated } from './pages/HiringBoardPagePaginated';
 import { HiringAnalyticsPage } from './pages/HiringAnalyticsPage';
+import { PageTitleManager } from './components/PageTitleManager';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -195,6 +196,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <HelmetProvider>
         <BrowserRouter>
+          <PageTitleManager />
           <AppProvider>
             <AnimatedRoutes />
           </AppProvider>
