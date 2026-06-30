@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Private / utility paths
+Disallow: /admin
+Disallow: /verify-email
+Disallow: /api/
+
+Sitemap: https://exploreyc.com/sitemap.xml
