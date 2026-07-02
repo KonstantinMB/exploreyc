@@ -5,7 +5,6 @@ import {
   Search,
   BarChart3,
   Map,
-  Download,
   ExternalLink,
   Lightbulb,
   Sparkles,
@@ -13,9 +12,9 @@ import {
   Wrench,
   BookOpen,
   Briefcase,
+  Database,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { apiClient } from '../lib/api';
 import { getSecondMostRecentBatch, batchToShortFormat } from '../lib/batchUtils';
 
 interface CommandPaletteProps {
@@ -127,26 +126,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       },
     },
     {
-      id: 'export-json',
+      id: 'database-export',
       type: 'action',
-      label: 'Export as JSON',
-      subtitle: 'Download companies data',
-      icon: <Download className="h-4 w-4" />,
-      action: () => {
-        apiClient.exportJSON({});
-        onClose();
-      },
-    },
-    {
-      id: 'export-csv',
-      type: 'action',
-      label: 'Export as CSV',
-      subtitle: 'Download companies data',
-      icon: <Download className="h-4 w-4" />,
-      action: () => {
-        apiClient.exportCSV({});
-        onClose();
-      },
+      label: 'Database & Export',
+      subtitle: 'Browse all companies and export CSV / JSON',
+      icon: <Database className="h-4 w-4" />,
+      action: () => handleNavigation('/database?export=open'),
     },
   ];
 

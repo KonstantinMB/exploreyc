@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Helmet } from 'react-helmet-async';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   useReactTable,
   getCoreRowModel,
@@ -578,6 +578,8 @@ const item = {
 
 export function DatabasePage() {
   const { stats } = useApp();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -589,6 +591,14 @@ export function DatabasePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [exportOpen, setExportOpen] = useState(false);
+
+  // Auto-open export modal when navigated here with ?export=open (e.g. from command palette)
+  useEffect(() => {
+    if (searchParams.get('export') === 'open') {
+      setExportOpen(true);
+      navigate('/database', { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   // Debounce search input
   useEffect(() => {

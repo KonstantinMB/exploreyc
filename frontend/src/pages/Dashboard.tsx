@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Download } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Button } from '../components/ui/button';
 import { StatsCards } from '../components/StatsCards';
 import { StatsCharts } from '../components/StatsCharts';
 import { ScraperPanel } from '../components/ScraperPanel';
@@ -36,14 +34,6 @@ export function Dashboard() {
     setRefreshTrigger((prev) => prev + 1);
   };
 
-  const handleExport = (format: 'json' | 'csv') => {
-    if (format === 'json') {
-      apiClient.exportJSON({});
-    } else {
-      apiClient.exportCSV({});
-    }
-  };
-
   const topBatch = stats?.by_batch
     ? Object.entries(stats.by_batch)
         .sort(([, a], [, b]) => b - a)[0]
@@ -72,26 +62,7 @@ export function Dashboard() {
               </p>
             </div>
 
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleExport('json')}
-                className="bg-white text-[#FF6600] hover:bg-gray-100"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export JSON
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleExport('csv')}
-                className="bg-white text-[#FF6600] hover:bg-gray-100"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-            </div>
+            <div className="flex gap-2" />
           </div>
         </div>
       </motion.header>
