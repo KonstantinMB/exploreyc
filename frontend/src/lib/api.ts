@@ -72,6 +72,7 @@ export interface CompanyFilter {
   industry?: string
   country?: string
   search?: string
+  top_company?: boolean
 }
 
 export interface Stats {
@@ -154,6 +155,8 @@ export const apiClient = {
     if (filters.is_hiring !== undefined) params.append('is_hiring', String(filters.is_hiring))
     if (filters.industry) params.append('industry', filters.industry)
     if (filters.country) params.append('country', filters.country)
+    if (filters.search) params.append('search', filters.search)
+    if (filters.top_company !== undefined) params.append('top_company', String(filters.top_company))
 
     window.open(`${API_BASE_URL}/api/export/json?${params.toString()}`, '_blank')
   },
@@ -164,6 +167,8 @@ export const apiClient = {
     if (filters.is_hiring !== undefined) params.append('is_hiring', String(filters.is_hiring))
     if (filters.industry) params.append('industry', filters.industry)
     if (filters.country) params.append('country', filters.country)
+    if (filters.search) params.append('search', filters.search)
+    if (filters.top_company !== undefined) params.append('top_company', String(filters.top_company))
 
     window.open(`${API_BASE_URL}/api/export/csv?${params.toString()}`, '_blank')
   },

@@ -135,6 +135,7 @@ class CompanyCache:
         industry: Optional[str] = None,
         country: Optional[str] = None,
         search: Optional[str] = None,
+        top_company: Optional[bool] = None,
     ) -> List[Dict]:
         """Apply filters to companies list."""
         result = self._companies
@@ -148,6 +149,8 @@ class CompanyCache:
             result = [c for c in result if c.get("country") == country]
         if search:
             result = [c for c in result if self._matches_search(c, search)]
+        if top_company is not None:
+            result = [c for c in result if c.get("top_company") == top_company]
         return result
 
     def get_companies(
@@ -159,9 +162,10 @@ class CompanyCache:
         industry: Optional[str] = None,
         country: Optional[str] = None,
         search: Optional[str] = None,
+        top_company: Optional[bool] = None,
     ) -> List[Dict]:
         """Get companies with filters and pagination."""
-        filtered = self._filter_companies(batch, is_hiring, industry, country, search)
+        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company)
         return filtered[offset : offset + limit]
 
     def count_companies(
@@ -171,9 +175,10 @@ class CompanyCache:
         industry: Optional[str] = None,
         country: Optional[str] = None,
         search: Optional[str] = None,
+        top_company: Optional[bool] = None,
     ) -> int:
         """Count companies matching filters."""
-        filtered = self._filter_companies(batch, is_hiring, industry, country, search)
+        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company)
         return len(filtered)
 
     def get_company_by_id(self, company_id: int) -> Optional[Dict]:
