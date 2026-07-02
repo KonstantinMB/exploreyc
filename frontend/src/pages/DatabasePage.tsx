@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Helmet } from 'react-helmet-async';
 import { useQuery } from '@tanstack/react-query';
@@ -34,6 +34,8 @@ import {
   FileText,
   Filter,
   SlidersHorizontal,
+  Lock,
+  Loader2,
 } from 'lucide-react';
 import { apiClient, type Company, type CompanyFilter } from '../lib/api';
 import { useApp } from '../contexts/AppContext';
@@ -307,6 +309,19 @@ const columns: ColumnDef<Company, any>[] = [
   }),
 ];
 
+const LS_KEY = 'yc_gh_star_verified';
+const POLL_INTERVAL_MS = 5000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+async function fetchStarCount(): Promise<number> {
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}`, {
+    headers: { Accept: 'application/vnd.github.v3+json' },
+  });
+  if (!res.ok) throw new Error('GitHub API error');
+  const data = await res.json();
+  return data.stargazers_count as number;
+}
+
 function ExportModal({
   open,
   onClose,
@@ -316,31 +331,81 @@ function ExportModal({
   onClose: () => void;
   filters: CompanyFilter;
 }) {
-  const [hasOpened, setHasOpened] = useState(false);
+  const [baselineCount, setBaselineCount] = useState<number | null>(null);
+  const [liveCount, setLiveCount] = useState<number | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const [starVerified, setStarVerified] = useState(false);
+  const [pollFailed, setPollFailed] = useState(false);
 
-  const { data: repoData } = useQuery({
-    queryKey: ['github-repo-stars'],
-    queryFn: async () => {
-      const res = await fetch('https://api.github.com/repos/konstantinmb/exploreyc');
-      if (!res.ok) throw new Error('Failed to fetch repo');
-      return res.json() as Promise<{ stargazers_count: number; forks_count: number }>;
-    },
-    staleTime: 1000 * 60 * 10,
-    enabled: open,
-  });
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+  }, []);
+
+  // On modal open: check localStorage, fetch baseline count
+  useEffect(() => {
+    if (!open) return;
+    if (localStorage.getItem(LS_KEY) === 'true') {
+      setStarVerified(true);
+      return;
+    }
+    fetchStarCount()
+      .then((count) => { setBaselineCount(count); setLiveCount(count); })
+      .catch(() => { /* non-fatal: gate stays locked */ });
+  }, [open]);
+
+  // Start polling when user clicks the star button
+  useEffect(() => {
+    if (!isPolling || starVerified) return;
+
+    intervalRef.current = setInterval(async () => {
+      try {
+        const count = await fetchStarCount();
+        setLiveCount(count);
+        if (baselineCount !== null && count > baselineCount) {
+          setStarVerified(true);
+          localStorage.setItem(LS_KEY, 'true');
+          stopPolling();
+        }
+      } catch {
+        // keep polling silently on transient errors
+      }
+    }, POLL_INTERVAL_MS);
+
+    timeoutRef.current = setTimeout(() => {
+      stopPolling();
+      setIsPolling(false);
+      setPollFailed(true);
+    }, POLL_TIMEOUT_MS);
+
+    return stopPolling;
+  }, [isPolling, starVerified, baselineCount, stopPolling]);
+
+  // Clean up on modal close
+  useEffect(() => {
+    if (!open) {
+      stopPolling();
+      setIsPolling(false);
+      setPollFailed(false);
+    }
+  }, [open, stopPolling]);
 
   const handleStarClick = () => {
     window.open(GITHUB_URL, '_blank', 'noopener,noreferrer');
-    setHasOpened(true);
+    setIsPolling(true);
+    setPollFailed(false);
   };
 
   const handleDownload = (type: 'csv' | 'json') => {
-    if (type === 'csv') {
-      apiClient.exportCSV(filters);
-    } else {
-      apiClient.exportJSON(filters);
-    }
+    if (!starVerified) return;
+    if (type === 'csv') apiClient.exportCSV(filters);
+    else apiClient.exportJSON(filters);
   };
+
+  const displayCount = liveCount ?? baselineCount;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -357,31 +422,74 @@ function ExportModal({
 
         <div className="space-y-4 pt-2">
           {/* GitHub star section */}
-          <HackerCard glowColor="orange" className="p-4">
+          <HackerCard glowColor={starVerified ? 'green' : 'orange'} className="p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Github className="w-4 h-4 text-foreground" />
                 <span className="text-sm font-semibold">exploreyc</span>
               </div>
-              {repoData && (
+              {displayCount !== null && (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                  <span className="font-mono tabular-nums">
-                    {repoData.stargazers_count.toLocaleString()}
-                  </span>
+                  <span className="font-mono tabular-nums">{displayCount.toLocaleString()}</span>
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              ExploreYC is open source. Star the repo to support the project and help more founders discover it.
-            </p>
-            <button
-              onClick={handleStarClick}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white text-sm font-semibold transition-colors rounded-sm"
-            >
-              <Star className="w-4 h-4 fill-white" />
-              Star on GitHub
-            </button>
+
+            {starVerified ? (
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-sm">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                <span className="text-sm text-emerald-500 font-semibold">Star confirmed — thank you!</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                  ExploreYC is open source. Star the repo to unlock the download — it helps more founders discover the tool.
+                </p>
+                <button
+                  onClick={handleStarClick}
+                  disabled={isPolling}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] disabled:opacity-70 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors rounded-sm"
+                >
+                  <Star className="w-4 h-4 fill-white" />
+                  {isPolling ? 'Waiting for your star…' : 'Star on GitHub'}
+                </button>
+
+                {/* Polling status */}
+                {isPolling && !pollFailed && (
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                    <span>Checking for your star every 5 s…</span>
+                  </div>
+                )}
+
+                {/* Timeout fallback */}
+                {pollFailed && (
+                  <div className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                    Couldn't detect your star automatically.{' '}
+                    <a
+                      href={GITHUB_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#FB651E] hover:underline"
+                    >
+                      Verify on GitHub
+                    </a>
+                    {' '}then{' '}
+                    <button
+                      className="text-[#FB651E] hover:underline"
+                      onClick={() => {
+                        setPollFailed(false);
+                        setIsPolling(true);
+                      }}
+                    >
+                      try again
+                    </button>
+                    .
+                  </div>
+                )}
+              </>
+            )}
           </HackerCard>
 
           {/* Divider */}
@@ -391,7 +499,7 @@ function ExportModal({
             </div>
             <div className="relative flex justify-center">
               <span className="bg-background px-3 text-xs text-muted-foreground">
-                {hasOpened ? 'Thanks! Now download your data' : 'Once you\'ve starred, download below'}
+                {starVerified ? 'Download your data' : 'Star to unlock download'}
               </span>
             </div>
           </div>
@@ -413,21 +521,39 @@ function ExportModal({
             </div>
           )}
 
-          {/* Download buttons */}
+          {/* Download buttons — locked until star verified */}
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => handleDownload('csv')}
-              className="flex items-center justify-center gap-2 px-4 py-3 border border-border hover:border-emerald-500/50 hover:bg-emerald-500/5 text-sm font-medium transition-colors rounded-sm group"
+              disabled={!starVerified}
+              className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-sm text-sm font-medium transition-colors group ${
+                starVerified
+                  ? 'border-border hover:border-emerald-500/50 hover:bg-emerald-500/5 cursor-pointer'
+                  : 'border-border opacity-40 cursor-not-allowed'
+              }`}
             >
-              <FileText className="w-4 h-4 text-emerald-500" />
-              <span className="group-hover:text-emerald-500 transition-colors">CSV</span>
+              {starVerified ? (
+                <FileText className="w-4 h-4 text-emerald-500" />
+              ) : (
+                <Lock className="w-4 h-4 text-muted-foreground" />
+              )}
+              <span className={starVerified ? 'group-hover:text-emerald-500 transition-colors' : ''}>CSV</span>
             </button>
             <button
               onClick={() => handleDownload('json')}
-              className="flex items-center justify-center gap-2 px-4 py-3 border border-border hover:border-blue-500/50 hover:bg-blue-500/5 text-sm font-medium transition-colors rounded-sm group"
+              disabled={!starVerified}
+              className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-sm text-sm font-medium transition-colors group ${
+                starVerified
+                  ? 'border-border hover:border-blue-500/50 hover:bg-blue-500/5 cursor-pointer'
+                  : 'border-border opacity-40 cursor-not-allowed'
+              }`}
             >
-              <FileJson className="w-4 h-4 text-blue-500" />
-              <span className="group-hover:text-blue-500 transition-colors">JSON</span>
+              {starVerified ? (
+                <FileJson className="w-4 h-4 text-blue-500" />
+              ) : (
+                <Lock className="w-4 h-4 text-muted-foreground" />
+              )}
+              <span className={starVerified ? 'group-hover:text-blue-500 transition-colors' : ''}>JSON</span>
             </button>
           </div>
 
