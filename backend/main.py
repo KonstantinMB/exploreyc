@@ -264,6 +264,7 @@ class CompanyFilter(BaseModel):
     industry: Optional[str] = None
     country: Optional[str] = None
     search: Optional[str] = None
+    top_company: Optional[bool] = None
 
 
 # Background task storage
@@ -530,7 +531,8 @@ async def get_companies(filters: CompanyFilter):
         is_hiring=filters.is_hiring,
         industry=filters.industry,
         country=filters.country,
-        search=filters.search
+        search=filters.search,
+        top_company=filters.top_company,
     )
 
     total = company_cache.count_companies(
@@ -538,7 +540,8 @@ async def get_companies(filters: CompanyFilter):
         is_hiring=filters.is_hiring,
         industry=filters.industry,
         country=filters.country,
-        search=filters.search
+        search=filters.search,
+        top_company=filters.top_company,
     )
 
     return {
@@ -665,7 +668,9 @@ async def export_json(
     batch: Optional[str] = None,
     is_hiring: Optional[bool] = None,
     industry: Optional[str] = None,
-    country: Optional[str] = None
+    country: Optional[str] = None,
+    search: Optional[str] = None,
+    top_company: Optional[bool] = None,
 ):
     """Export companies to JSON"""
     companies = company_cache.get_companies(
@@ -673,7 +678,9 @@ async def export_json(
         batch=batch,
         is_hiring=is_hiring,
         industry=industry,
-        country=country
+        country=country,
+        search=search,
+        top_company=top_company,
     )
 
     # Create JSON file
@@ -693,7 +700,9 @@ async def export_csv(
     batch: Optional[str] = None,
     is_hiring: Optional[bool] = None,
     industry: Optional[str] = None,
-    country: Optional[str] = None
+    country: Optional[str] = None,
+    search: Optional[str] = None,
+    top_company: Optional[bool] = None,
 ):
     """Export companies to CSV"""
     companies = company_cache.get_companies(
@@ -701,7 +710,9 @@ async def export_csv(
         batch=batch,
         is_hiring=is_hiring,
         industry=industry,
-        country=country
+        country=country,
+        search=search,
+        top_company=top_company,
     )
 
     if not companies:

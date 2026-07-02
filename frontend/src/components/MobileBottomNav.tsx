@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, BarChart3, Wrench, Map as MapIcon, DollarSign, Share2, Briefcase, Mail } from 'lucide-react';
+import { Home, BarChart3, Wrench, Map as MapIcon, DollarSign, Share2, Briefcase, Mail, Database } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 
 interface NavTab {
@@ -14,6 +14,7 @@ const allNavTabs: NavTab[] = [
   { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/analytics' },
   { id: 'funding', label: 'Funding', icon: DollarSign, path: '/funding' },
   { id: 'hiring', label: 'Hiring', icon: Briefcase, path: '/hiring' },
+  { id: 'database', label: 'Database', icon: Database, path: '/database' },
   { id: 'tools', label: 'Tools', icon: Wrench, path: '/tools' },
   { id: 'roadmap', label: 'Roadmap', icon: MapIcon, path: '/roadmap' },
   { id: 'share', label: 'Share', icon: Share2, path: '/share' },

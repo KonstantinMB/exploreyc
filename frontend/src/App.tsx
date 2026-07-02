@@ -30,6 +30,7 @@ import { ShareHub } from './pages/ShareHub';
 import { CompanyCardPage } from './pages/CompanyCardPage';
 import { HiringBoardPagePaginated } from './pages/HiringBoardPagePaginated';
 import { HiringAnalyticsPage } from './pages/HiringAnalyticsPage';
+import { DatabasePage } from './pages/DatabasePage';
 import { PageTitleManager } from './components/PageTitleManager';
 import './index.css';
 
@@ -183,6 +184,7 @@ function AnimatedRoutes() {
         <Route path="tools" element={<ToolsPage />} />
         <Route path="hiring" element={<HiringBoardPagePaginated />} />
         <Route path="hiring/analytics" element={<HiringAnalyticsPage />} />
+        <Route path="database" element={<DatabasePage />} />
         <Route path="founders" element={<FoundersPage />} />
         <Route path="roadmap" element={<RoadmapPage />} />
         <Route path="share" element={<ShareHub />} />
