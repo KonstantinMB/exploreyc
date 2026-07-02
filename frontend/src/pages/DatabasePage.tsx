@@ -50,6 +50,12 @@ import { Input } from '../components/ui/input';
 
 const PAGE_SIZE = 50;
 
+const mobileHiddenColumns = new Set([
+  'subindustry', 'all_locations', 'team_size', 'stage',
+  'nonprofit', 'funding_last_round_name', 'employee_count',
+  'employee_growth_6m', 'website',
+]);
+
 const GITHUB_REPO = 'konstantinmb/exploreyc';
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 
@@ -565,7 +571,7 @@ export function DatabasePage() {
   const totalBatches = stats?.by_batch ? Object.keys(stats.by_batch).length : 0;
 
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-screen bg-background overflow-x-hidden">
       <Helmet>
         <title>YC Company Database | ExploreYC</title>
         <meta name="description" content="Browse and export all Y Combinator companies in a sortable, filterable table." />
@@ -660,26 +666,27 @@ export function DatabasePage() {
         >
           <HackerCard className="p-3" glowColor="orange">
             <div className="flex flex-wrap gap-2 items-center">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-
-              {/* Search */}
-              <div className="relative flex-1 min-w-[180px] max-w-xs">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search companies..."
-                  className="pl-8 h-8 text-xs font-mono bg-background/50"
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
+              {/* Search group: full-width on mobile, constrained on sm+ */}
+              <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-1 sm:max-w-xs min-w-0">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search companies..."
+                    className="pl-8 h-8 text-xs font-mono bg-background/50 w-full"
+                  />
+                  {search && (
+                    <button
+                      onClick={() => setSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>{/* end search group */}
 
               {/* Batch */}
               <select
@@ -775,7 +782,7 @@ export function DatabasePage() {
               className="overflow-x-auto"
               style={{ WebkitOverflowScrolling: 'touch' }}
             >
-              <table className="w-full text-xs font-mono border-collapse" style={{ minWidth: '1400px' }}>
+              <table className="w-full text-xs font-mono border-collapse">
                 <thead>
                   {table.getHeaderGroups().map((headerGroup) => (
                     <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
@@ -787,7 +794,7 @@ export function DatabasePage() {
                             key={header.id}
                             className={`px-3 py-2.5 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap select-none ${
                               canSort ? 'cursor-pointer hover:text-foreground transition-colors' : ''
-                            } ${i === 1 ? 'sticky left-[44px] z-10 bg-muted/30' : ''} ${i === 0 ? 'sticky left-0 z-10 bg-muted/30' : ''}`}
+                            } ${i === 1 ? 'sticky left-[44px] z-10 bg-muted/30' : ''} ${i === 0 ? 'sticky left-0 z-10 bg-muted/30' : ''} ${mobileHiddenColumns.has(header.id) ? 'hidden md:table-cell' : ''}`}
                             style={{ width: header.getSize(), minWidth: header.getSize() }}
                             onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                           >
@@ -834,8 +841,8 @@ export function DatabasePage() {
                           <td
                             key={cell.id}
                             className={`px-3 py-2 ${
-                              cellIdx === 0 ? 'sticky left-0 z-10 bg-background' : ''
-                            } ${cellIdx === 1 ? 'sticky left-[44px] z-10 bg-background' : ''}`}
+                              mobileHiddenColumns.has(cell.column.id) ? 'hidden md:table-cell' : ''
+                            } ${cellIdx === 0 ? `sticky left-0 z-10 ${rowIdx % 2 === 1 ? 'bg-muted/5' : 'bg-background'}` : ''} ${cellIdx === 1 ? `sticky left-[44px] z-10 ${rowIdx % 2 === 1 ? 'bg-muted/5' : 'bg-background'}` : ''}`}
                             style={{ width: cell.column.getSize(), minWidth: cell.column.getSize() }}
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -849,8 +856,8 @@ export function DatabasePage() {
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/10">
-              <div className="text-xs text-muted-foreground font-mono">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 border-t border-border bg-muted/10">
+              <div className="hidden sm:block text-xs text-muted-foreground font-mono">
                 {total > 0 && (
                   <>
                     Showing{' '}
