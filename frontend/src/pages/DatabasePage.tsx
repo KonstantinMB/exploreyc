@@ -782,7 +782,7 @@ export function DatabasePage() {
               className="overflow-x-auto"
               style={{ WebkitOverflowScrolling: 'touch' }}
             >
-              <table className="w-full text-xs font-mono border-collapse">
+              <table className="w-full text-xs font-mono border-collapse" style={{ minWidth: 'max-content' }}>
                 <thead>
                   {table.getHeaderGroups().map((headerGroup) => (
                     <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
@@ -794,7 +794,7 @@ export function DatabasePage() {
                             key={header.id}
                             className={`px-3 py-2.5 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap select-none ${
                               canSort ? 'cursor-pointer hover:text-foreground transition-colors' : ''
-                            } ${i === 1 ? 'sticky left-[44px] z-10 bg-muted/30' : ''} ${i === 0 ? 'sticky left-0 z-10 bg-muted/30' : ''} ${mobileHiddenColumns.has(header.id) ? 'hidden md:table-cell' : ''}`}
+                            } ${i === 1 ? 'sticky left-[44px] z-10 bg-background border-r border-border/40' : ''} ${i === 0 ? 'sticky left-0 z-10 bg-background' : ''} ${mobileHiddenColumns.has(header.id) ? 'hidden md:table-cell' : ''}`}
                             style={{ width: header.getSize(), minWidth: header.getSize() }}
                             onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                           >
@@ -842,7 +842,7 @@ export function DatabasePage() {
                             key={cell.id}
                             className={`px-3 py-2 ${
                               mobileHiddenColumns.has(cell.column.id) ? 'hidden md:table-cell' : ''
-                            } ${cellIdx === 0 ? `sticky left-0 z-10 ${rowIdx % 2 === 1 ? 'bg-muted/5' : 'bg-background'}` : ''} ${cellIdx === 1 ? `sticky left-[44px] z-10 ${rowIdx % 2 === 1 ? 'bg-muted/5' : 'bg-background'}` : ''}`}
+                            } ${cellIdx === 0 ? 'sticky left-0 z-10 bg-background' : ''} ${cellIdx === 1 ? 'sticky left-[44px] z-10 bg-background border-r border-border/40' : ''}`}
                             style={{ width: cell.column.getSize(), minWidth: cell.column.getSize() }}
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
