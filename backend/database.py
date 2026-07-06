@@ -502,6 +502,26 @@ class Database:
             cur.execute('DELETE FROM api_usage WHERE created_at < ?', (self._fmt_dt(older_than),))
             return cur.rowcount
 
+    def get_api_usage_timeseries(self, user_id, since) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT DATE(u.created_at) AS day, COUNT(*) AS count
+                FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                WHERE k.user_id = ? AND u.created_at > ?
+                GROUP BY DATE(u.created_at) ORDER BY day''', (user_id, self._fmt_dt(since)))
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_api_usage_by_endpoint(self, user_id, since, limit=10) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT u.endpoint AS endpoint, COUNT(*) AS count
+                FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                WHERE k.user_id = ? AND u.created_at > ?
+                GROUP BY u.endpoint ORDER BY count DESC LIMIT ?''', (user_id, self._fmt_dt(since), limit))
+            return [dict(r) for r in cur.fetchall()]
+
     def insert_company(self, company: Dict[str, Any]) -> int:
         """Insert or update a company"""
         with self.get_connection() as conn:

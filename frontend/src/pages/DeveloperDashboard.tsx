@@ -3,14 +3,15 @@ import { Navigate, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  KeyRound, Copy, Check, Trash2, Plus, LogOut, Loader2, BookOpen, AlertCircle, Terminal,
+  KeyRound, Copy, Check, Trash2, Plus, LogOut, Loader2, BookOpen, AlertCircle, Terminal, Activity,
 } from 'lucide-react'
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { HackerCard } from '../components/ui/hacker-card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog'
 import { useDevAuth } from '../contexts/DevAuthContext'
-import { apiClient, type DevMe, type CreatedApiKey } from '../lib/api'
+import { apiClient, type DevMe, type CreatedApiKey, type UsageStats } from '../lib/api'
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false)
@@ -34,6 +35,12 @@ export function DeveloperDashboard() {
   const { data: me, isLoading } = useQuery<DevMe>({
     queryKey: ['dev-me'],
     queryFn: () => apiClient.devMe().then((r) => r.data),
+    enabled: !!user,
+  })
+
+  const { data: usageStats } = useQuery<UsageStats>({
+    queryKey: ['dev-usage'],
+    queryFn: () => apiClient.devUsage(7).then((r) => r.data),
     enabled: !!user,
   })
 
@@ -111,6 +118,60 @@ export function DeveloperDashboard() {
               <p className="text-xs text-muted-foreground font-mono mt-2">{usage?.remaining ?? '—'} remaining</p>
             </HackerCard>
           </div>
+
+          {/* Usage — last 7 days */}
+          <HackerCard glowColor="blue" className="p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold font-mono flex items-center gap-2">
+                <Activity className="h-5 w-5 text-blue-500" /> Usage — last 7 days
+              </h2>
+              <span className="text-sm font-mono text-muted-foreground">{usageStats?.total ?? 0} requests</span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 h-48">
+                {usageStats && usageStats.series.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={usageStats.series} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(d) => new Date(d).toLocaleDateString(undefined, { weekday: 'short' })}
+                        tick={{ fontSize: 11, fontFamily: 'monospace' }}
+                        stroke="hsl(var(--muted-foreground))"
+                      />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(251,101,30,0.08)' }}
+                        contentStyle={{ fontFamily: 'monospace', fontSize: 12, background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))' }}
+                        labelFormatter={(d) => new Date(d as string).toLocaleDateString()}
+                        formatter={(v) => [`${v} requests`, '']}
+                      />
+                      <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                        {usageStats.series.map((_, i) => <Cell key={i} fill="#FB651E" />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-muted-foreground font-mono">
+                    No requests yet — make your first call to see usage here.
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-2">Top endpoints</div>
+                {usageStats && usageStats.by_endpoint.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {usageStats.by_endpoint.slice(0, 6).map((e) => (
+                      <div key={e.endpoint} className="flex items-center justify-between gap-2 text-xs font-mono">
+                        <span className="truncate text-muted-foreground" title={e.endpoint}>{e.endpoint}</span>
+                        <span className="text-foreground tabular-nums">{e.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground font-mono">—</div>
+                )}
+              </div>
+            </div>
+          </HackerCard>
 
           {/* API keys */}
           <HackerCard glowColor="orange" className="p-6">

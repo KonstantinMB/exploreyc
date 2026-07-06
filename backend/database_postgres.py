@@ -2075,6 +2075,26 @@ class DatabasePostgres:
                 cur.execute('DELETE FROM api_usage WHERE created_at < %s', (older_than,))
                 return cur.rowcount
 
+    def get_api_usage_timeseries(self, user_id, since) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*) AS count
+                    FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                    WHERE k.user_id = %s AND u.created_at > %s
+                    GROUP BY 1 ORDER BY 1''', (user_id, since))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_api_usage_by_endpoint(self, user_id, since, limit=10) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT u.endpoint AS endpoint, COUNT(*) AS count
+                    FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                    WHERE k.user_id = %s AND u.created_at > %s
+                    GROUP BY u.endpoint ORDER BY count DESC LIMIT %s''', (user_id, since, limit))
+                return [dict(r) for r in cur.fetchall()]
+
     def get_research_stats(self) -> Dict:
         """Get research statistics"""
         with self.get_connection() as conn:

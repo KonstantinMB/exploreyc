@@ -145,6 +145,13 @@ export interface CreatedApiKey {
   warning: string
 }
 
+export interface UsageStats {
+  days: number
+  total: number
+  series: { date: string; count: number }[]
+  by_endpoint: { endpoint: string; count: number }[]
+}
+
 export interface Stats {
   total_companies: number
   hiring: number
@@ -226,6 +233,7 @@ export const apiClient = {
   createApiKey: (name?: string) => devApi.post<CreatedApiKey>('/api/dev/keys', { name }),
   listApiKeys: () => devApi.get<{ keys: ApiKey[] }>('/api/dev/keys'),
   revokeApiKey: (id: number) => devApi.post(`/api/dev/keys/${id}/revoke`),
+  devUsage: (days = 7) => devApi.get<UsageStats>(`/api/dev/usage?days=${days}`),
   getBatches: () => api.get<{ batches: string[] }>('/api/filters/batches'),
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),

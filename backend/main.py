@@ -3194,6 +3194,27 @@ async def dev_verify_email(token: str):
     return {"success": True}
 
 
+@app.get("/api/dev/usage")
+async def dev_usage(days: int = 7, session: dict = Depends(verify_dev_session)):
+    """Per-day request counts + top endpoints for the caller's keys (for the dashboard chart)."""
+    days = max(1, min(days, 90))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.get_api_usage_timeseries(session["user_id"], since)
+    by_endpoint = db.get_api_usage_by_endpoint(session["user_id"], since)
+    counts = {str(r["day"]): int(r["count"]) for r in rows}
+    today = datetime.now(timezone.utc).date()
+    series = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        series.append({"date": d, "count": counts.get(d, 0)})
+    return {
+        "days": days,
+        "series": series,
+        "total": sum(s["count"] for s in series),
+        "by_endpoint": [{"endpoint": r["endpoint"], "count": int(r["count"])} for r in by_endpoint],
+    }
+
+
 @app.post("/api/dev/keys")
 async def dev_create_key(req: CreateKeyRequest, session: dict = Depends(verify_dev_session)):
     raw = API_KEY_PREFIX + secrets.token_urlsafe(32)
