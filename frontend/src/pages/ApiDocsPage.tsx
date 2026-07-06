@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { Terminal, Copy, Check, BookOpen, KeyRound, Gauge, ExternalLink } from 'lucide-react'
-import { HackerCard } from '../components/ui/hacker-card'
-import { Button } from '../components/ui/button'
+import { Copy, Check, KeyRound, Gauge, ExternalLink, BookOpen } from 'lucide-react'
+import { DotPattern } from '../components/ui/dot-pattern'
 import { useDevAuth } from '../contexts/DevAuthContext'
 
 const API_BASE = 'https://api.exploreyc.com/api/v1'
@@ -29,121 +28,152 @@ const PLANS = [
   { name: 'Enterprise', limit: 'Custom', price: 'Contact us' },
 ]
 
-function CodeBlock({ code, label }: { code: string; label?: string }) {
+/** A terminal-window chrome wrapper. */
+function Terminal({ title, children, className = '' }: { title: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={`border border-border bg-[#0b0b0d] rounded-md overflow-hidden shadow-[0_0_0_1px_rgba(251,101,30,0.08),0_12px_40px_-12px_rgba(0,0,0,0.5)] ${className}`}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-white/[0.03]">
+        <span className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+        <span className="w-3 h-3 rounded-full bg-[#febc2e]" />
+        <span className="w-3 h-3 rounded-full bg-[#28c840]" />
+        <span className="ml-2 text-[11px] font-mono text-white/40 truncate">{title}</span>
+      </div>
+      <div className="p-4 font-mono text-sm text-white/90">{children}</div>
+    </div>
+  )
+}
+
+function CodeBlock({ code, label }: { code: string; label: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <div className="relative group">
-      {label && <div className="text-[10px] uppercase tracking-wide font-mono text-muted-foreground mb-1">{label}</div>}
-      <pre className="rounded-md border border-border bg-muted/50 p-3 pr-12 overflow-x-auto text-xs font-mono leading-relaxed">
-        <code>{code}</code>
-      </pre>
-      <button
-        onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
-        className="absolute top-2 right-2 inline-flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-[#FB651E]"
-      >
-        {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
-    </div>
+    <Terminal title={`${label} — bash`}>
+      <div className="relative">
+        <pre className="overflow-x-auto pr-10 text-[13px] leading-relaxed text-emerald-300/90"><code>{code}</code></pre>
+        <button
+          onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+          className="absolute top-0 right-0 inline-flex items-center gap-1 text-xs text-white/50 hover:text-[#FB651E]"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+    </Terminal>
   )
 }
 
 export function ApiDocsPage() {
   const { user } = useDevAuth()
 
-  const curl = `curl -H "Authorization: Bearer YOUR_API_KEY" \\\n  "${API_BASE}/companies?source=all&limit=20"`
-  const js = `const res = await fetch("${API_BASE}/companies?source=all&limit=20", {\n  headers: { Authorization: "Bearer YOUR_API_KEY" },\n});\nconst data = await res.json();`
+  const curl = `$ curl -H "Authorization: Bearer YOUR_API_KEY" \\\n    "${API_BASE}/companies?source=all&limit=20"`
+  const js = `const res = await fetch(\n  "${API_BASE}/companies?source=all&limit=20",\n  { headers: { Authorization: "Bearer YOUR_API_KEY" } }\n);\nconst data = await res.json();`
   const py = `import requests\nr = requests.get(\n    "${API_BASE}/companies",\n    headers={"Authorization": "Bearer YOUR_API_KEY"},\n    params={"source": "all", "limit": 20},\n)\nprint(r.json())`
 
   return (
     <>
       <Helmet><title>API Docs | ExploreYC</title></Helmet>
-      <div className="min-h-screen bg-background p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <div className="flex items-center gap-2 mb-2 font-mono text-sm text-muted-foreground">
-              <Terminal className="h-4 w-4 text-[#FB651E]" />
-              <span>$ curl api.exploreyc.com/api/v1</span>
+      <div className="relative min-h-screen bg-background overflow-x-hidden">
+        <DotPattern color="hsl(var(--primary) / 0.12)" size={26} radius={0.5} />
+        <div className="container relative mx-auto px-4 py-10 max-w-4xl">
+
+          {/* Hero terminal */}
+          <Terminal title="guest@exploreyc: ~/api" className="mb-8">
+            <div className="space-y-1.5">
+              <p><span className="text-[#FB651E]">$</span> <span className="text-white/60">whoami</span></p>
+              <p className="text-white/90">exploreyc — programmatic access to YC &amp; a16z portfolio companies</p>
+              <p className="mt-3"><span className="text-[#FB651E]">$</span> <span className="text-white/60">cat api.md</span></p>
+              <p className="text-white/70 leading-relaxed">
+                Read-only REST API. Funding, stage, exits, founders, and more.
+                Free tier = <span className="text-emerald-300">5 requests/day</span>. Bring your API key.
+              </p>
+              <p className="mt-3 flex items-center gap-1"><span className="text-[#FB651E]">$</span> <span className="text-emerald-300 animate-pulse">▋</span></p>
             </div>
-            <h1 className="text-3xl font-bold font-mono">
-              <span className="text-[#FB651E]">&gt;</span> ExploreYC API
-            </h1>
-            <p className="text-muted-foreground font-mono text-sm mt-2 max-w-2xl">
-              Read-only programmatic access to Y Combinator and a16z portfolio companies —
-              funding, stage, exits, and more.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {user ? (
-                <Link to="/dashboard"><Button className="bg-[#FB651E] hover:bg-[#E65C00] font-mono"><KeyRound className="h-4 w-4 mr-2" />Your keys</Button></Link>
-              ) : (
-                <Link to="/signup"><Button className="bg-[#FB651E] hover:bg-[#E65C00] font-mono"><KeyRound className="h-4 w-4 mr-2" />Get an API key</Button></Link>
-              )}
-              <a href={`${API_BASE}/docs`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" className="font-mono"><BookOpen className="h-4 w-4 mr-2" />Interactive docs<ExternalLink className="h-3 w-3 ml-2" /></Button>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Link
+                to={user ? '/dashboard' : '/signup'}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#FB651E] hover:bg-[#E65C00] text-white text-sm font-semibold rounded-sm transition-colors"
+              >
+                <KeyRound className="h-4 w-4" /> {user ? 'Your keys' : 'Get an API key'}
+              </Link>
+              <a
+                href={`${API_BASE}/docs`} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 border border-white/15 text-white/80 hover:text-white hover:border-[#FB651E]/50 text-sm rounded-sm transition-colors"
+              >
+                <BookOpen className="h-4 w-4" /> Interactive docs <ExternalLink className="h-3 w-3" />
               </a>
             </div>
-          </div>
+          </Terminal>
 
           {/* Auth */}
-          <HackerCard glowColor="orange" className="p-6 mb-6">
-            <h2 className="text-lg font-bold font-mono mb-3 flex items-center gap-2"><KeyRound className="h-5 w-5 text-[#FB651E]" />Authentication</h2>
-            <p className="text-sm text-muted-foreground mb-3">
-              Send your key on every request as a bearer token (or the <code className="bg-muted px-1 rounded">X-API-Key</code> header).
+          <section className="mb-8">
+            <h2 className="font-mono text-lg font-bold mb-3 flex items-center gap-2">
+              <span className="text-[#FB651E]">#</span> Authentication
+            </h2>
+            <p className="text-sm text-muted-foreground font-mono mb-3">
+              Send your key as a bearer token (or the <code className="text-[#FB651E]">X-API-Key</code> header).{' '}
               {user
-                ? <> You're logged in — grab your key from the <Link to="/dashboard" className="text-[#FB651E] hover:underline">dashboard</Link>.</>
-                : <> <Link to="/signup" className="text-[#FB651E] hover:underline">Sign up</Link> to get one.</>}
+                ? <>You're logged in — grab your key from the <Link to="/dashboard" className="text-[#FB651E] hover:underline">dashboard</Link>.</>
+                : <><Link to="/signup" className="text-[#FB651E] hover:underline">Sign up</Link> to get one.</>}
             </p>
-            <CodeBlock label="Base URL" code={API_BASE} />
-          </HackerCard>
+            <Terminal title="base url">
+              <span className="text-emerald-300">{API_BASE}</span>
+            </Terminal>
+          </section>
 
           {/* Quick start */}
-          <HackerCard glowColor="green" className="p-6 mb-6">
-            <h2 className="text-lg font-bold font-mono mb-3">Quick start</h2>
+          <section className="mb-8">
+            <h2 className="font-mono text-lg font-bold mb-3 flex items-center gap-2">
+              <span className="text-[#FB651E]">#</span> Quick start
+            </h2>
             <div className="space-y-3">
               <CodeBlock label="curl" code={curl} />
-              <CodeBlock label="JavaScript" code={js} />
-              <CodeBlock label="Python" code={py} />
+              <CodeBlock label="node" code={js} />
+              <CodeBlock label="python" code={py} />
             </div>
-          </HackerCard>
+          </section>
 
           {/* Rate limits */}
-          <HackerCard glowColor="blue" className="p-6 mb-6">
-            <h2 className="text-lg font-bold font-mono mb-3 flex items-center gap-2"><Gauge className="h-5 w-5 text-blue-500" />Rate limits</h2>
-            <p className="text-sm text-muted-foreground mb-3">
-              Per key, rolling 24h. Every response includes <code className="bg-muted px-1 rounded">X-RateLimit-Limit</code>,
-              <code className="bg-muted px-1 rounded ml-1">X-RateLimit-Remaining</code>, and
-              <code className="bg-muted px-1 rounded ml-1">X-RateLimit-Reset</code>; a 429 adds <code className="bg-muted px-1 rounded">Retry-After</code>.
+          <section className="mb-8">
+            <h2 className="font-mono text-lg font-bold mb-3 flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-[#FB651E]" /> Rate limits
+            </h2>
+            <p className="text-sm text-muted-foreground font-mono mb-3">
+              Per key, rolling 24h. Every response carries <code className="text-[#FB651E]">X-RateLimit-*</code>; a 429 adds <code className="text-[#FB651E]">Retry-After</code>.
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm font-mono">
-                <thead className="text-left text-muted-foreground border-b border-border">
-                  <tr><th className="pb-2">Plan</th><th className="pb-2">Limit</th><th className="pb-2">Price</th></tr>
+            <div className="border border-border rounded-md overflow-hidden">
+              <table className="w-full font-mono text-sm">
+                <thead className="bg-muted/50 text-left text-muted-foreground">
+                  <tr><th className="px-3 py-2">Plan</th><th className="px-3 py-2">Limit</th><th className="px-3 py-2">Price</th></tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {PLANS.map((p) => (
-                    <tr key={p.name}><td className="py-2 font-medium">{p.name}</td><td className="py-2">{p.limit}</td><td className="py-2 text-muted-foreground">{p.price}</td></tr>
+                    <tr key={p.name}>
+                      <td className="px-3 py-2 font-medium">{p.name}</td>
+                      <td className="px-3 py-2 text-[#FB651E]">{p.limit}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{p.price}</td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </HackerCard>
+          </section>
 
           {/* Endpoints */}
-          <HackerCard glowColor="purple" className="p-6">
-            <h2 className="text-lg font-bold font-mono mb-3">Endpoints</h2>
-            <div className="divide-y divide-border">
+          <section>
+            <h2 className="font-mono text-lg font-bold mb-3 flex items-center gap-2">
+              <span className="text-[#FB651E]">#</span> Endpoints
+            </h2>
+            <div className="border border-border rounded-md divide-y divide-border">
               {ENDPOINTS.map((e) => (
-                <div key={e.path} className="py-3">
+                <div key={e.path} className="p-3 hover:bg-muted/30 transition-colors">
                   <div className="flex items-center gap-2 font-mono text-sm">
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500">{e.method}</span>
                     <code className="text-foreground">{e.path}</code>
                   </div>
                   <p className="text-sm text-muted-foreground mt-1">{e.desc}</p>
-                  {e.params && <p className="text-xs text-muted-foreground/80 font-mono mt-1">params: {e.params}</p>}
+                  {e.params && <p className="text-xs text-muted-foreground/70 font-mono mt-1">params: {e.params}</p>}
                 </div>
               ))}
             </div>
-          </HackerCard>
+          </section>
         </div>
       </div>
     </>
