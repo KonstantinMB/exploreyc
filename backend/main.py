@@ -149,6 +149,8 @@ app.add_middleware(
 # Initialize database, scraper service, email service, and company cache
 db = get_database()
 scraper = ScraperService(db)
+from a16z_scraper_service import A16ZScraperService
+a16z_scraper = A16ZScraperService(db)
 email_service = EmailService()
 company_cache = CompanyCache()
 
@@ -254,6 +256,7 @@ class ScrapeRequest(BaseModel):
     nonprofit: Optional[bool] = None
     hits_per_page: int = 1000
     max_pages: int = 10
+    source: str = "yc"  # 'yc' (Algolia) or 'a16z' (portfolio page)
 
 
 class CompanyFilter(BaseModel):
@@ -265,6 +268,7 @@ class CompanyFilter(BaseModel):
     country: Optional[str] = None
     search: Optional[str] = None
     top_company: Optional[bool] = None
+    source: Optional[str] = None  # None -> YC only, 'all' -> every source, or a source key
 
 
 # Background task storage
@@ -382,8 +386,8 @@ async def get_enrichment_stats(session: dict = Depends(verify_admin_session)):
         with db.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Total companies
-            cursor.execute("SELECT COUNT(*) FROM companies")
+            # Total companies (YC only — Coresignal enrichment is YC-scoped)
+            cursor.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
             total_companies = cursor.fetchone()[0]
 
             # Companies enriched (have coresignal data)
@@ -452,6 +456,7 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
 
     # Create job in database
     job_id = db.create_scrape_job({
+        'source': request.source,
         'query': request.query,
         'batch': request.batch,
         'industry': request.industry,
@@ -470,19 +475,25 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
     # Start scraping in background
     async def run_scrape():
         try:
-            total = await scraper.scrape_companies(
-                job_id=job_id,
-                query=request.query,
-                batch=request.batch,
-                industry=request.industry,
-                region=request.region,
-                is_hiring=request.is_hiring,
-                top_company=request.top_company,
-                nonprofit=request.nonprofit,
-                hits_per_page=request.hits_per_page,
-                max_pages=request.max_pages,
-                progress_callback=progress_callback
-            )
+            if request.source == "a16z":
+                total = await a16z_scraper.scrape_companies(
+                    job_id=job_id,
+                    progress_callback=progress_callback,
+                )
+            else:
+                total = await scraper.scrape_companies(
+                    job_id=job_id,
+                    query=request.query,
+                    batch=request.batch,
+                    industry=request.industry,
+                    region=request.region,
+                    is_hiring=request.is_hiring,
+                    top_company=request.top_company,
+                    nonprofit=request.nonprofit,
+                    hits_per_page=request.hits_per_page,
+                    max_pages=request.max_pages,
+                    progress_callback=progress_callback
+                )
             active_jobs[job_id] = {'status': 'completed', 'total': total}
         except Exception as e:
             active_jobs[job_id] = {'status': 'failed', 'error': str(e)}
@@ -533,6 +544,7 @@ async def get_companies(filters: CompanyFilter):
         country=filters.country,
         search=filters.search,
         top_company=filters.top_company,
+        source=filters.source,
     )
 
     total = company_cache.count_companies(
@@ -542,6 +554,7 @@ async def get_companies(filters: CompanyFilter):
         country=filters.country,
         search=filters.search,
         top_company=filters.top_company,
+        source=filters.source,
     )
 
     return {
@@ -640,6 +653,12 @@ async def get_map_data(
         batch=batch, is_hiring=is_hiring, recent_batches=recent_batches
     )
     return {"companies": companies, "total": len(companies)}
+
+
+@app.get("/api/filters/sources")
+async def get_sources():
+    """Get available company sources (incubators/VCs) with counts"""
+    return {"sources": company_cache.get_sources()}
 
 
 @app.get("/api/filters/batches")

@@ -67,3 +67,6 @@ private/
 # Accidental venv
 path/
 .gstack/
+
+# Claude Code local state (worktrees, plans, settings)
+.claude/

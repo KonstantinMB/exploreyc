@@ -54,12 +54,16 @@ class DatabasePostgres:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO companies
-                    (id, name, slug, website, one_liner, long_description, team_size,
+                    (id, source, source_id, name, slug, website, one_liner, long_description, team_size,
                      batch, status, industry, subindustry, all_locations, is_hiring,
                      top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
-                     industries, latitude, longitude, country, raw_json, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     industries, latitude, longitude, country,
+                     founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
+                     raw_json, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (id) DO UPDATE SET
+                        source = EXCLUDED.source,
+                        source_id = EXCLUDED.source_id,
                         name = EXCLUDED.name,
                         slug = EXCLUDED.slug,
                         website = EXCLUDED.website,
@@ -82,10 +86,19 @@ class DatabasePostgres:
                         latitude = EXCLUDED.latitude,
                         longitude = EXCLUDED.longitude,
                         country = EXCLUDED.country,
+                        founders = EXCLUDED.founders,
+                        year_founded = EXCLUDED.year_founded,
+                        exit_type = EXCLUDED.exit_type,
+                        acquirer = EXCLUDED.acquirer,
+                        ticker_symbol = EXCLUDED.ticker_symbol,
+                        funded_date = EXCLUDED.funded_date,
+                        source_url = EXCLUDED.source_url,
                         raw_json = EXCLUDED.raw_json,
                         updated_at = NOW()
                 """, (
                     company.get("id"),
+                    company.get("source", "yc"),
+                    company.get("source_id") if company.get("source_id") is not None else str(company.get("id")),
                     company.get("name"),
                     company.get("slug"),
                     company.get("website"),
@@ -108,6 +121,13 @@ class DatabasePostgres:
                     company.get("latitude"),
                     company.get("longitude"),
                     company.get("country"),
+                    company.get("founders"),
+                    company.get("year_founded"),
+                    company.get("exit_type"),
+                    company.get("acquirer"),
+                    company.get("ticker_symbol"),
+                    company.get("funded_date"),
+                    company.get("source_url"),
                     json.dumps(company) if company else None,
                 ))
                 return cur.rowcount
@@ -135,6 +155,8 @@ class DatabasePostgres:
             is_hiring = company.get("is_hiring") if company.get("is_hiring") is not None else company.get("isHiring")
             return (
                 company.get("id"),
+                company.get("source", "yc"),
+                company.get("source_id") if company.get("source_id") is not None else str(company.get("id")),
                 company.get("name"),
                 company.get("slug"),
                 company.get("website"),
@@ -157,15 +179,23 @@ class DatabasePostgres:
                 company.get("latitude"),
                 company.get("longitude"),
                 company.get("country"),
+                company.get("founders"),
+                company.get("year_founded"),
+                company.get("exit_type"),
+                company.get("acquirer"),
+                company.get("ticker_symbol"),
+                company.get("funded_date"),
+                company.get("source_url"),
                 json.dumps(company) if company else None,
             )
 
         total = 0
-        cols = "(id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, raw_json)"
+        cols = "(id, source, source_id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url, raw_json)"
         upsert_sql = f"""
             INSERT INTO companies {cols}
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
+                source = EXCLUDED.source, source_id = EXCLUDED.source_id,
                 name = EXCLUDED.name, slug = EXCLUDED.slug, website = EXCLUDED.website,
                 one_liner = EXCLUDED.one_liner, long_description = EXCLUDED.long_description,
                 team_size = EXCLUDED.team_size, batch = EXCLUDED.batch, status = EXCLUDED.status,
@@ -175,6 +205,10 @@ class DatabasePostgres:
                 stage = EXCLUDED.stage, small_logo_thumb_url = EXCLUDED.small_logo_thumb_url,
                 tags = EXCLUDED.tags, regions = EXCLUDED.regions, industries = EXCLUDED.industries,
                 latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, country = EXCLUDED.country,
+                founders = EXCLUDED.founders, year_founded = EXCLUDED.year_founded,
+                exit_type = EXCLUDED.exit_type, acquirer = EXCLUDED.acquirer,
+                ticker_symbol = EXCLUDED.ticker_symbol, funded_date = EXCLUDED.funded_date,
+                source_url = EXCLUDED.source_url,
                 raw_json = EXCLUDED.raw_json, updated_at = NOW()
         """
         rows = [_row(c) for c in companies]
@@ -727,7 +761,7 @@ class DatabasePostgres:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT COUNT(*) FROM companies WHERE embedding IS NOT NULL"
+                    "SELECT COUNT(*) FROM companies WHERE embedding IS NOT NULL AND source = 'yc'"
                 )
                 return cur.fetchone()[0] or 0
 
@@ -747,6 +781,7 @@ class DatabasePostgres:
                     SELECT id, name, one_liner, long_description
                     FROM companies
                     WHERE embedding IS NULL
+                        AND source = 'yc'
                         AND (one_liner IS NOT NULL OR long_description IS NOT NULL)
                     ORDER BY id DESC
                     LIMIT %s
@@ -815,6 +850,7 @@ class DatabasePostgres:
                         (1 - (embedding <=> %s::vector)) AS similarity_score
                     FROM companies
                     WHERE embedding IS NOT NULL
+                        AND source = 'yc'
                         AND (1 - (embedding <=> %s::vector)) >= %s
                     ORDER BY embedding <=> %s::vector
                     LIMIT %s
@@ -857,6 +893,7 @@ class DatabasePostgres:
                         team_size, all_locations, country, small_logo_thumb_url
                     FROM companies
                     WHERE (one_liner ILIKE %s OR long_description ILIKE %s)
+                        AND source = 'yc'
                         AND (one_liner IS NOT NULL OR long_description IS NOT NULL)
                     ORDER BY CASE WHEN one_liner ILIKE %s THEN 0 ELSE 1 END
                     LIMIT %s
@@ -880,21 +917,21 @@ class DatabasePostgres:
             with conn.cursor() as cur:
                 # Get total companies in industry
                 cur.execute(
-                    "SELECT COUNT(*) FROM companies WHERE industry = %s",
+                    "SELECT COUNT(*) FROM companies WHERE industry = %s AND source = 'yc'",
                     (industry,)
                 )
                 total_companies = cur.fetchone()[0]
 
                 # Get hiring count
                 cur.execute(
-                    "SELECT COUNT(*) FROM companies WHERE industry = %s AND is_hiring = TRUE",
+                    "SELECT COUNT(*) FROM companies WHERE industry = %s AND is_hiring = TRUE AND source = 'yc'",
                     (industry,)
                 )
                 hiring_count = cur.fetchone()[0]
 
                 # Get average team size
                 cur.execute(
-                    "SELECT AVG(team_size) FROM companies WHERE industry = %s AND team_size IS NOT NULL",
+                    "SELECT AVG(team_size) FROM companies WHERE industry = %s AND team_size IS NOT NULL AND source = 'yc'",
                     (industry,)
                 )
                 avg_team_size_result = cur.fetchone()[0]
@@ -904,7 +941,7 @@ class DatabasePostgres:
                 cur.execute("""
                     SELECT batch, COUNT(*) as count
                     FROM companies
-                    WHERE industry = %s AND batch IS NOT NULL
+                    WHERE industry = %s AND batch IS NOT NULL AND source = 'yc'
                     GROUP BY batch
                     ORDER BY count DESC
                     LIMIT 5
@@ -976,7 +1013,7 @@ class DatabasePostgres:
         # Market size percentage (compared to total YC portfolio)
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM companies")
+                cur.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
                 total_yc_companies = cur.fetchone()[0]
                 market_size_percentage = round((total_similar / total_yc_companies * 100), 2) if total_yc_companies > 0 else 0
 
@@ -1504,7 +1541,7 @@ class DatabasePostgres:
                             ELSE 50
                         END as success_score
                     FROM companies
-                    WHERE funding_total_usd IS NOT NULL
+                    WHERE funding_total_usd IS NOT NULL AND source = 'yc'
                     ORDER BY funding_total_usd DESC
                 """)
                 scores = [row[0] for row in cur.fetchall()]

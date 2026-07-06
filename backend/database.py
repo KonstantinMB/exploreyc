@@ -40,8 +40,10 @@ class Database:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS companies (
                     id INTEGER PRIMARY KEY,
+                    source TEXT NOT NULL DEFAULT 'yc',
+                    source_id TEXT,
                     name TEXT NOT NULL,
-                    slug TEXT UNIQUE NOT NULL,
+                    slug TEXT NOT NULL,
                     website TEXT,
                     one_liner TEXT,
                     long_description TEXT,
@@ -62,6 +64,13 @@ class Database:
                     latitude REAL,
                     longitude REAL,
                     country TEXT,
+                    founders TEXT,
+                    year_founded INTEGER,
+                    exit_type TEXT,
+                    acquirer TEXT,
+                    ticker_symbol TEXT,
+                    funded_date TEXT,
+                    source_url TEXT,
                     raw_json TEXT,
                     funding_total_usd REAL,
                     funding_last_round_usd REAL,
@@ -214,12 +223,18 @@ class Database:
                 )
             ''')
 
+            # Bring existing databases up to the multi-source schema before indexing
+            self._migrate_schema(cursor)
+
             # Create indexes
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_batch ON companies(batch)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring ON companies(is_hiring)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_industry ON companies(industry)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_country ON companies(country)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_funding_total ON companies(funding_total_usd)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_companies_source ON companies(source)')
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_source_slug ON companies(source, slug)')
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_source_native ON companies(source, source_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_investor_name ON investors(name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_investor_company ON company_investors(company_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_investor_investor ON company_investors(investor_id)')
@@ -227,19 +242,68 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_role ON hiring_jobs(pretty_role)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_updated ON hiring_jobs(pretty_updated_at)')
 
+    def _migrate_schema(self, cursor):
+        """Bring an existing SQLite DB up to the multi-source schema.
+
+        SQLite has no `ADD COLUMN IF NOT EXISTS`, so we gate on PRAGMA table_info.
+        The legacy inline `slug TEXT UNIQUE NOT NULL` creates an un-droppable auto
+        index; we replace it with the composite UNIQUE(source, slug) via a guarded
+        table rebuild. Local-dev only (production is Postgres via database_factory).
+        """
+        existing = {row[1] for row in cursor.execute("PRAGMA table_info(companies)").fetchall()}
+        additions = {
+            "source": "TEXT NOT NULL DEFAULT 'yc'",
+            "source_id": "TEXT",
+            "founders": "TEXT",
+            "year_founded": "INTEGER",
+            "exit_type": "TEXT",
+            "acquirer": "TEXT",
+            "ticker_symbol": "TEXT",
+            "funded_date": "TEXT",
+            "source_url": "TEXT",
+        }
+        for col, ddl in additions.items():
+            if col not in existing:
+                cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {ddl}")
+
+        # Backfill provenance for pre-existing (YC) rows
+        cursor.execute("UPDATE companies SET source='yc' WHERE source IS NULL")
+        cursor.execute("UPDATE companies SET source_id=CAST(id AS TEXT) WHERE source_id IS NULL")
+
+        # Drop the legacy global UNIQUE(slug) by rebuilding the table, if present.
+        create_sql = cursor.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='companies'"
+        ).fetchone()[0]
+        if "slug TEXT UNIQUE" in create_sql:
+            cols = [row[1] for row in cursor.execute("PRAGMA table_info(companies)").fetchall()]
+            col_list = ", ".join(f'"{c}"' for c in cols)
+            new_sql = (create_sql
+                       .replace("slug TEXT UNIQUE NOT NULL", "slug TEXT NOT NULL")
+                       .replace("CREATE TABLE IF NOT EXISTS companies", "CREATE TABLE companies_new")
+                       .replace("CREATE TABLE companies", "CREATE TABLE companies_new"))
+            cursor.execute("DROP TABLE IF EXISTS companies_new")
+            cursor.execute(new_sql)
+            cursor.execute(f"INSERT INTO companies_new ({col_list}) SELECT {col_list} FROM companies")
+            cursor.execute("DROP TABLE companies")
+            cursor.execute("ALTER TABLE companies_new RENAME TO companies")
+
     def insert_company(self, company: Dict[str, Any]) -> int:
         """Insert or update a company"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO companies
-                (id, name, slug, website, one_liner, long_description, team_size,
+                (id, source, source_id, name, slug, website, one_liner, long_description, team_size,
                  batch, status, industry, subindustry, all_locations, is_hiring,
                  top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
-                 industries, latitude, longitude, country, raw_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 industries, latitude, longitude, country,
+                 founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
+                 raw_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 company.get('id'),
+                company.get('source', 'yc'),
+                company.get('source_id') if company.get('source_id') is not None else str(company.get('id')),
                 company.get('name'),
                 company.get('slug'),
                 company.get('website'),
@@ -262,6 +326,13 @@ class Database:
                 company.get('latitude'),
                 company.get('longitude'),
                 company.get('country'),
+                company.get('founders'),
+                company.get('year_founded'),
+                company.get('exit_type'),
+                company.get('acquirer'),
+                company.get('ticker_symbol'),
+                company.get('funded_date'),
+                company.get('source_url'),
                 json.dumps(company)
             ))
             return cursor.lastrowid
