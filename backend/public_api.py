@@ -75,8 +75,9 @@ class PublicCompany(BaseModel):
     valuation_usd: Optional[float] = None
     employee_count: Optional[int] = None
     employee_growth_6m: Optional[float] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    # Postgres returns datetime objects (SQLite returns strings) — accept both, serialize to ISO
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         extra = "ignore"  # cache dicts carry internal fields (raw_json, …) — dropped from the public shape
