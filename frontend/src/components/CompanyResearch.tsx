@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Loader2, AlertCircle, ExternalLink, ChevronDown } from 'lucide-react';
 import axios from 'axios';
+import { Markdown } from './ui/Markdown';
 
 interface CompanyResearchProps {
   companyName: string;
@@ -103,11 +104,7 @@ export function CompanyResearch({ companyName }: CompanyResearchProps) {
                 {/* Research Content */}
                 <div className="space-y-3">
                   <h4 className="font-semibold text-sm text-foreground">Latest Updates</h4>
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-                      {research.research}
-                    </div>
-                  </div>
+                  <Markdown>{research.research || ''}</Markdown>
                 </div>
 
                 {/* Citations */}
