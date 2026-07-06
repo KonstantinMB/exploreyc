@@ -38,6 +38,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { apiClient, type Company, type CompanyFilter } from '../lib/api';
+import { SourceBadge, sourceLabel } from '../components/ui/SourceBadge';
 import { useApp } from '../contexts/AppContext';
 import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
@@ -318,19 +319,11 @@ const columns: ColumnDef<Company, any>[] = [
 // ---- Source-agnostic columns (a16z and future VC/incubator sources) ----------
 const sourceBadgeColumn = columnHelper.accessor('source', {
   header: 'Source',
-  cell: (info) => {
-    const s = (info.getValue() as string) || 'yc';
-    const label = s === 'yc' ? 'YC' : s === 'a16z' ? 'a16z' : s;
-    return (
-      <span
-        className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm whitespace-nowrap ${
-          s === 'yc' ? 'bg-[#FB651E]/10 text-[#FB651E]' : 'bg-violet-500/10 text-violet-400'
-        }`}
-      >
-        {label}
-      </span>
-    );
-  },
+  cell: (info) => (
+    <span title={sourceLabel(info.getValue() as string)}>
+      <SourceBadge source={info.getValue() as string} />
+    </span>
+  ),
   size: 72,
 });
 
