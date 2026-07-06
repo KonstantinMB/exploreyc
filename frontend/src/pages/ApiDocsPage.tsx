@@ -313,11 +313,10 @@ export function ApiDocsPage() {
 
             {/* Sticky sidebar */}
             <aside className="hidden lg:block">
-              <div className="sticky top-6 font-mono text-sm space-y-4">
-                <Link to="/" className="flex items-center gap-2 group">
-                  <div className="w-8 h-8 bg-[#FB651E] flex items-center justify-center"><span className="text-white font-bold">Y</span></div>
-                  <span className="font-bold">API Reference</span>
-                </Link>
+              <div className="sticky top-20 font-mono text-sm space-y-4">
+                <div className="text-base font-bold flex items-center gap-2">
+                  <span className="text-[#FB651E]">&gt;</span> API Reference
+                </div>
                 <div className="space-y-0.5">
                   {nav.map((n) => (
                     <a key={n.id} href={`#${n.id}`} className="block px-2 py-1 text-muted-foreground hover:text-[#FB651E] transition-colors">{n.label}</a>

@@ -3,10 +3,11 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, BarChart3, Wrench, BookOpen, Map as MapIcon, DollarSign, Share2, Briefcase,
-  Mail, Database, Terminal, Menu, X, Moon, Sun, Command,
+  Mail, Database, Terminal, Menu, X, Moon, Sun, Command, LogOut, LayoutDashboard,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useDevAuth } from '../contexts/DevAuthContext';
+import { Avatar } from './ui/Avatar';
 
 type Item = { label: string; icon: React.ComponentType<{ className?: string }>; path: string };
 
@@ -37,7 +38,7 @@ const groups: { title: string; items: Item[] }[] = [
 export function MobileBottomNav() {
   const location = useLocation();
   const { darkMode, setDarkMode, setCommandPaletteOpen, setContactFormOpen } = useApp();
-  const { user } = useDevAuth();
+  const { user, logout } = useDevAuth();
   const [open, setOpen] = useState(false);
 
   const hideOnPaths = ['/batch/', '/validator'];
@@ -93,6 +94,30 @@ export function MobileBottomNav() {
             </div>
 
             <div className="p-4 space-y-6">
+              {/* Account */}
+              {user ? (
+                <div className="border border-border p-3 flex items-center gap-3">
+                  <Avatar src={user.avatar_url} name={user.company_name || user.email} size={40} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold truncate">{user.company_name || 'Developer'}</div>
+                    <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                  </div>
+                  <button onClick={() => { close(); logout(); }} aria-label="Log out"
+                          className="w-9 h-9 flex items-center justify-center border border-border text-red-500">
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Link to="/login" onClick={close} className="flex items-center justify-center gap-2 px-3 py-3 border border-border text-sm">
+                    Log in
+                  </Link>
+                  <Link to="/signup" onClick={close} className="flex items-center justify-center gap-2 px-3 py-3 bg-[#FB651E] text-white text-sm font-semibold">
+                    Get API key
+                  </Link>
+                </div>
+              )}
+
               {groups.map((group) => (
                 <div key={group.title}>
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-2">{group.title}</div>
@@ -130,7 +155,7 @@ export function MobileBottomNav() {
                   </Link>
                   <Link to={user ? '/dashboard' : '/signup'} onClick={close}
                         className="flex items-center gap-2 px-3 py-3 border border-[#FB651E]/40 bg-[#FB651E]/10 text-[#FB651E]">
-                    <Terminal className="w-4 h-4" /> <span className="text-sm">{user ? 'Dashboard' : 'Get a key'}</span>
+                    <LayoutDashboard className="w-4 h-4" /> <span className="text-sm">{user ? 'Dashboard' : 'Get a key'}</span>
                   </Link>
                 </div>
               </div>

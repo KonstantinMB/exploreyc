@@ -85,6 +85,11 @@ function ScrollToTop() {
 // Layout component for pages with navigation (AppProvider wraps entire app so context persists on nav)
 function LayoutContent() {
   const { commandPaletteOpen, setCommandPaletteOpen, contactFormOpen, setContactFormOpen, loading, stats, companies, error, refreshData, loadingProgress, loadingTotal } = useApp();
+  const location = useLocation();
+
+  // Developer-portal pages get the platform chrome (navbar) but don't need the company
+  // dataset, so they skip the initial loading/error gate and render immediately.
+  const chromeOnly = ['/api-docs', '/dashboard', '/signup', '/login'].some((p) => location.pathname.startsWith(p));
 
   // Global keyboard shortcut for command palette (⌘K / Ctrl+K)
   React.useEffect(() => {
@@ -100,7 +105,7 @@ function LayoutContent() {
 
   // Show loading screen while initial data is loading
   // Keep loading screen visible until BOTH stats AND companies are loaded
-  if ((loading && !stats) || (loading && companies.length === 0)) {
+  if (!chromeOnly && ((loading && !stats) || (loading && companies.length === 0))) {
     return (
       <AnimatePresence>
         <LoadingScreen
@@ -112,7 +117,7 @@ function LayoutContent() {
   }
 
   // Show error screen if data failed to load
-  if (error && !stats) {
+  if (!chromeOnly && error && !stats) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center max-w-md">
@@ -175,11 +180,6 @@ function AnimatedRoutes() {
       <Route path="/research-hub" element={<ResearchHubPage />} />
       <Route path="/batch/:batch/wrapped" element={<BatchWrappedPage />} />
       <Route path="/admin" element={<AdminPage />} />
-      {/* Public API developer portal */}
-      <Route path="/signup" element={<SignupPage />} />
-      <Route path="/login" element={<DevLoginPage />} />
-      <Route path="/dashboard" element={<DeveloperDashboard />} />
-      <Route path="/api-docs" element={<ApiDocsPage />} />
       <Route path="/company/:slug" element={<CompanyPage />} />
       <Route path="/share/company/:slug" element={<CompanyCardPage />} />
       <Route path="/share/company" element={<CompanyCardPage />} />
@@ -198,6 +198,11 @@ function AnimatedRoutes() {
         <Route path="founders" element={<FoundersPage />} />
         <Route path="roadmap" element={<RoadmapPage />} />
         <Route path="share" element={<ShareHub />} />
+        {/* Public API developer portal — in-platform (navbar, burger, ⌘K) */}
+        <Route path="api-docs" element={<ApiDocsPage />} />
+        <Route path="signup" element={<SignupPage />} />
+        <Route path="login" element={<DevLoginPage />} />
+        <Route path="dashboard" element={<DeveloperDashboard />} />
       </Route>
     </Routes>
   );

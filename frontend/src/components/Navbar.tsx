@@ -2,9 +2,11 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   Home, BarChart3, Wrench, BookOpen, Map as MapIcon, DollarSign, Share2,
   Moon, Sun, Command, Briefcase, Mail, Database, Terminal, ChevronDown,
+  LayoutDashboard, LogOut, KeyRound,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useDevAuth } from '../contexts/DevAuthContext';
+import { Avatar } from './ui/Avatar';
 
 interface NavTab {
   id: string;
@@ -33,7 +35,7 @@ const moreTabs: NavTab[] = [
 export function Navbar() {
   const location = useLocation();
   const { darkMode, setDarkMode, setCommandPaletteOpen, setContactFormOpen } = useApp();
-  const { user } = useDevAuth();
+  const { user, logout } = useDevAuth();
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
@@ -132,6 +134,41 @@ export function Navbar() {
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
+
+            {/* Account */}
+            {user ? (
+              <div className="relative group">
+                <button className="flex items-center gap-1.5 pl-1 pr-1.5 h-8 border border-border hover:border-[#FB651E]/50 transition-colors" aria-label="Account">
+                  <Avatar src={user.avatar_url} name={user.company_name || user.email} size={24} />
+                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground transition-transform group-hover:rotate-180" />
+                </button>
+                <div className="absolute right-0 top-full pt-1 hidden group-hover:block z-50">
+                  <div className="min-w-[200px] border border-border bg-background/98 backdrop-blur shadow-[0_8px_24px_rgba(0,0,0,0.25)] py-1">
+                    <div className="px-3 py-2 border-b border-border">
+                      <div className="text-xs font-semibold truncate">{user.company_name || 'Developer'}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">{user.email}</div>
+                      <div className="text-[10px] text-[#FB651E] mt-0.5 uppercase">{user.plan_name || user.plan} plan</div>
+                    </div>
+                    <Link to="/dashboard" className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                      <LayoutDashboard className="w-4 h-4" /> Dashboard
+                    </Link>
+                    <Link to="/api-docs" className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                      <Terminal className="w-4 h-4" /> API Docs
+                    </Link>
+                    <button onClick={logout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-500/5">
+                      <LogOut className="w-4 h-4" /> Log out
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <Link
+                to="/signup"
+                className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold bg-[#FB651E] hover:bg-[#E65C00] text-white transition-colors"
+              >
+                <KeyRound className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Get API key</span>
+              </Link>
+            )}
           </div>
         </div>
       </div>

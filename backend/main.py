@@ -3105,6 +3105,11 @@ class SetStatusRequest(BaseModel):
     status: str
 
 
+class ProfileUpdate(BaseModel):
+    company_name: Optional[str] = None
+    avatar_url: Optional[str] = None  # small base64 data URL (client-resized)
+
+
 def _dev_user_public(user: dict) -> dict:
     limit = plan_limit(user.get("plan"))
     return {
@@ -3112,6 +3117,7 @@ def _dev_user_public(user: dict) -> dict:
         "plan": user.get("plan", "free"),
         "plan_name": PLAN_META.get(user.get("plan", "free"), {}).get("name"),
         "status": user.get("status", "active"), "email_verified": bool(user.get("email_verified")),
+        "avatar_url": user.get("avatar_url"),
         "daily_limit": limit,
     }
 
@@ -3213,6 +3219,18 @@ async def dev_usage(days: int = 7, session: dict = Depends(verify_dev_session)):
         "total": sum(s["count"] for s in series),
         "by_endpoint": [{"endpoint": r["endpoint"], "count": int(r["count"])} for r in by_endpoint],
     }
+
+
+@app.post("/api/dev/profile")
+async def dev_update_profile(req: ProfileUpdate, session: dict = Depends(verify_dev_session)):
+    avatar = req.avatar_url
+    if avatar:
+        if not avatar.startswith("data:image/"):
+            raise HTTPException(status_code=400, detail="avatar_url must be a data:image/* URL")
+        if len(avatar) > 400_000:
+            raise HTTPException(status_code=400, detail="Image too large (max ~300KB). Please crop or shrink it.")
+    db.update_api_user_profile(session["user_id"], company_name=req.company_name, avatar_url=avatar)
+    return _dev_user_public(db.get_api_user_by_id(session["user_id"]))
 
 
 @app.post("/api/dev/keys")

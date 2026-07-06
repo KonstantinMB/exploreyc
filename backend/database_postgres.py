@@ -1973,6 +1973,20 @@ class DatabasePostgres:
                             (customer_id, user_id))
                 return cur.rowcount > 0
 
+    def update_api_user_profile(self, user_id, company_name=None, avatar_url=None) -> bool:
+        sets, params = [], []
+        if company_name is not None:
+            sets.append('company_name = %s'); params.append(company_name)
+        if avatar_url is not None:
+            sets.append('avatar_url = %s'); params.append(avatar_url)
+        if not sets:
+            return False
+        params.append(user_id)
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"UPDATE api_users SET {', '.join(sets)}, updated_at = NOW() WHERE id = %s", params)
+                return cur.rowcount > 0
+
     def list_api_users(self) -> List[Dict]:
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
