@@ -1919,6 +1919,162 @@ class DatabasePostgres:
                     })
                 return results
 
+    # ========================================================================
+    # PUBLIC API: developer accounts, keys, usage, sessions
+    # ========================================================================
+
+    def create_api_user(self, email, password_hash, company_name=None, verification_token=None) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'INSERT INTO api_users (email, password_hash, company_name, verification_token) '
+                    'VALUES (%s, %s, %s, %s) RETURNING id',
+                    (email, password_hash, company_name, verification_token))
+                return cur.fetchone()[0]
+
+    def get_api_user_by_email(self, email) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT * FROM api_users WHERE email = %s', (email,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_api_user_by_id(self, user_id) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT * FROM api_users WHERE id = %s', (user_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def verify_api_user_email(self, token) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'UPDATE api_users SET email_verified = TRUE, verification_token = NULL, updated_at = NOW() '
+                    'WHERE verification_token = %s', (token,))
+                return cur.rowcount > 0
+
+    def set_api_user_plan(self, user_id, plan) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET plan = %s, updated_at = NOW() WHERE id = %s', (plan, user_id))
+                return cur.rowcount > 0
+
+    def set_api_user_status(self, user_id, status) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET status = %s, updated_at = NOW() WHERE id = %s', (status, user_id))
+                return cur.rowcount > 0
+
+    def set_api_user_stripe_customer(self, user_id, customer_id) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET stripe_customer_id = %s, updated_at = NOW() WHERE id = %s',
+                            (customer_id, user_id))
+                return cur.rowcount > 0
+
+    def list_api_users(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT u.id, u.email, u.company_name, u.plan, u.status, u.email_verified, u.created_at,
+                           (SELECT COUNT(*) FROM api_keys k WHERE k.user_id = u.id AND k.is_active = TRUE) AS active_keys
+                    FROM api_users u ORDER BY u.created_at DESC''')
+                return [dict(r) for r in cur.fetchall()]
+
+    def create_api_key(self, user_id, key_prefix, key_hash, name=None) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO api_keys (user_id, key_prefix, key_hash, name) '
+                            'VALUES (%s, %s, %s, %s) RETURNING id', (user_id, key_prefix, key_hash, name))
+                return cur.fetchone()[0]
+
+    def get_api_key_by_hash(self, key_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT k.id, k.user_id, k.is_active, u.plan, u.status AS user_status
+                    FROM api_keys k JOIN api_users u ON u.id = k.user_id
+                    WHERE k.key_hash = %s''', (key_hash,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def list_api_keys_for_user(self, user_id) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT k.id, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                           (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                    FROM api_keys k WHERE k.user_id = %s ORDER BY k.created_at DESC''', (user_id,))
+                return [dict(r) for r in cur.fetchall()]
+
+    def revoke_api_key(self, key_id, user_id=None) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                if user_id is not None:
+                    cur.execute('UPDATE api_keys SET is_active = FALSE, revoked_at = NOW() WHERE id = %s AND user_id = %s',
+                                (key_id, user_id))
+                else:
+                    cur.execute('UPDATE api_keys SET is_active = FALSE, revoked_at = NOW() WHERE id = %s', (key_id,))
+                return cur.rowcount > 0
+
+    def list_all_api_keys(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT k.id, k.user_id, u.email, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                           (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                    FROM api_keys k JOIN api_users u ON u.id = k.user_id ORDER BY k.created_at DESC''')
+                return [dict(r) for r in cur.fetchall()]
+
+    def log_api_usage(self, api_key_id, endpoint, status_code) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO api_usage (api_key_id, endpoint, status_code) VALUES (%s, %s, %s)',
+                            (api_key_id, endpoint, status_code))
+
+    def count_api_usage_since(self, api_key_id, since):
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COUNT(*), MIN(created_at) FROM api_usage WHERE api_key_id = %s AND created_at > %s',
+                            (api_key_id, since))
+                row = cur.fetchone()
+                return (row[0] or 0, row[1])
+
+    def create_api_session(self, user_id, token_hash, expires_at) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO api_sessions (user_id, token_hash, expires_at) '
+                            'VALUES (%s, %s, %s) RETURNING id', (user_id, token_hash, expires_at))
+                return cur.fetchone()[0]
+
+    def get_api_session(self, token_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT s.user_id, s.expires_at, u.email, u.company_name, u.plan, u.status AS user_status
+                    FROM api_sessions s JOIN api_users u ON u.id = s.user_id
+                    WHERE s.token_hash = %s AND s.expires_at > NOW()''', (token_hash,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def delete_api_session(self, token_hash) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM api_sessions WHERE token_hash = %s', (token_hash,))
+
+    def delete_expired_api_sessions(self) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM api_sessions WHERE expires_at < NOW()')
+                return cur.rowcount
+
+    def cleanup_api_usage(self, older_than) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM api_usage WHERE created_at < %s', (older_than,))
+                return cur.rowcount
+
     def get_research_stats(self) -> Dict:
         """Get research statistics"""
         with self.get_connection() as conn:

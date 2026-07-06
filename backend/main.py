@@ -20,7 +20,7 @@ import os
 import secrets
 import requests
 from urllib.parse import urlparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from time import time
 
@@ -39,7 +39,16 @@ from perplexity_service import get_perplexity_service
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="YC Company Scraper API", version="1.0.0")
+# Hide the internal API's docs/OpenAPI in production so admin/cron routes aren't published.
+# The public API keeps its own docs at /api/v1/docs.
+_IS_PROD = os.environ.get("ENV", "").lower() == "production"
+app = FastAPI(
+    title="YC Company Scraper API",
+    version="1.0.0",
+    docs_url=None if _IS_PROD else "/docs",
+    redoc_url=None if _IS_PROD else "/redoc",
+    openapi_url=None if _IS_PROD else "/openapi.json",
+)
 
 
 # Rate Limiter for Research Endpoint
@@ -86,6 +95,7 @@ gamified_predict_limiter = ResearchRateLimiter(max_requests=5, window_seconds=60
 research_query_limiter = ResearchRateLimiter(max_requests=5, window_seconds=60)
 subscribe_limiter = ResearchRateLimiter(max_requests=3, window_seconds=60)
 scrape_limiter = ResearchRateLimiter(max_requests=3, window_seconds=3600)
+dev_auth_limiter = ResearchRateLimiter(max_requests=10, window_seconds=3600)  # signup/login per IP
 
 
 def _enforce_rate_limit(limiter: ResearchRateLimiter, request_obj: Request, label: str) -> None:
@@ -3057,6 +3067,201 @@ async def search_research_history(request: ResearchSearchRequest):
     except Exception as e:
         logger.error(f"Error searching research history: {e}")
         raise HTTPException(status_code=500, detail="Failed to search research")
+
+
+# ============================================================================
+# PUBLIC API: developer accounts, API keys, admin management, sub-app mount
+# ============================================================================
+import re as _re
+from password_utils import hash_password, verify_password, hash_token
+from plans import plan_limit, is_valid_plan, PLAN_META, PLAN_LIMITS
+from public_api import create_public_api
+
+API_KEY_PREFIX = "eyc_live_"
+DEV_SESSION_TTL = timedelta(days=30)
+_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class DevSignupRequest(BaseModel):
+    email: str
+    password: str
+    company_name: Optional[str] = None
+
+
+class DevLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CreateKeyRequest(BaseModel):
+    name: Optional[str] = None
+
+
+class SetPlanRequest(BaseModel):
+    plan: str
+
+
+class SetStatusRequest(BaseModel):
+    status: str
+
+
+def _dev_user_public(user: dict) -> dict:
+    limit = plan_limit(user.get("plan"))
+    return {
+        "id": user["id"], "email": user["email"], "company_name": user.get("company_name"),
+        "plan": user.get("plan", "free"),
+        "plan_name": PLAN_META.get(user.get("plan", "free"), {}).get("name"),
+        "status": user.get("status", "active"), "email_verified": bool(user.get("email_verified")),
+        "daily_limit": limit,
+    }
+
+
+def verify_dev_session(authorization: Optional[str] = Header(None)) -> dict:
+    """DB-backed developer session (multi-instance safe, unlike admin_sessions)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    session = db.get_api_session(hash_token(authorization[7:].strip()))
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    if session.get("user_status") != "active":
+        raise HTTPException(status_code=403, detail="Account suspended")
+    return session
+
+
+@app.post("/api/dev/signup")
+async def dev_signup(req: DevSignupRequest, request_obj: Request):
+    _enforce_rate_limit(dev_auth_limiter, request_obj, "signup")
+    email = (req.email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if len(req.password or "") < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if db.get_api_user_by_email(email):
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    verification_token = secrets.token_urlsafe(32)
+    user_id = db.create_api_user(email, hash_password(req.password), req.company_name, verification_token)
+    try:
+        if hasattr(email_service, "send_dev_verification_email"):
+            email_service.send_dev_verification_email(email, verification_token)
+    except Exception as e:
+        logger.warning(f"dev verification email failed: {e}")
+    token = secrets.token_urlsafe(32)
+    db.create_api_session(user_id, hash_token(token), datetime.now(timezone.utc) + DEV_SESSION_TTL)
+    return {"token": token, "user": _dev_user_public(db.get_api_user_by_id(user_id))}
+
+
+@app.post("/api/dev/login")
+async def dev_login(req: DevLoginRequest, request_obj: Request):
+    _enforce_rate_limit(dev_auth_limiter, request_obj, "login")
+    email = (req.email or "").strip().lower()
+    user = db.get_api_user_by_email(email)
+    if not user or not verify_password(req.password or "", user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("status") != "active":
+        raise HTTPException(status_code=403, detail="Account suspended")
+    token = secrets.token_urlsafe(32)
+    db.create_api_session(user["id"], hash_token(token), datetime.now(timezone.utc) + DEV_SESSION_TTL)
+    return {"token": token, "user": _dev_user_public(user)}
+
+
+@app.post("/api/dev/logout")
+async def dev_logout(authorization: Optional[str] = Header(None)):
+    if authorization and authorization.startswith("Bearer "):
+        db.delete_api_session(hash_token(authorization[7:].strip()))
+    return {"success": True}
+
+
+@app.get("/api/dev/me")
+async def dev_me(session: dict = Depends(verify_dev_session)):
+    user = db.get_api_user_by_id(session["user_id"])
+    info = _dev_user_public(user)
+    keys = db.list_api_keys_for_user(user["id"])
+    used = 0
+    for k in keys:
+        if k.get("is_active"):
+            count, _ = db.count_api_usage_since(k["id"], datetime.now(timezone.utc) - timedelta(hours=24))
+            used += count
+    info["usage"] = {"used_24h": used, "limit": info["daily_limit"],
+                     "remaining": max(0, info["daily_limit"] - used)}
+    info["keys"] = keys
+    return info
+
+
+@app.get("/api/dev/verify-email/{token}")
+async def dev_verify_email(token: str):
+    if not db.verify_api_user_email(token):
+        raise HTTPException(status_code=404, detail="Invalid or expired verification token")
+    return {"success": True}
+
+
+@app.post("/api/dev/keys")
+async def dev_create_key(req: CreateKeyRequest, session: dict = Depends(verify_dev_session)):
+    raw = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    prefix = raw[:16]
+    key_id = db.create_api_key(session["user_id"], prefix, hash_token(raw), req.name)
+    return {"id": key_id, "api_key": raw, "key_prefix": prefix, "name": req.name,
+            "warning": "Store this key now — it will not be shown again."}
+
+
+@app.get("/api/dev/keys")
+async def dev_list_keys(session: dict = Depends(verify_dev_session)):
+    return {"keys": db.list_api_keys_for_user(session["user_id"])}
+
+
+@app.post("/api/dev/keys/{key_id}/revoke")
+async def dev_revoke_key(key_id: int, session: dict = Depends(verify_dev_session)):
+    if not db.revoke_api_key(key_id, user_id=session["user_id"]):
+        raise HTTPException(status_code=404, detail="Key not found")
+    return {"success": True}
+
+
+# ---- Admin management of API users/keys ----
+@app.get("/api/admin/api-users")
+async def admin_list_api_users(session: dict = Depends(verify_admin_session)):
+    return {"users": db.list_api_users()}
+
+
+@app.get("/api/admin/api-keys")
+async def admin_list_api_keys(session: dict = Depends(verify_admin_session)):
+    return {"keys": db.list_all_api_keys()}
+
+
+@app.post("/api/admin/api-keys/{key_id}/revoke")
+async def admin_revoke_api_key(key_id: int, session: dict = Depends(verify_admin_session)):
+    if not db.revoke_api_key(key_id):
+        raise HTTPException(status_code=404, detail="Key not found")
+    return {"success": True}
+
+
+@app.post("/api/admin/api-users/{user_id}/plan")
+async def admin_set_plan(user_id: int, req: SetPlanRequest, session: dict = Depends(verify_admin_session)):
+    if not is_valid_plan(req.plan):
+        raise HTTPException(status_code=400, detail=f"Invalid plan. Valid: {list(PLAN_LIMITS)}")
+    if not db.set_api_user_plan(user_id, req.plan):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True, "plan": req.plan}
+
+
+@app.post("/api/admin/api-users/{user_id}/status")
+async def admin_set_status(user_id: int, req: SetStatusRequest, session: dict = Depends(verify_admin_session)):
+    if req.status not in ("active", "suspended"):
+        raise HTTPException(status_code=400, detail="status must be 'active' or 'suspended'")
+    if not db.set_api_user_status(user_id, req.status):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True, "status": req.status}
+
+
+# ---- Cron: bound api_usage / api_sessions growth ----
+@app.post("/api/cron/cleanup-api")
+async def cron_cleanup_api(request: Request):
+    _verify_cron_secret(request)
+    usage_deleted = db.cleanup_api_usage(datetime.now(timezone.utc) - timedelta(days=30))
+    sessions_deleted = db.delete_expired_api_sessions()
+    return {"usage_deleted": usage_deleted, "sessions_deleted": sessions_deleted}
+
+
+# ---- Mount the public API sub-app (own docs + CORS at /api/v1) ----
+app.mount("/api/v1", create_public_api(db, company_cache))
 
 
 if __name__ == "__main__":
