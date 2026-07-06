@@ -235,10 +235,14 @@ class Database:
                     email_verified BOOLEAN NOT NULL DEFAULT 0,
                     verification_token TEXT,
                     stripe_customer_id TEXT,
+                    avatar_url TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            # Existing local DBs: add avatar_url if missing
+            if 'avatar_url' not in {r[1] for r in cursor.execute("PRAGMA table_info(api_users)").fetchall()}:
+                cursor.execute('ALTER TABLE api_users ADD COLUMN avatar_url TEXT')
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS api_keys (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -398,6 +402,20 @@ class Database:
             cur = conn.cursor()
             cur.execute('UPDATE api_users SET stripe_customer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
                         (customer_id, user_id))
+            return cur.rowcount > 0
+
+    def update_api_user_profile(self, user_id, company_name=None, avatar_url=None) -> bool:
+        sets, params = [], []
+        if company_name is not None:
+            sets.append('company_name = ?'); params.append(company_name)
+        if avatar_url is not None:
+            sets.append('avatar_url = ?'); params.append(avatar_url)
+        if not sets:
+            return False
+        params.append(user_id)
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(f"UPDATE api_users SET {', '.join(sets)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", params)
             return cur.rowcount > 0
 
     def list_api_users(self) -> List[Dict]:

@@ -113,6 +113,7 @@ export interface ApiUser {
   plan_name?: string
   status: string
   email_verified: boolean
+  avatar_url?: string | null
   daily_limit: number
 }
 
@@ -234,6 +235,8 @@ export const apiClient = {
   listApiKeys: () => devApi.get<{ keys: ApiKey[] }>('/api/dev/keys'),
   revokeApiKey: (id: number) => devApi.post(`/api/dev/keys/${id}/revoke`),
   devUsage: (days = 7) => devApi.get<UsageStats>(`/api/dev/usage?days=${days}`),
+  updateProfile: (data: { company_name?: string; avatar_url?: string }) =>
+    devApi.post<ApiUser>('/api/dev/profile', data),
   getBatches: () => api.get<{ batches: string[] }>('/api/filters/batches'),
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),

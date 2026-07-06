@@ -1,17 +1,44 @@
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import { Navigate, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  KeyRound, Copy, Check, Trash2, Plus, LogOut, Loader2, BookOpen, AlertCircle, Terminal, Activity,
+  KeyRound, Copy, Check, Trash2, Plus, LogOut, Loader2, BookOpen, AlertCircle, Terminal, Activity, Camera,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { HackerCard } from '../components/ui/hacker-card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog'
+import { Avatar } from '../components/ui/Avatar'
 import { useDevAuth } from '../contexts/DevAuthContext'
 import { apiClient, type DevMe, type CreatedApiKey, type UsageStats } from '../lib/api'
+
+/** Resize an uploaded image to a small square jpeg data URL (avoids file storage). */
+function resizeToDataUrl(file: File, size = 160): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = reject
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = reject
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('no canvas'))
+        const scale = Math.max(size / img.width, size / img.height)
+        const w = img.width * scale
+        const h = img.height * scale
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.85))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false)
@@ -27,10 +54,12 @@ function CopyButton({ value }: { value: string }) {
 }
 
 export function DeveloperDashboard() {
-  const { user, loading, logout } = useDevAuth()
+  const { user, loading, logout, refresh } = useDevAuth()
   const queryClient = useQueryClient()
   const [newKey, setNewKey] = useState<CreatedApiKey | null>(null)
   const [keyName, setKeyName] = useState('')
+  const [company, setCompany] = useState<string | null>(null)
+  const [avatarError, setAvatarError] = useState('')
 
   const { data: me, isLoading } = useQuery<DevMe>({
     queryKey: ['dev-me'],
@@ -57,6 +86,24 @@ export function DeveloperDashboard() {
     mutationFn: (id: number) => apiClient.revokeApiKey(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dev-me'] }),
   })
+
+  const profile = useMutation({
+    mutationFn: (data: { company_name?: string; avatar_url?: string }) => apiClient.updateProfile(data),
+    onSuccess: () => { refresh(); queryClient.invalidateQueries({ queryKey: ['dev-me'] }) },
+  })
+
+  const onPickAvatar = async (e: ChangeEvent<HTMLInputElement>) => {
+    setAvatarError('')
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const avatar_url = await resizeToDataUrl(file)
+      profile.mutate({ avatar_url })
+    } catch {
+      setAvatarError('Could not process that image.')
+    }
+  }
 
   if (loading) {
     return (
@@ -92,6 +139,47 @@ export function DeveloperDashboard() {
               <Button variant="outline" className="font-mono" onClick={logout}><LogOut className="h-4 w-4 mr-2" />Logout</Button>
             </div>
           </div>
+
+          {/* Profile */}
+          <HackerCard glowColor="orange" className="p-6 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="relative flex-shrink-0">
+                <Avatar src={me?.avatar_url ?? user.avatar_url} name={(me?.company_name || user.company_name) ?? user.email} size={64} />
+                <label className="absolute -bottom-1 -right-1 w-6 h-6 bg-[#FB651E] hover:bg-[#E65C00] rounded-full flex items-center justify-center cursor-pointer border-2 border-background"
+                       title="Upload a picture">
+                  {profile.isPending ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <Camera className="w-3.5 h-3.5 text-white" />}
+                  <input type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
+                </label>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-mono text-muted-foreground mb-2 truncate">{user.email}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={company ?? (me?.company_name ?? user.company_name ?? '')}
+                    onChange={(e) => setCompany(e.target.value)}
+                    placeholder="Company name"
+                    className="h-9 font-mono max-w-xs"
+                  />
+                  <Button
+                    className="bg-[#FB651E] hover:bg-[#E65C00] h-9"
+                    disabled={profile.isPending || company === null}
+                    onClick={() => profile.mutate({ company_name: company ?? '' })}
+                  >
+                    Save
+                  </Button>
+                  {(me?.avatar_url ?? user.avatar_url) && (
+                    <button
+                      onClick={() => profile.mutate({ avatar_url: '' })}
+                      className="text-xs font-mono text-muted-foreground hover:text-red-500"
+                    >
+                      Remove photo
+                    </button>
+                  )}
+                </div>
+                {avatarError && <p className="text-xs text-red-500 mt-1">{avatarError}</p>}
+              </div>
+            </div>
+          </HackerCard>
 
           {/* Plan + usage */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
