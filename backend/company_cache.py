@@ -17,6 +17,7 @@ class CompanyCache:
         self._batches: List[str] = []
         self._industries: List[str] = []
         self._countries: List[str] = []
+        self._source_counts: Dict[str, int] = {}
         self._loaded = False
 
     def load(self, db) -> None:
@@ -40,7 +41,17 @@ class CompanyCache:
         self._companies = sorted(companies, key=sort_key, reverse=True)
         self._companies_by_id = {c["id"]: c for c in companies if c.get("id") is not None}
 
-        # Map subset: companies with geo coordinates
+        # Source breakdown (all sources) for /api/filters/sources
+        self._source_counts: Dict[str, int] = {}
+        for c in companies:
+            s = c.get("source") or "yc"
+            self._source_counts[s] = self._source_counts.get(s, 0) + 1
+
+        # Stats and YC-facing filter lists are computed over Y Combinator rows only
+        # (additive & opt-in): a16z / other sources never pollute YC-shaped views.
+        yc = [c for c in companies if (c.get("source") or "yc") == "yc"]
+
+        # Map subset: companies with geo coordinates (a16z has none, so naturally excluded)
         map_cols = {
             "id", "name", "slug", "website", "one_liner", "batch", "is_hiring",
             "top_company", "small_logo_thumb_url",
@@ -52,37 +63,37 @@ class CompanyCache:
             if c.get("latitude") is not None and c.get("longitude") is not None
         ]
 
-        # Stats
-        total = len(companies)
-        hiring = sum(1 for c in companies if c.get("is_hiring"))
+        # Stats (YC-only)
+        total = len(yc)
+        hiring = sum(1 for c in yc if c.get("is_hiring"))
         by_batch: Dict[str, int] = {}
-        for c in companies:
+        for c in yc:
             b = c.get("batch")
             if b:
                 by_batch[b] = by_batch.get(b, 0) + 1
         by_batch = dict(sorted(by_batch.items(), key=lambda x: -x[1]))
 
         by_industry: Dict[str, int] = {}
-        for c in companies:
+        for c in yc:
             ind = c.get("industry")
             if ind:
                 by_industry[ind] = by_industry.get(ind, 0) + 1
         by_industry = dict(sorted(by_industry.items(), key=lambda x: -x[1])[:10])
 
         by_country: Dict[str, int] = {}
-        for c in companies:
+        for c in yc:
             cnt = c.get("country")
             if cnt:
                 by_country[cnt] = by_country.get(cnt, 0) + 1
         by_country = dict(sorted(by_country.items(), key=lambda x: -x[1])[:10])
 
         by_status: Dict[str, int] = {}
-        for c in companies:
+        for c in yc:
             s = c.get("status") or "unknown"
             by_status[s] = by_status.get(s, 0) + 1
 
         by_batch_industry: Dict[str, Dict[str, int]] = {}
-        for c in companies:
+        for c in yc:
             b = c.get("batch")
             ind = c.get("industry")
             if b and ind:
@@ -100,16 +111,16 @@ class CompanyCache:
             "by_batch_industry": by_batch_industry,
         }
 
-        # Filter lists
+        # Filter lists (YC-only)
         self._batches = sorted(
-            {c.get("batch") for c in companies if c.get("batch")},
+            {c.get("batch") for c in yc if c.get("batch")},
             reverse=True
         )
         self._industries = sorted(
-            {c.get("industry") for c in companies if c.get("industry")}
+            {c.get("industry") for c in yc if c.get("industry")}
         )
         self._countries = sorted(
-            {c.get("country") for c in companies if c.get("country")}
+            {c.get("country") for c in yc if c.get("country")}
         )
 
         self._loaded = True
@@ -128,6 +139,17 @@ class CompanyCache:
                 return True
         return False
 
+    @staticmethod
+    def _source_matches(company: Dict, source: Optional[str]) -> bool:
+        """Source semantics: None -> YC-only (default, no regressions),
+        'all' -> every source, otherwise that exact source key."""
+        csrc = company.get("source") or "yc"
+        if source is None:
+            return csrc == "yc"
+        if source == "all":
+            return True
+        return csrc == source
+
     def _filter_companies(
         self,
         batch: Optional[str] = None,
@@ -136,9 +158,10 @@ class CompanyCache:
         country: Optional[str] = None,
         search: Optional[str] = None,
         top_company: Optional[bool] = None,
+        source: Optional[str] = None,
     ) -> List[Dict]:
         """Apply filters to companies list."""
-        result = self._companies
+        result = [c for c in self._companies if self._source_matches(c, source)]
         if batch:
             result = [c for c in result if c.get("batch") == batch]
         if is_hiring is not None:
@@ -163,9 +186,10 @@ class CompanyCache:
         country: Optional[str] = None,
         search: Optional[str] = None,
         top_company: Optional[bool] = None,
+        source: Optional[str] = None,
     ) -> List[Dict]:
         """Get companies with filters and pagination."""
-        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company)
+        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company, source)
         return filtered[offset : offset + limit]
 
     def count_companies(
@@ -176,9 +200,10 @@ class CompanyCache:
         country: Optional[str] = None,
         search: Optional[str] = None,
         top_company: Optional[bool] = None,
+        source: Optional[str] = None,
     ) -> int:
         """Count companies matching filters."""
-        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company)
+        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company, source)
         return len(filtered)
 
     def get_company_by_id(self, company_id: int) -> Optional[Dict]:
@@ -209,6 +234,19 @@ class CompanyCache:
     def get_total_map_companies(self) -> int:
         """Count of companies with geo coordinates."""
         return len(self._map_companies)
+
+    def get_sources(self) -> List[Dict]:
+        """Available sources with display names and company counts (all sources)."""
+        from sources import SOURCES
+        keys = list({**{k: None for k in SOURCES}, **self._source_counts})
+        return [
+            {
+                "key": k,
+                "display_name": SOURCES.get(k, {}).get("display_name", k),
+                "count": self._source_counts.get(k, 0),
+            }
+            for k in keys
+        ]
 
     def get_unique_batches(self) -> List[str]:
         return list(self._batches)
