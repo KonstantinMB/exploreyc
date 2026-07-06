@@ -223,6 +223,57 @@ class Database:
                 )
             ''')
 
+            # ---- Public API: developer accounts, keys, usage, sessions ----
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    company_name TEXT,
+                    plan TEXT NOT NULL DEFAULT 'free',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    email_verified BOOLEAN NOT NULL DEFAULT 0,
+                    verification_token TEXT,
+                    stripe_customer_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    key_prefix TEXT NOT NULL,
+                    key_hash TEXT NOT NULL UNIQUE,
+                    name TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    revoked_at TIMESTAMP,
+                    last_used_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES api_users(id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    api_key_id INTEGER NOT NULL,
+                    endpoint TEXT,
+                    status_code INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (api_key_id) REFERENCES api_keys(id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES api_users(id)
+                )
+            ''')
+
             # Bring existing databases up to the multi-source schema before indexing
             self._migrate_schema(cursor)
 
@@ -241,6 +292,10 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_company_id ON hiring_jobs(company_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_role ON hiring_jobs(pretty_role)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_updated ON hiring_jobs(pretty_updated_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_usage_key_created ON api_usage(api_key_id, created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_sessions_token ON api_sessions(token_hash)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_sessions_expires ON api_sessions(expires_at)')
 
     def _migrate_schema(self, cursor):
         """Bring an existing SQLite DB up to the multi-source schema.
@@ -286,6 +341,166 @@ class Database:
             cursor.execute(f"INSERT INTO companies_new ({col_list}) SELECT {col_list} FROM companies")
             cursor.execute("DROP TABLE companies")
             cursor.execute("ALTER TABLE companies_new RENAME TO companies")
+
+    # ========================================================================
+    # PUBLIC API: developer accounts, keys, usage, sessions
+    # ========================================================================
+
+    @staticmethod
+    def _fmt_dt(value):
+        """Format a datetime for SQLite's CURRENT_TIMESTAMP text comparison (UTC)."""
+        return value.strftime('%Y-%m-%d %H:%M:%S') if hasattr(value, 'strftime') else value
+
+    def create_api_user(self, email, password_hash, company_name=None, verification_token=None) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'INSERT INTO api_users (email, password_hash, company_name, verification_token) VALUES (?, ?, ?, ?)',
+                (email, password_hash, company_name, verification_token))
+            return cur.lastrowid
+
+    def get_api_user_by_email(self, email) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM api_users WHERE email = ?', (email,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_api_user_by_id(self, user_id) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM api_users WHERE id = ?', (user_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def verify_api_user_email(self, token) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'UPDATE api_users SET email_verified = 1, verification_token = NULL, updated_at = CURRENT_TIMESTAMP '
+                'WHERE verification_token = ?', (token,))
+            return cur.rowcount > 0
+
+    def set_api_user_plan(self, user_id, plan) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET plan = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (plan, user_id))
+            return cur.rowcount > 0
+
+    def set_api_user_status(self, user_id, status) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (status, user_id))
+            return cur.rowcount > 0
+
+    def set_api_user_stripe_customer(self, user_id, customer_id) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET stripe_customer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        (customer_id, user_id))
+            return cur.rowcount > 0
+
+    def list_api_users(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT u.id, u.email, u.company_name, u.plan, u.status, u.email_verified, u.created_at,
+                       (SELECT COUNT(*) FROM api_keys k WHERE k.user_id = u.id AND k.is_active = 1) AS active_keys
+                FROM api_users u ORDER BY u.created_at DESC''')
+            return [dict(r) for r in cur.fetchall()]
+
+    def create_api_key(self, user_id, key_prefix, key_hash, name=None) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('INSERT INTO api_keys (user_id, key_prefix, key_hash, name) VALUES (?, ?, ?, ?)',
+                        (user_id, key_prefix, key_hash, name))
+            return cur.lastrowid
+
+    def get_api_key_by_hash(self, key_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT k.id, k.user_id, k.is_active, u.plan, u.status AS user_status
+                FROM api_keys k JOIN api_users u ON u.id = k.user_id
+                WHERE k.key_hash = ?''', (key_hash,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def list_api_keys_for_user(self, user_id) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT k.id, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                       (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                FROM api_keys k WHERE k.user_id = ? ORDER BY k.created_at DESC''', (user_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+    def revoke_api_key(self, key_id, user_id=None) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            if user_id is not None:
+                cur.execute('UPDATE api_keys SET is_active = 0, revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+                            (key_id, user_id))
+            else:
+                cur.execute('UPDATE api_keys SET is_active = 0, revoked_at = CURRENT_TIMESTAMP WHERE id = ?', (key_id,))
+            return cur.rowcount > 0
+
+    def list_all_api_keys(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT k.id, k.user_id, u.email, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                       (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                FROM api_keys k JOIN api_users u ON u.id = k.user_id ORDER BY k.created_at DESC''')
+            return [dict(r) for r in cur.fetchall()]
+
+    def log_api_usage(self, api_key_id, endpoint, status_code) -> None:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('INSERT INTO api_usage (api_key_id, endpoint, status_code) VALUES (?, ?, ?)',
+                        (api_key_id, endpoint, status_code))
+
+    def count_api_usage_since(self, api_key_id, since):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*), MIN(created_at) FROM api_usage WHERE api_key_id = ? AND created_at > ?',
+                        (api_key_id, self._fmt_dt(since)))
+            row = cur.fetchone()
+            return (row[0] or 0, row[1])
+
+    def create_api_session(self, user_id, token_hash, expires_at) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('INSERT INTO api_sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+                        (user_id, token_hash, self._fmt_dt(expires_at)))
+            return cur.lastrowid
+
+    def get_api_session(self, token_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT s.user_id, s.expires_at, u.email, u.company_name, u.plan, u.status AS user_status
+                FROM api_sessions s JOIN api_users u ON u.id = s.user_id
+                WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP''', (token_hash,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def delete_api_session(self, token_hash) -> None:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('DELETE FROM api_sessions WHERE token_hash = ?', (token_hash,))
+
+    def delete_expired_api_sessions(self) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('DELETE FROM api_sessions WHERE expires_at < CURRENT_TIMESTAMP')
+            return cur.rowcount
+
+    def cleanup_api_usage(self, older_than) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('DELETE FROM api_usage WHERE created_at < ?', (self._fmt_dt(older_than),))
+            return cur.rowcount
 
     def insert_company(self, company: Dict[str, Any]) -> int:
         """Insert or update a company"""
