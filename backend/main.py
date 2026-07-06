@@ -690,6 +690,7 @@ async def export_json(
     country: Optional[str] = None,
     search: Optional[str] = None,
     top_company: Optional[bool] = None,
+    source: Optional[str] = None,
 ):
     """Export companies to JSON"""
     companies = company_cache.get_companies(
@@ -700,6 +701,7 @@ async def export_json(
         country=country,
         search=search,
         top_company=top_company,
+        source=source,
     )
 
     # Create JSON file
@@ -722,6 +724,7 @@ async def export_csv(
     country: Optional[str] = None,
     search: Optional[str] = None,
     top_company: Optional[bool] = None,
+    source: Optional[str] = None,
 ):
     """Export companies to CSV"""
     companies = company_cache.get_companies(
@@ -732,6 +735,7 @@ async def export_csv(
         country=country,
         search=search,
         top_company=top_company,
+        source=source,
     )
 
     if not companies:
