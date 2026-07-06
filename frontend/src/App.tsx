@@ -32,6 +32,11 @@ import { HiringBoardPagePaginated } from './pages/HiringBoardPagePaginated';
 import { HiringAnalyticsPage } from './pages/HiringAnalyticsPage';
 import { DatabasePage } from './pages/DatabasePage';
 import { PageTitleManager } from './components/PageTitleManager';
+import { DevAuthProvider } from './contexts/DevAuthContext';
+import { SignupPage } from './pages/SignupPage';
+import { DevLoginPage } from './pages/DevLoginPage';
+import { DeveloperDashboard } from './pages/DeveloperDashboard';
+import { ApiDocsPage } from './pages/ApiDocsPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -170,6 +175,11 @@ function AnimatedRoutes() {
       <Route path="/research-hub" element={<ResearchHubPage />} />
       <Route path="/batch/:batch/wrapped" element={<BatchWrappedPage />} />
       <Route path="/admin" element={<AdminPage />} />
+      {/* Public API developer portal */}
+      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/login" element={<DevLoginPage />} />
+      <Route path="/dashboard" element={<DeveloperDashboard />} />
+      <Route path="/api-docs" element={<ApiDocsPage />} />
       <Route path="/company/:slug" element={<CompanyPage />} />
       <Route path="/share/company/:slug" element={<CompanyCardPage />} />
       <Route path="/share/company" element={<CompanyCardPage />} />
@@ -199,9 +209,11 @@ function App() {
       <HelmetProvider>
         <BrowserRouter>
           <PageTitleManager />
-          <AppProvider>
-            <AnimatedRoutes />
-          </AppProvider>
+          <DevAuthProvider>
+            <AppProvider>
+              <AnimatedRoutes />
+            </AppProvider>
+          </DevAuthProvider>
         </BrowserRouter>
         <Analytics />
       </HelmetProvider>
