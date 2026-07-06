@@ -22,6 +22,10 @@ const EXACT: Record<string, string> = {
   '/admin': 'Admin',
   '/verify-email': 'Verify your email',
   '/explore': DEFAULT_TITLE,
+  '/api-docs': 'API Reference',
+  '/dashboard': 'Developer Dashboard',
+  '/login': 'Developer Login',
+  '/signup': 'Get API Access',
 };
 
 function titleForPath(pathname: string): string {
