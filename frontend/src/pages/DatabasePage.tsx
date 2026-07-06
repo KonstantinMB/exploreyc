@@ -55,7 +55,7 @@ const PAGE_SIZE = 50;
 const mobileHiddenColumns = new Set([
   'subindustry', 'all_locations', 'team_size', 'stage',
   'nonprofit', 'funding_last_round_name', 'employee_count',
-  'employee_growth_6m', 'website',
+  'employee_growth_6m', 'website', 'founders', 'exit', 'year_founded',
 ]);
 
 const GITHUB_REPO = 'konstantinmb/exploreyc';
@@ -314,6 +314,104 @@ const columns: ColumnDef<Company, any>[] = [
     size: 68,
   }),
 ];
+
+// ---- Source-agnostic columns (a16z and future VC/incubator sources) ----------
+const sourceBadgeColumn = columnHelper.accessor('source', {
+  header: 'Source',
+  cell: (info) => {
+    const s = (info.getValue() as string) || 'yc';
+    const label = s === 'yc' ? 'YC' : s === 'a16z' ? 'a16z' : s;
+    return (
+      <span
+        className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm whitespace-nowrap ${
+          s === 'yc' ? 'bg-[#FB651E]/10 text-[#FB651E]' : 'bg-violet-500/10 text-violet-400'
+        }`}
+      >
+        {label}
+      </span>
+    );
+  },
+  size: 72,
+});
+
+const foundersColumn = columnHelper.accessor('founders', {
+  header: 'Founders',
+  cell: (info) => {
+    const v = info.getValue() as string;
+    if (!v) return <span className="text-muted-foreground/40 text-xs">—</span>;
+    return (
+      <span className="text-xs text-muted-foreground truncate block max-w-[170px]" title={v}>
+        {v}
+      </span>
+    );
+  },
+  enableSorting: false,
+  size: 180,
+});
+
+const exitColumn = columnHelper.display({
+  id: 'exit',
+  header: 'Exit',
+  cell: (info) => {
+    const c = info.row.original;
+    if (!c.exit_type) return <span className="text-muted-foreground/40 text-xs">—</span>;
+    const detail = c.ticker_symbol ? `: ${c.ticker_symbol}` : c.acquirer ? ` → ${c.acquirer}` : '';
+    return (
+      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-blue-500/10 text-blue-400 whitespace-nowrap">
+        {c.exit_type}{detail}
+      </span>
+    );
+  },
+  size: 150,
+});
+
+const yearFoundedColumn = columnHelper.accessor('year_founded', {
+  header: 'Founded',
+  cell: (info) => (
+    <span className="text-xs font-mono tabular-nums">
+      {(info.getValue() as number) || '—'}
+    </span>
+  ),
+  size: 80,
+});
+
+// Resolve a column's key whether it's an accessor ('batch') or display ('exit') column
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const colKey = (c: ColumnDef<Company, any>): string => (c as any).id ?? (c as any).accessorKey ?? '';
+
+// YC-only columns that are always empty for a16z — dropped in the focused a16z view
+const A16Z_HIDDEN_COLUMNS = new Set([
+  'batch', 'subindustry', 'country', 'all_locations', 'team_size', 'top_company',
+  'nonprofit', 'funding_total_usd', 'funding_last_round_name', 'employee_count', 'employee_growth_6m',
+]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getColumns(source: string): ColumnDef<Company, any>[] {
+  // Focused a16z view: drop empty YC columns, surface founders / exit / founded
+  if (source === 'a16z') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out: ColumnDef<Company, any>[] = [];
+    for (const c of columns.filter((col) => !A16Z_HIDDEN_COLUMNS.has(colKey(col)))) {
+      out.push(c);
+      if (colKey(c) === 'name') out.push(foundersColumn);
+      if (colKey(c) === 'stage') { out.push(exitColumn); out.push(yearFoundedColumn); }
+    }
+    return out;
+  }
+  // Mixed view: full YC columns + Source badge + a16z fields
+  if (source === 'all') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out: ColumnDef<Company, any>[] = [];
+    for (const c of columns) {
+      out.push(c);
+      if (colKey(c) === 'name') out.push(sourceBadgeColumn);
+      if (colKey(c) === 'stage') { out.push(foundersColumn); out.push(exitColumn); }
+    }
+    return out;
+  }
+  // Default: Y Combinator — unchanged
+  return columns;
+}
 
 const LS_KEY = 'yc_gh_star_verified';
 const POLL_INTERVAL_MS = 5000;
@@ -594,6 +692,7 @@ export function DatabasePage() {
   const [country, setCountry] = useState('');
   const [isHiring, setIsHiring] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
+  const [source, setSource] = useState('yc'); // 'yc' (default) | 'a16z' | 'all'
   const [currentPage, setCurrentPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [exportOpen, setExportOpen] = useState(false);
@@ -629,8 +728,9 @@ export function DatabasePage() {
       ...(country && { country }),
       ...(isHiring && { is_hiring: true }),
       ...(topOnly && { top_company: true }),
+      ...(source !== 'yc' && { source }),
     }),
-    [currentPage, debouncedSearch, batch, industry, country, isHiring, topOnly],
+    [currentPage, debouncedSearch, batch, industry, country, isHiring, topOnly, source],
   );
 
   // Export filters (without pagination)
@@ -642,8 +742,9 @@ export function DatabasePage() {
       ...(country && { country }),
       ...(isHiring && { is_hiring: true }),
       ...(topOnly && { top_company: true }),
+      ...(source !== 'yc' && { source }),
     }),
-    [debouncedSearch, batch, industry, country, isHiring, topOnly],
+    [debouncedSearch, batch, industry, country, isHiring, topOnly, source],
   );
 
   const { data, isLoading, isFetching } = useQuery({
@@ -652,6 +753,14 @@ export function DatabasePage() {
     staleTime: 1000 * 60 * 5,
     placeholderData: (prev) => prev,
   });
+
+  // Available sources (incubators/VCs) for the Source filter
+  const { data: sources } = useQuery({
+    queryKey: ['sources'],
+    queryFn: () => apiClient.getSources().then((r) => r.data.sources),
+    staleTime: 1000 * 60 * 30,
+  });
+  const hasMultipleSources = (sources?.length ?? 0) > 1;
 
   // Filter select options from stats
   const batches = useMemo(
@@ -671,9 +780,12 @@ export function DatabasePage() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Columns adapt to the selected source (a16z surfaces founders/exit/founded)
+  const tableColumns = useMemo(() => getColumns(source), [source]);
+
   const table = useReactTable({
     data: companies,
-    columns,
+    columns: tableColumns,
     state: { sorting },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
@@ -681,7 +793,7 @@ export function DatabasePage() {
     manualPagination: true,
   });
 
-  const hasFilters = !!(debouncedSearch || batch || industry || country || isHiring || topOnly);
+  const hasFilters = !!(debouncedSearch || batch || industry || country || isHiring || topOnly || source !== 'yc');
 
   const clearFilters = () => {
     setSearch('');
@@ -691,16 +803,26 @@ export function DatabasePage() {
     setCountry('');
     setIsHiring(false);
     setTopOnly(false);
+    setSource('yc');
     setCurrentPage(1);
   };
 
   const totalBatches = stats?.by_batch ? Object.keys(stats.by_batch).length : 0;
 
+  const sourceHeading =
+    source === 'a16z' ? 'a16z Portfolio Database'
+    : source === 'all' ? 'Companies Database'
+    : 'YC Companies Database';
+  const sourceSubtitle =
+    source === 'a16z' ? 'Andreessen Horowitz portfolio companies, searchable and exportable'
+    : source === 'all' ? 'Every company across all tracked incubators & VCs, searchable and exportable'
+    : 'Every Y Combinator company, searchable and exportable';
+
   return (
     <div className="relative min-h-screen bg-background overflow-x-hidden">
       <Helmet>
-        <title>YC Company Database | ExploreYC</title>
-        <meta name="description" content="Browse and export all Y Combinator companies in a sortable, filterable table." />
+        <title>{sourceHeading} | ExploreYC</title>
+        <meta name="description" content="Browse and export startup companies from Y Combinator, a16z, and more in a sortable, filterable table." />
       </Helmet>
 
       <DotPattern color="hsl(var(--primary) / 0.12)" size={24} radius={0.5} />
@@ -716,10 +838,10 @@ export function DatabasePage() {
             <div>
               <h1 className="text-2xl md:text-3xl font-bold mb-1">
                 <span className="text-[#FB651E]">&gt;</span>{' '}
-                <span>YC Companies Database</span>
+                <span>{sourceHeading}</span>
               </h1>
               <p className="text-muted-foreground font-mono text-sm">
-                Every Y Combinator company, searchable and exportable
+                {sourceSubtitle}
               </p>
             </div>
             <button
@@ -814,11 +936,30 @@ export function DatabasePage() {
                 </div>
               </div>{/* end search group */}
 
+              {/* Source (incubator / VC) */}
+              {hasMultipleSources && (
+                <select
+                  value={source}
+                  onChange={(e) => { setSource(e.target.value); resetPage(); }}
+                  className="h-8 px-2 text-xs font-mono bg-background/50 border border-border rounded-sm text-foreground focus:outline-none focus:border-[#FB651E]/50 min-w-[140px]"
+                  title="Source (incubator / VC)"
+                >
+                  {sources!.map((s) => (
+                    <option key={s.key} value={s.key}>
+                      {s.display_name}{s.count ? ` (${s.count.toLocaleString()})` : ''}
+                    </option>
+                  ))}
+                  <option value="all">All sources</option>
+                </select>
+              )}
+
               {/* Batch */}
               <select
                 value={batch}
                 onChange={(e) => { setBatch(e.target.value); resetPage(); }}
-                className="h-8 px-2 text-xs font-mono bg-background/50 border border-border rounded-sm text-foreground focus:outline-none focus:border-[#FB651E]/50 min-w-[120px]"
+                className="h-8 px-2 text-xs font-mono bg-background/50 border border-border rounded-sm text-foreground focus:outline-none focus:border-[#FB651E]/50 min-w-[120px] disabled:opacity-40"
+                disabled={source === 'a16z'}
+                title={source === 'a16z' ? 'Batches are a Y Combinator concept' : undefined}
               >
                 <option value="">All Batches</option>
                 {batches.map((b) => (
@@ -935,7 +1076,7 @@ export function DatabasePage() {
                 <tbody>
                   {isLoading && companies.length === 0 ? (
                     <tr>
-                      <td colSpan={columns.length} className="px-4 py-16 text-center text-muted-foreground">
+                      <td colSpan={tableColumns.length} className="px-4 py-16 text-center text-muted-foreground">
                         <div className="flex flex-col items-center gap-3">
                           <div className="w-6 h-6 border-2 border-[#FB651E] border-t-transparent rounded-full animate-spin" />
                           <span className="text-xs">Loading companies…</span>
@@ -944,7 +1085,7 @@ export function DatabasePage() {
                     </tr>
                   ) : companies.length === 0 ? (
                     <tr>
-                      <td colSpan={columns.length} className="px-4 py-16 text-center text-muted-foreground">
+                      <td colSpan={tableColumns.length} className="px-4 py-16 text-center text-muted-foreground">
                         <Database className="w-8 h-8 mx-auto mb-3 opacity-30" />
                         <p className="text-sm">No companies match your filters</p>
                         <button

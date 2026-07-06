@@ -15,6 +15,8 @@ const api = axios.create({
 
 export interface Company {
   id: number
+  source?: string
+  source_id?: string
   name: string
   slug: string
   website: string
@@ -39,6 +41,14 @@ export interface Company {
   country?: string
   created_at: string
   updated_at: string
+  // Source-agnostic fields (populated for a16z and future VC/incubator sources)
+  founders?: string
+  year_founded?: number
+  exit_type?: string
+  acquirer?: string
+  ticker_symbol?: string
+  funded_date?: string
+  source_url?: string
   // Funding data fields (Coresignal)
   funding_total_usd?: number
   funding_last_round_usd?: number
@@ -73,6 +83,13 @@ export interface CompanyFilter {
   country?: string
   search?: string
   top_company?: boolean
+  source?: string // undefined -> YC only; 'all' -> every source; or a source key like 'a16z'
+}
+
+export interface Source {
+  key: string
+  display_name: string
+  count: number
 }
 
 export interface Stats {
@@ -144,6 +161,7 @@ export const apiClient = {
     }),
 
   // Filters
+  getSources: () => api.get<{ sources: Source[] }>('/api/filters/sources'),
   getBatches: () => api.get<{ batches: string[] }>('/api/filters/batches'),
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),
@@ -157,6 +175,7 @@ export const apiClient = {
     if (filters.country) params.append('country', filters.country)
     if (filters.search) params.append('search', filters.search)
     if (filters.top_company !== undefined) params.append('top_company', String(filters.top_company))
+    if (filters.source) params.append('source', filters.source)
 
     window.open(`${API_BASE_URL}/api/export/json?${params.toString()}`, '_blank')
   },
@@ -169,6 +188,7 @@ export const apiClient = {
     if (filters.country) params.append('country', filters.country)
     if (filters.search) params.append('search', filters.search)
     if (filters.top_company !== undefined) params.append('top_company', String(filters.top_company))
+    if (filters.source) params.append('source', filters.source)
 
     window.open(`${API_BASE_URL}/api/export/csv?${params.toString()}`, '_blank')
   },
