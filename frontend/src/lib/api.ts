@@ -13,6 +13,18 @@ const api = axios.create({
   },
 })
 
+// Public-API developer account client — injects the dashboard session token from localStorage.
+export const DEV_TOKEN_KEY = 'dev_token'
+const devApi = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+})
+devApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem(DEV_TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 export interface Company {
   id: number
   source?: string
@@ -92,6 +104,47 @@ export interface Source {
   count: number
 }
 
+// ---- Public API developer accounts ----
+export interface ApiUser {
+  id: number
+  email: string
+  company_name?: string
+  plan: string
+  plan_name?: string
+  status: string
+  email_verified: boolean
+  daily_limit: number
+}
+
+export interface ApiKey {
+  id: number
+  key_prefix: string
+  name?: string
+  is_active: boolean
+  revoked_at?: string | null
+  last_used_at?: string | null
+  created_at: string
+}
+
+export interface UsageSummary {
+  used_24h: number
+  limit: number
+  remaining: number
+}
+
+export interface DevMe extends ApiUser {
+  usage: UsageSummary
+  keys: ApiKey[]
+}
+
+export interface CreatedApiKey {
+  id: number
+  api_key: string
+  key_prefix: string
+  name?: string
+  warning: string
+}
+
 export interface Stats {
   total_companies: number
   hiring: number
@@ -162,6 +215,17 @@ export const apiClient = {
 
   // Filters
   getSources: () => api.get<{ sources: Source[] }>('/api/filters/sources'),
+
+  // Public API developer accounts + keys
+  devSignup: (email: string, password: string, company_name?: string) =>
+    devApi.post<{ token: string; user: ApiUser }>('/api/dev/signup', { email, password, company_name }),
+  devLogin: (email: string, password: string) =>
+    devApi.post<{ token: string; user: ApiUser }>('/api/dev/login', { email, password }),
+  devLogout: () => devApi.post('/api/dev/logout'),
+  devMe: () => devApi.get<DevMe>('/api/dev/me'),
+  createApiKey: (name?: string) => devApi.post<CreatedApiKey>('/api/dev/keys', { name }),
+  listApiKeys: () => devApi.get<{ keys: ApiKey[] }>('/api/dev/keys'),
+  revokeApiKey: (id: number) => devApi.post(`/api/dev/keys/${id}/revoke`),
   getBatches: () => api.get<{ batches: string[] }>('/api/filters/batches'),
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),
