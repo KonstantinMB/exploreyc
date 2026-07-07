@@ -66,7 +66,7 @@ export function Header({ onThemeToggle, isDark = false, onCommandPalette }: Head
             <YCLogo className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0" />
             <div className="min-w-0">
               <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-[#FB651E] to-[#FF8833] bg-clip-text text-transparent truncate">
-                YC Company Explorer
+                ExploreYC
               </h1>
               <p className="text-xs text-muted-foreground font-mono hidden sm:block">
                 {(stats?.total_companies ?? 0).toLocaleString()} companies indexed

@@ -8,6 +8,7 @@ import {
 import { useApp } from '../contexts/AppContext';
 import { useDevAuth } from '../contexts/DevAuthContext';
 import { Avatar } from './ui/Avatar';
+import { Logo } from './ui/Logo';
 
 type Item = { label: string; icon: React.ComponentType<{ className?: string }>; path: string };
 
@@ -58,10 +59,8 @@ export function MobileBottomNav() {
       >
         <div className="flex h-full items-center justify-between px-4">
           <Link to="/" onClick={close} className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 bg-[#FB651E] flex items-center justify-center flex-shrink-0">
-              <span className="text-base font-bold text-white">Y</span>
-            </div>
-            <span className="text-sm font-bold truncate">YC Explorer</span>
+            <Logo size={32} />
+            <span className="text-sm font-bold truncate">ExploreYC</span>
           </Link>
           <button
             onClick={() => setOpen((o) => !o)}

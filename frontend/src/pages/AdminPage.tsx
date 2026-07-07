@@ -229,7 +229,7 @@ export function AdminPage() {
     return (
       <>
         <Helmet>
-          <title>Admin Login - YC Company Explorer</title>
+          <title>Admin Login - ExploreYC</title>
         </Helmet>
         <div className="min-h-screen flex items-center justify-center bg-background p-4">
           <motion.div
@@ -322,7 +322,7 @@ export function AdminPage() {
   return (
     <>
       <Helmet>
-        <title>Admin Dashboard - YC Company Explorer</title>
+        <title>Admin Dashboard - ExploreYC</title>
       </Helmet>
 
       <div className="min-h-screen bg-background p-4 md:p-8">

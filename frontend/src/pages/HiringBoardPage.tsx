@@ -150,7 +150,7 @@ export function HiringBoardPage() {
   return (
     <>
       <Helmet>
-        <title>Live YC Hiring Board - 1,425+ Jobs | YC Explorer</title>
+        <title>Live YC Hiring Board - 1,425+ Jobs | ExploreYC</title>
         <meta
           name="description"
           content={`Browse ${filteredAndSortedJobs.length || '1,425+'} live job openings from Y Combinator companies. Filter by role, batch, location, salary. One-click apply.`}
