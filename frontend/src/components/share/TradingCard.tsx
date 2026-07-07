@@ -275,7 +275,7 @@ export const TradingCard = forwardRef<HTMLDivElement, TradingCardProps>(({ compa
           style={{ marginTop: 24, fontSize: 14, color: '#71717a', flexShrink: 0 }}
         >
           <span>Powered by</span>
-          <span className="font-bold" style={{ color: '#FB651E' }}>YC Explorer</span>
+          <span className="font-bold" style={{ color: '#FB651E' }}>ExploreYC</span>
         </div>
       </div>
     </div>

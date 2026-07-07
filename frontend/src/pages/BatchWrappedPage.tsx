@@ -146,14 +146,14 @@ export function BatchWrappedPage() {
     <>
       {/* Dynamic meta tags for SEO and social sharing */}
       <Helmet>
-        <title>{stats.batch} Wrapped - YC Company Explorer</title>
+        <title>{stats.batch} Wrapped - ExploreYC</title>
         <meta
           name="description"
           content={`Explore ${stats.batch} batch wrapped: ${stats.total_companies} companies, ${stats.hiring_percentage}% hiring, top industry ${stats.top_industries[0]?.name}`}
         />
 
         {/* Open Graph tags */}
-        <meta property="og:title" content={`${stats.batch} Wrapped - YC Company Explorer`} />
+        <meta property="og:title" content={`${stats.batch} Wrapped - ExploreYC`} />
         <meta
           property="og:description"
           content={`${stats.total_companies} companies launched in ${stats.batch}. Top industry: ${stats.top_industries[0]?.name}. ${stats.hiring_percentage}% are hiring!`}

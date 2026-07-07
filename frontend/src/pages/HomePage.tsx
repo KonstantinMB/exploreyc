@@ -54,11 +54,11 @@ export function HomePage() {
           <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">
             <span className="text-[#FB651E]">&gt;</span>{' '}
             <span className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
-              Explore YC Companies
+              Explore YC &amp; a16z startups
             </span>
           </h1>
           <p className="text-lg text-muted-foreground font-mono max-w-2xl mb-8">
-            Search, analyze, and discover insights from Y Combinator's portfolio. {totalCompanies.toLocaleString()}+ companies, {totalCountries}+ countries.
+            Search, analyze, and build on startup data from Y Combinator, a16z &amp; more — {totalCompanies.toLocaleString()}+ companies in one place, now with a free, open-source API.
           </p>
 
           {/* Live Stats - inline terminal style */}
@@ -120,7 +120,7 @@ export function HomePage() {
             >
               <img
                 src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1140202&theme=light&t=1778138682064"
-                alt="ExploreYC - YC Company Explorer - Your data layer for Y Combinator's startup ecosystem | Product Hunt"
+                alt="ExploreYC — startup data API for YC & a16z | Product Hunt"
                 width="250"
                 height="54"
               />

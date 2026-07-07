@@ -180,7 +180,7 @@ export function ShareHub() {
               { step: '1', text: 'Choose your content type (wrapped, leaderboard, map, or company card)' },
               { step: '2', text: 'Customize filters and options to create your perfect share' },
               { step: '3', text: 'Download high-quality PNG or share directly to Twitter/LinkedIn' },
-              { step: '4', text: 'Drive traffic back to YC Explorer and grow your audience' },
+              { step: '4', text: 'Drive traffic back to ExploreYC and grow your audience' },
             ].map((item, index) => (
               <motion.div
                 key={index}

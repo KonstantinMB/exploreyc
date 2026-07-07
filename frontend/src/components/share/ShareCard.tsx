@@ -51,7 +51,7 @@ export const ShareCard = forwardRef<HTMLDivElement, ShareCardProps>(
         {/* Watermark */}
         {watermark && (
           <div className="absolute bottom-6 right-6 flex items-center gap-2 text-white/60">
-            <span className="text-sm font-mono">YC Explorer</span>
+            <span className="text-sm font-mono">ExploreYC</span>
             <svg
               className="w-4 h-4"
               fill="currentColor"

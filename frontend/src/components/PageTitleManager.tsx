@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 
 const BRAND = 'ExploreYC';
-const DEFAULT_TITLE = `${BRAND} — explore the Y Combinator portfolio`;
+const DEFAULT_TITLE = `${BRAND} — startup data from YC, a16z & more`;
 
 const EXACT: Record<string, string> = {
   '/': DEFAULT_TITLE,

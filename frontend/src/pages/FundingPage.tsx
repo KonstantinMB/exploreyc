@@ -159,7 +159,7 @@ export function FundingPage() {
           'datePublished': '2024-01-01',
           'creator': {
             '@type': 'Organization',
-            'name': 'YC Explorer'
+            'name': 'ExploreYC'
           },
           'distribution': {
             '@type': 'DataDownload',
@@ -207,7 +207,7 @@ export function FundingPage() {
         {/* Primary Meta Tags */}
         <title>
           {filteredNetwork?.companies.length
-            ? `Top ${filteredNetwork.companies.length} YC Companies by Funding (2025) | YC Explorer`
+            ? `Top ${filteredNetwork.companies.length} YC Companies by Funding (2025) | ExploreYC`
             : 'YC Startup Funding Leaderboard 2025 | Y Combinator Companies Ranked'
           }
         </title>
@@ -265,7 +265,7 @@ export function FundingPage() {
         <meta name="twitter:image" content="https://yc-explorer.com/og-funding.png" />
 
         {/* Additional SEO */}
-        <meta name="author" content="YC Explorer" />
+        <meta name="author" content="ExploreYC" />
         <meta name="robots" content="index, follow, max-image-preview:large" />
         <meta name="googlebot" content="index, follow" />
 

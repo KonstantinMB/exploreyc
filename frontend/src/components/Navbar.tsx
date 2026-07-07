@@ -7,6 +7,7 @@ import {
 import { useApp } from '../contexts/AppContext';
 import { useDevAuth } from '../contexts/DevAuthContext';
 import { Avatar } from './ui/Avatar';
+import { Logo } from './ui/Logo';
 
 interface NavTab {
   id: string;
@@ -55,12 +56,10 @@ export function Navbar() {
         <div className="flex h-14 items-center justify-between gap-2">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 sm:gap-3 group min-w-0 flex-shrink-0">
-            <div className="w-9 h-9 bg-[#FB651E] flex items-center justify-center group-hover:shadow-[0_0_16px_rgba(251,101,30,0.4)] transition-shadow flex-shrink-0">
-              <span className="text-lg font-bold text-white">Y</span>
-            </div>
+            <Logo size={36} className="group-hover:shadow-[0_0_16px_rgba(251,101,30,0.4)] transition-shadow" />
             <div className="hidden lg:block min-w-0">
-              <div className="text-sm font-bold whitespace-nowrap truncate">YC Explorer</div>
-              <div className="text-xs text-muted-foreground whitespace-nowrap truncate">$ company-db</div>
+              <div className="text-sm font-bold whitespace-nowrap truncate">ExploreYC</div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap truncate">$ startup-db</div>
             </div>
           </Link>
 

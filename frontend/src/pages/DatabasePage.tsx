@@ -14,7 +14,6 @@ import {
 } from '@tanstack/react-table';
 import {
   Database,
-  Terminal,
   Download,
   ExternalLink,
   ArrowUpDown,
@@ -39,6 +38,7 @@ import {
 } from 'lucide-react';
 import { apiClient, type Company, type CompanyFilter } from '../lib/api';
 import { SourceBadge, sourceLabel } from '../components/ui/SourceBadge';
+import { PageHeader } from '../components/ui/PageHeader';
 import { useApp } from '../contexts/AppContext';
 import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
@@ -822,29 +822,21 @@ export function DatabasePage() {
 
       <div className="container relative mx-auto px-4 py-8 max-w-[1600px]">
         {/* Header */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
-          <div className="flex items-center gap-2 mb-3 font-mono text-sm text-muted-foreground">
-            <Terminal className="h-4 w-4 text-[#FB651E]" />
-            <span>$ yc --database --all --export</span>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold mb-1">
-                <span className="text-[#FB651E]">&gt;</span>{' '}
-                <span>{sourceHeading}</span>
-              </h1>
-              <p className="text-muted-foreground font-mono text-sm">
-                {sourceSubtitle}
-              </p>
-            </div>
-            <button
-              onClick={() => setExportOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white text-sm font-semibold font-mono transition-colors rounded-sm flex-shrink-0"
-            >
-              <Download className="w-4 h-4" />
-              Export Data
-            </button>
-          </div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+          <PageHeader
+            command="$ db --companies --export"
+            title={sourceHeading}
+            subtitle={sourceSubtitle}
+            actions={
+              <button
+                onClick={() => setExportOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white text-sm font-semibold font-mono transition-colors rounded-sm flex-shrink-0"
+              >
+                <Download className="w-4 h-4" />
+                Export Data
+              </button>
+            }
+          />
         </motion.div>
 
         {/* Stats row */}

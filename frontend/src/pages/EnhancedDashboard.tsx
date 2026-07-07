@@ -322,7 +322,7 @@ export function EnhancedDashboard() {
             <div>
               <h3 className="font-bold mb-3 flex items-center gap-2">
                 <img src="/yc-logo.png" alt="YC" className="h-6 w-6 object-contain" />
-                YC Company Explorer
+                ExploreYC
               </h3>
               <p className="text-sm text-muted-foreground">
                 Explore and analyze Y Combinator startups with interactive maps, advanced analytics, and real-time data.
