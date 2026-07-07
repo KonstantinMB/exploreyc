@@ -54,7 +54,7 @@ export function MobileBottomNav() {
     <>
       {/* Top bar with burger */}
       <nav
-        className="fixed left-0 right-0 z-40 md:hidden h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 font-mono"
+        className="fixed left-0 right-0 z-40 lg:hidden h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 font-mono"
         style={{ top: '28px' }}
       >
         <div className="flex h-full items-center justify-between px-4">
@@ -80,7 +80,7 @@ export function MobileBottomNav() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 md:hidden bg-background font-mono overflow-y-auto"
+            className="fixed inset-0 z-50 lg:hidden bg-background font-mono overflow-y-auto"
           >
             {/* Overlay header */}
             <div className="flex items-center justify-between px-4 h-14 border-b border-border" style={{ marginTop: '28px' }}>
