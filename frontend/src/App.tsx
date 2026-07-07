@@ -147,7 +147,7 @@ function LayoutContent() {
       <ScrollToTop />
       <Navbar />
       <MobileBottomNav />
-      <main className="pt-[84px] md:pt-0">
+      <main className="pt-[84px] lg:pt-0">
         <AnimatedOutlet />
       </main>
       <CommandPalette
