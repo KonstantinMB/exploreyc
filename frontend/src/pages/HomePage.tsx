@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useApp } from '../contexts/AppContext';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
-import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal } from 'lucide-react';
+import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
 import { OptimizedMap } from '../components/OptimizedMap';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { CompaniesBrowser } from '../components/CompaniesBrowser';
@@ -112,19 +112,35 @@ export function HomePage() {
             transition={{ delay: 0.5 }}
             className="mt-6 flex flex-wrap items-center gap-4"
           >
-            <a
-              href="https://www.producthunt.com/products/yc-company-explorer?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-exploreyc-yc-company-explorer"
+            <motion.a
+              href="https://www.producthunt.com/products/yc-company-explorer?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-exploreyc-2"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block"
+              aria-label="Upvote ExploreYC on Product Hunt"
+              className="group relative inline-flex shrink-0 items-center"
+              whileHover={{ scale: 1.03, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 22 }}
             >
+              {/* Animated upvote nudge — anchored over the badge's vote arrow */}
+              <motion.span
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-2.5 right-3 z-10 flex items-center gap-0.5 rounded-full border border-[#FB651E]/60 bg-background/95 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-[#FB651E] shadow-[0_0_12px_rgba(251,101,30,0.4)]"
+                animate={{ y: [0, -3, 0] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <ChevronUp className="h-3 w-3" />
+                Upvote
+              </motion.span>
+
               <img
-                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1140202&theme=light&t=1778138682064"
-                alt="ExploreYC — startup data API for YC & a16z | Product Hunt"
-                width="250"
-                height="54"
+                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1190010&theme=light&t=1783529184370"
+                alt="ExploreYC — Open-source API for Y Combinator &amp; a16z company data | Product Hunt"
+                width={250}
+                height={54}
+                className="h-[54px] w-auto max-w-full rounded-md transition-shadow duration-200 group-hover:shadow-[0_0_22px_rgba(251,101,30,0.35)]"
               />
-            </a>
+            </motion.a>
 
             {/* Open Source / GitHub banner */}
             <a
