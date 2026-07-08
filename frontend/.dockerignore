@@ -1,0 +1,38 @@
+# frontend/.dockerignore
+# Excludes files that should not be sent to the Docker build daemon.
+# Keeping the build context small means faster builds and no accidental
+# secrets or host-specific artefacts inside the image.
+
+# Dependencies — re-installed inside the container via npm ci
+node_modules/
+
+# Build output — not needed for the dev server image
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# OS artefacts
+.DS_Store
+Thumbs.db
