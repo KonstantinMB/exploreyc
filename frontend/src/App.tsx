@@ -18,6 +18,7 @@ import { RoadmapPage } from './pages/RoadmapPage';
 import { FoundersPage } from './pages/FoundersPage';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { ValidatorPage } from './pages/ValidatorPage';
+import { IdeaBreakdownPage } from './pages/IdeaBreakdownPage';
 import { SuccessPredictorPage } from './pages/SuccessPredictorPage';
 import { CompanyIntelligencePage } from './pages/CompanyIntelligencePage';
 import { ResearchHubPage } from './pages/ResearchHubPage';
@@ -175,6 +176,7 @@ function AnimatedRoutes() {
       {/* Full-screen pages without navigation */}
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/validator" element={<ValidatorPage />} />
+      <Route path="/idea" element={<IdeaBreakdownPage />} />
       <Route path="/success-predictor" element={<SuccessPredictorPage />} />
       <Route path="/research" element={<CompanyIntelligencePage />} />
       <Route path="/research-hub" element={<ResearchHubPage />} />
