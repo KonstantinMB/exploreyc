@@ -2196,3 +2196,34 @@ class DatabasePostgres:
                     "total_views": total_views,
                     "avg_views_per_search": round(float(avg_views), 2)
                 }
+
+    # ============================================================================
+    # IDEA ANSWER CACHE METHODS
+    # ============================================================================
+
+    def get_idea_answer_cache(self, query_key: str):
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT answer_json FROM idea_answer_cache "
+                    "WHERE query_key = %s AND expires_at > NOW()", (query_key,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                cur.execute("UPDATE idea_answer_cache SET hit_count = hit_count + 1 WHERE query_key = %s", (query_key,))
+                conn.commit()
+                return row["answer_json"]
+
+    def set_idea_answer_cache(self, query_key: str, answer_json: dict, ttl_hours: int = 24, prose: str = None) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO idea_answer_cache (query_key, answer_json, prose, expires_at)
+                    VALUES (%s, %s, %s, NOW() + (%s || ' hours')::interval)
+                    ON CONFLICT (query_key) DO UPDATE
+                      SET answer_json = EXCLUDED.answer_json, prose = EXCLUDED.prose,
+                          expires_at = EXCLUDED.expires_at, created_at = NOW()
+                    """,
+                    (query_key, json.dumps(answer_json), prose, str(ttl_hours)))
+                conn.commit()
