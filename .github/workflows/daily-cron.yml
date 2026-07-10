@@ -6,6 +6,8 @@ on:
     - cron: '0 2 * * *'
     # Send digests at 10 AM UTC
     - cron: '0 10 * * *'
+    # Hero answer-box pre-warm at 3 AM UTC (after scrape, needs Task 12 embeddings)
+    - cron: '0 3 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -34,3 +36,34 @@ jobs:
             -H "Content-Type: application/json" \
             -v
         timeout-minutes: 5
+
+  # ---------------------------------------------------------------------------
+  # Hero answer-box nightly pre-warm (Task 13)
+  # Depends on company embeddings being present — Task 12 re-embed must have
+  # run at least once before this job produces useful results.
+  # WARNING: this job calls gpt-4.1-mini (~40 ideas × ~$0.001 = ~$0.04/night).
+  # ---------------------------------------------------------------------------
+  prewarm-hero:
+    runs-on: ubuntu-latest
+    # Only run pre-warm at 3 AM UTC (after daily scrape at 2 AM)
+    if: github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Pre-warm hero answer cache
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/prewarm_hero.py
+        timeout-minutes: 15

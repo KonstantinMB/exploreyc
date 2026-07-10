@@ -756,6 +756,13 @@ class DatabasePostgres:
 
     # ========== STARTUP IDEA VALIDATOR METHODS ==========
 
+    def get_yc_company_count(self) -> int:
+        """Return total number of source='yc' companies (denominator for market_size_percentage)."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
+                return cur.fetchone()[0]
+
     def count_companies_with_embeddings(self) -> int:
         """Return number of companies that have embeddings (for validator setup check)"""
         with self.get_connection() as conn:
@@ -788,6 +795,60 @@ class DatabasePostgres:
                 """, (limit,))
                 return [dict(row) for row in cur.fetchall()]
 
+    @staticmethod
+    def build_company_embedding_text(company: dict) -> str:
+        """Assemble the document text that gets embedded for a company.
+
+        Order matters less than coverage: include every field that carries
+        semantic signal about *what the company does*. The result MUST be run
+        through get_search_text_for_embedding() by the caller before embedding,
+        exactly like the user's query, to preserve query/document symmetry.
+        """
+        def _join(v):
+            if isinstance(v, (list, tuple)):
+                return " ".join(str(x) for x in v if x)
+            return str(v) if v else ""
+        parts = [
+            company.get("name") or "",
+            company.get("one_liner") or "",
+            company.get("long_description") or "",
+            company.get("industry") or "",
+            company.get("subindustry") or "",
+            _join(company.get("tags")),
+            _join(company.get("industries")),
+        ]
+        return " ".join(p for p in (s.strip() for s in parts) if p)
+
+    def get_companies_for_embedding(self, only_missing: bool = True, limit: int = 10000) -> List[Dict]:
+        """Return companies for (re-)embedding.
+
+        Args:
+            only_missing: When True, returns only rows where embedding IS NULL.
+                          When False, returns all source='yc' rows.
+            limit: Maximum number of rows to return.
+
+        Returns:
+            List of dicts with id, name, one_liner, long_description,
+            industry, subindustry, tags, industries.
+        """
+        where = "WHERE source = 'yc'"
+        if only_missing:
+            where += " AND embedding IS NULL"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""
+                    SELECT id, name, one_liner, long_description,
+                           industry, subindustry, tags, industries
+                    FROM companies
+                    {where}
+                    ORDER BY id DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
     def update_company_embedding(self, company_id: int, embedding: List[float]) -> bool:
         """
         Update the embedding vector for a company
@@ -817,6 +878,18 @@ class DatabasePostgres:
             logger.error(f"Failed to update embedding for company {company_id}: {e}")
             return False
 
+    def update_company_embeddings_batch(self, pairs) -> int:
+        if not pairs:
+            return 0
+        rows = [("[" + ",".join(map(str, emb)) + "]", cid) for cid, emb in pairs]
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "UPDATE companies SET embedding = %s::vector WHERE id = %s", rows
+                )
+            conn.commit()
+        return len(rows)
+
     def find_similar_companies_by_embedding(
         self,
         embedding: List[float],
@@ -838,6 +911,9 @@ class DatabasePostgres:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Convert Python list to PostgreSQL vector format
                 embedding_str = '[' + ','.join(map(str, embedding)) + ']'
+
+                # Raise HNSW index recall (no-op for IVFFlat indexes)
+                cur.execute("SET LOCAL hnsw.ef_search = 60")
 
                 # Query using cosine similarity
                 # <=> is the cosine distance operator in pgvector
@@ -2127,3 +2203,34 @@ class DatabasePostgres:
                     "total_views": total_views,
                     "avg_views_per_search": round(float(avg_views), 2)
                 }
+
+    # ============================================================================
+    # IDEA ANSWER CACHE METHODS
+    # ============================================================================
+
+    def get_idea_answer_cache(self, query_key: str):
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT answer_json FROM idea_answer_cache "
+                    "WHERE query_key = %s AND expires_at > NOW()", (query_key,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                cur.execute("UPDATE idea_answer_cache SET hit_count = hit_count + 1 WHERE query_key = %s", (query_key,))
+                conn.commit()
+                return row["answer_json"]
+
+    def set_idea_answer_cache(self, query_key: str, answer_json: dict, ttl_hours: int = 24, prose: str = None) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO idea_answer_cache (query_key, answer_json, prose, expires_at)
+                    VALUES (%s, %s, %s, NOW() + (%s || ' hours')::interval)
+                    ON CONFLICT (query_key) DO UPDATE
+                      SET answer_json = EXCLUDED.answer_json, prose = EXCLUDED.prose,
+                          expires_at = EXCLUDED.expires_at, created_at = NOW()
+                    """,
+                    (query_key, json.dumps(answer_json), prose, str(ttl_hours)))
+                conn.commit()

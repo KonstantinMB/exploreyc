@@ -1507,3 +1507,13 @@ class Database:
                 "total_views": total_views,
                 "avg_views_per_search": round(avg_views, 2)
             }
+
+    # ============================================================================
+    # IDEA ANSWER CACHE METHODS (no-op stubs — caching is Postgres-only)
+    # ============================================================================
+
+    def get_idea_answer_cache(self, query_key: str):
+        return None  # caching is Postgres-only; local dev always computes fresh
+
+    def set_idea_answer_cache(self, query_key: str, answer_json: dict, ttl_hours: int = 24, prose: str = None) -> None:
+        return None

@@ -185,6 +185,34 @@ class EmbeddingService:
         """
         return self.generate_embedding(idea)
 
+    def generate_embeddings_batch(self, texts, use_cache: bool = True):
+        """Embed many texts with as few OpenAI calls as possible (≤256/call)."""
+        results = [None] * len(texts)
+        pending_idx, pending_txt = [], []
+        for i, t in enumerate(texts):
+            t = (t or "").strip()
+            if not t:
+                results[i] = [0.0] * EMBEDDING_DIMENSIONS
+                continue
+            cached = self._get_from_cache(t) if use_cache else None
+            if cached is not None:
+                results[i] = cached
+            else:
+                pending_idx.append(i); pending_txt.append(t)
+        CHUNK = 256
+        for start in range(0, len(pending_txt), CHUNK):
+            chunk = pending_txt[start:start + CHUNK]
+            resp = self.client.embeddings.create(input=chunk, model=EMBEDDING_MODEL)
+            for j, item in enumerate(resp.data):
+                emb = item.embedding
+                if len(emb) != EMBEDDING_DIMENSIONS:
+                    raise RuntimeError(f"Unexpected dims {len(emb)}")
+                gi = pending_idx[start + j]
+                results[gi] = emb
+                if use_cache:
+                    self._save_to_cache(pending_txt[start + j], emb)
+        return results
+
     def get_cache_stats(self) -> Dict[str, int]:
         """Get statistics about the cache"""
         return {
