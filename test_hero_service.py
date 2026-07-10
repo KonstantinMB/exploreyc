@@ -45,12 +45,20 @@ def test_market_size_percentage():
     assert v["market_size_percentage"] == 0.5
 
 
+def test_null_batch_no_none_string():
+    # A company with batch=None must not render "(None)" in the summary.
+    v = build_verdict("x", [_co("NullBatchCo", 0.85, batch=None)], portfolio_total=6000)
+    assert "(None)" not in v["summary"], v["summary"]
+    assert "unknown" in v["summary"], v["summary"]
+
+
 if __name__ == "__main__":
     tests = [
         test_open_space_when_no_matches,
         test_crowded_meter_and_names_closest,
         test_meter_thresholds,
         test_market_size_percentage,
+        test_null_batch_no_none_string,
     ]
     failed = 0
     for t in tests:
