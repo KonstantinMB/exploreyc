@@ -788,6 +788,60 @@ class DatabasePostgres:
                 """, (limit,))
                 return [dict(row) for row in cur.fetchall()]
 
+    @staticmethod
+    def build_company_embedding_text(company: dict) -> str:
+        """Assemble the document text that gets embedded for a company.
+
+        Order matters less than coverage: include every field that carries
+        semantic signal about *what the company does*. The result MUST be run
+        through get_search_text_for_embedding() by the caller before embedding,
+        exactly like the user's query, to preserve query/document symmetry.
+        """
+        def _join(v):
+            if isinstance(v, (list, tuple)):
+                return " ".join(str(x) for x in v if x)
+            return str(v) if v else ""
+        parts = [
+            company.get("name") or "",
+            company.get("one_liner") or "",
+            company.get("long_description") or "",
+            company.get("industry") or "",
+            company.get("subindustry") or "",
+            _join(company.get("tags")),
+            _join(company.get("industries")),
+        ]
+        return " ".join(p for p in (s.strip() for s in parts) if p)
+
+    def get_companies_for_embedding(self, only_missing: bool = True, limit: int = 10000) -> List[Dict]:
+        """Return companies for (re-)embedding.
+
+        Args:
+            only_missing: When True, returns only rows where embedding IS NULL.
+                          When False, returns all source='yc' rows.
+            limit: Maximum number of rows to return.
+
+        Returns:
+            List of dicts with id, name, one_liner, long_description,
+            industry, subindustry, tags, industries.
+        """
+        where = "WHERE source = 'yc'"
+        if only_missing:
+            where += " AND embedding IS NULL"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""
+                    SELECT id, name, one_liner, long_description,
+                           industry, subindustry, tags, industries
+                    FROM companies
+                    {where}
+                    ORDER BY id DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
     def update_company_embedding(self, company_id: int, embedding: List[float]) -> bool:
         """
         Update the embedding vector for a company
