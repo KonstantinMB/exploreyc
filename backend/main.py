@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -35,6 +36,8 @@ from coresignal_service import coresignal_service
 from hiring_service import get_hiring_service
 from gamification_scoring import GamificationScorer
 from perplexity_service import get_perplexity_service
+from hero_service import build_verdict
+import ratelimit
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1080,6 +1083,69 @@ async def validate_startup_idea(request: IdeaValidationRequest, request_obj: Req
             status_code=500,
             detail=f"An unexpected error occurred: {str(e)}"
         )
+
+
+# ============================================================================
+# HERO ANSWER BOX ENDPOINT — instant, deterministic, cached
+# ============================================================================
+
+class HeroAnswerRequest(BaseModel):
+    idea: str
+
+
+@app.post("/api/hero-answer")
+async def hero_answer(req: HeroAnswerRequest, request: Request):
+    """
+    Instant deterministic answer for the homepage hero box.
+
+    Uses pgvector similarity search + build_verdict() — NO LLM chat calls.
+    Results are cached by SHA-1 of the lowercased idea for 24 hours.
+    """
+    idea = (req.idea or "").strip()
+    if len(idea) < 10:
+        raise HTTPException(status_code=400, detail="Describe the idea in a bit more detail.")
+
+    ip = request.client.host if request.client else "unknown"
+    allowed, retry = ratelimit.check_rate_limit(f"hero:{ip}", limit=15, window_seconds=60)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Slow down — try again in {retry}s.")
+
+    key = hashlib.sha1(idea.lower().encode()).hexdigest()
+
+    # Return cached result if available
+    cached = db.get_idea_answer_cache(key) if hasattr(db, "get_idea_answer_cache") else None
+    if cached:
+        return {**cached, "cached": True}
+
+    # Guard: require embeddings to be present
+    if not hasattr(db, "count_companies_with_embeddings"):
+        raise HTTPException(status_code=503, detail="Semantic search unavailable in this environment.")
+    if db.count_companies_with_embeddings() == 0:
+        raise HTTPException(status_code=503, detail="Company embeddings not yet generated.")
+
+    # Embed → similarity search → verdict (zero LLM chat calls)
+    search_text = get_search_text_for_embedding(idea)
+    embedding = get_embedding_service().generate_embedding_for_idea(search_text)
+    similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32)
+
+    # Portfolio total: count_companies() with no filters counts all companies; use
+    # source='yc' semantics by passing no batch/filter (all rows ARE yc-sourced).
+    # count_companies() is the correct existing method (no get_company_count exists).
+    if hasattr(db, "count_companies"):
+        portfolio_total = db.count_companies()
+    else:
+        portfolio_total = 6000  # safe fallback for non-Postgres environments
+
+    verdict = build_verdict(idea, similar, portfolio_total)
+
+    # Write cache (non-fatal)
+    if hasattr(db, "set_idea_answer_cache"):
+        try:
+            db.set_idea_answer_cache(key, verdict, ttl_hours=24)
+        except Exception as e:
+            logger.error(f"hero cache write failed (non-fatal): {e}")
+
+    return {**verdict, "cached": False, "prose": None}
 
 
 # ============================================================================
