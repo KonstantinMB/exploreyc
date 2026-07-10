@@ -6,7 +6,7 @@ import { apiClient, type HeroAnswer, type SimilarCompany } from '../lib/api'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card'
 import { IndustryBreakdownChart } from '../components/IndustryBreakdownChart'
 import { BatchTimelineChart } from '../components/BatchTimelineChart'
-import { ValidatorCompanyCard } from '../components/ValidatorCompanyCard'
+import { SimilarCompaniesTable } from '../components/SimilarCompaniesTable'
 
 const METER: Record<HeroAnswer['meter'], { label: string; text: string; ring: string; dot: string }> = {
   open: { label: 'OPEN FIELD', text: 'text-emerald-500', ring: 'border-emerald-500/40', dot: 'bg-emerald-500' },
@@ -181,19 +181,15 @@ export function IdeaBreakdownPage() {
               </div>
             )}
 
-            {/* Company grid */}
-            {matches.length > 0 && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-mono text-lg font-semibold">Similar companies</h2>
-                  <span className="font-mono text-sm text-muted-foreground">sorted by similarity</span>
+            {/* Company table */}
+            {matches.length > 0 ? (
+              <SimilarCompaniesTable companies={matches} />
+            ) : (
+              answer.total_similar > 0 && (
+                <div className="rounded-xl border border-border bg-card/40 p-6 text-center font-mono text-sm text-muted-foreground">
+                  Company details are refreshing — reload in a moment to see the full list.
                 </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {matches.map((company) => (
-                    <ValidatorCompanyCard key={company.id} company={company} />
-                  ))}
-                </div>
-              </div>
+              )
             )}
           </motion.div>
         )}

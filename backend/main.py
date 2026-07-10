@@ -1053,7 +1053,10 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
     if hasattr(db, "get_idea_answer_cache"):
         try:
             cached = db.get_idea_answer_cache(key)
-            if cached:
+            # Self-heal stale entries: a cache row written before the breakdown
+            # enrichment shipped lacks "all_matches". Treat those as a miss so we
+            # recompute and re-cache the full payload (companies + charts).
+            if cached and cached.get("all_matches") is not None:
                 return {**cached, "cached": True}
         except Exception as e:
             logger.warning(f"hero cache read failed (non-fatal): {e}")
