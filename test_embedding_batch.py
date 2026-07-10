@@ -31,9 +31,28 @@ def test_build_company_embedding_text_skips_missing_fields():
     assert text.strip() == "X", f"Expected 'X', got: {text!r}"
 
 
+from unittest.mock import patch, MagicMock
+from embedding_service import EmbeddingService
+
+
+def test_generate_embeddings_batch_preserves_order_and_dims():
+    svc = EmbeddingService.__new__(EmbeddingService)   # bypass __init__/env
+    svc._cache = {}
+    fake = MagicMock()
+    fake.data = [MagicMock(embedding=[float(i)] * 1536) for i in range(3)]
+    svc.client = MagicMock()
+    svc.client.embeddings.create.return_value = fake
+    out = svc.generate_embeddings_batch(["a", "b", "c"], use_cache=False)
+    assert len(out) == 3 and all(len(v) == 1536 for v in out)
+    assert out[0][0] == 0.0 and out[2][0] == 2.0
+
+
 if __name__ == "__main__":
     test_build_company_embedding_text_includes_all_signal_fields()
     print("PASS: test_build_company_embedding_text_includes_all_signal_fields")
 
     test_build_company_embedding_text_skips_missing_fields()
     print("PASS: test_build_company_embedding_text_skips_missing_fields")
+
+    test_generate_embeddings_batch_preserves_order_and_dims()
+    print("PASS: test_generate_embeddings_batch_preserves_order_and_dims")
