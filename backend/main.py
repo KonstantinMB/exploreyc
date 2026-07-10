@@ -1088,6 +1088,20 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
 
     verdict = build_verdict(idea, similar, portfolio_total)
 
+    # Enrich with the full match set + breakdowns so the dedicated /idea page can
+    # render charts and the complete company grid WITHOUT re-embedding (reuses the
+    # `similar` set we already retrieved). Cheap: pure Python + one COUNT query.
+    # Non-fatal — the compact answer card doesn't depend on these.
+    try:
+        if hasattr(db, "get_market_analysis"):
+            analysis = db.get_market_analysis(similar)
+            verdict["all_matches"] = similar
+            verdict["industry_breakdown"] = analysis.get("industry_breakdown", {})
+            verdict["batch_timeline"] = analysis.get("batch_timeline", [])
+            verdict["market_indicator"] = analysis.get("market_indicator")
+    except Exception as e:
+        logger.warning(f"hero breakdown enrichment failed (non-fatal): {e}")
+
     # Write cache (non-fatal)
     if hasattr(db, "set_idea_answer_cache"):
         try:

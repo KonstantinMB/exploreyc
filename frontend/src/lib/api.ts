@@ -377,6 +377,11 @@ export interface HeroAnswer {
   market_size_percentage: number
   cached: boolean
   prose: string | null
+  // Enrichment for the dedicated /idea breakdown page (present on fresh answers).
+  all_matches?: SimilarCompany[]
+  industry_breakdown?: Record<string, number>
+  batch_timeline?: BatchCount[]
+  market_indicator?: 'green' | 'yellow' | 'crowded'
 }
 
 // WebSocket connection for live scrape updates

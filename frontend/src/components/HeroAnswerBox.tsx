@@ -92,6 +92,7 @@ export function HeroAnswerBox() {
   const [idea, setIdea] = useState('')
   const [loading, setLoading] = useState(false)
   const [answer, setAnswer] = useState<HeroAnswer | null>(null)
+  const [submittedIdea, setSubmittedIdea] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [focused, setFocused] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -105,7 +106,9 @@ export function HeroAnswerBox() {
     setLoading(true)
     setError(null)
     try {
-      setAnswer((await apiClient.heroAnswer(q)).data)
+      const res = await apiClient.heroAnswer(q)
+      setAnswer(res.data)
+      setSubmittedIdea(q.trim())
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       setError(err?.response?.data?.detail ?? 'Something went wrong. Try again.')
@@ -296,10 +299,11 @@ export function HeroAnswerBox() {
               )}
 
               <Link
-                to="/validator"
+                to={`/idea?q=${encodeURIComponent(submittedIdea)}`}
+                state={{ answer, idea: submittedIdea }}
                 className="mt-4 inline-flex items-center gap-1 font-mono text-xs font-semibold text-[#FB651E] transition-colors hover:text-[#E65C00]"
               >
-                Full breakdown, charts & market map
+                Full breakdown, charts &amp; market map
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
