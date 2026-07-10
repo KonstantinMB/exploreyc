@@ -89,6 +89,7 @@ See `.env.example` for the full list. Key ones:
 - `RESEND_API_KEY` — email service
 - `CORESIGNAL_API_KEY` — company enrichment
 - `CRON_SECRET` — cron job auth
+- `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` — rate-limit storage (optional; falls back to in-memory)
 - `VITE_API_URL` — backend URL for browser requests (frontend env var)
 - `FRONTEND_URL` — used for CORS configuration
 
