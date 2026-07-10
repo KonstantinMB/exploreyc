@@ -241,32 +241,12 @@ export const apiClient = {
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),
 
-  // Export
-  exportJSON: (filters: Partial<CompanyFilter>) => {
-    const params = new URLSearchParams()
-    if (filters.batch) params.append('batch', filters.batch)
-    if (filters.is_hiring !== undefined) params.append('is_hiring', String(filters.is_hiring))
-    if (filters.industry) params.append('industry', filters.industry)
-    if (filters.country) params.append('country', filters.country)
-    if (filters.search) params.append('search', filters.search)
-    if (filters.top_company !== undefined) params.append('top_company', String(filters.top_company))
-    if (filters.source) params.append('source', filters.source)
-
-    window.open(`${API_BASE_URL}/api/export/json?${params.toString()}`, '_blank')
-  },
-
-  exportCSV: (filters: Partial<CompanyFilter>) => {
-    const params = new URLSearchParams()
-    if (filters.batch) params.append('batch', filters.batch)
-    if (filters.is_hiring !== undefined) params.append('is_hiring', String(filters.is_hiring))
-    if (filters.industry) params.append('industry', filters.industry)
-    if (filters.country) params.append('country', filters.country)
-    if (filters.search) params.append('search', filters.search)
-    if (filters.top_company !== undefined) params.append('top_company', String(filters.top_company))
-    if (filters.source) params.append('source', filters.source)
-
-    window.open(`${API_BASE_URL}/api/export/csv?${params.toString()}`, '_blank')
-  },
+  // Feature interest — data export is currently unavailable; users register demand here.
+  submitFeatureInterest: (payload: { feature?: string; email?: string; user_identifier?: string }) =>
+    api.post<{ success: boolean; feature: string; already_registered: boolean; count: number }>(
+      '/api/feature-interest',
+      payload,
+    ),
 
   // Startup Idea Validator
   validateIdea: (idea: string, maxSimilar: number = 10) =>

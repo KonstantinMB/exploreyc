@@ -695,88 +695,22 @@ async def get_countries():
     return {"countries": countries}
 
 
+# Data export (CSV/JSON) is currently disabled. The endpoints are kept so direct
+# callers get a clear 503 instead of a 404. Users can register interest for the
+# feature via POST /api/feature-interest (see below).
+_EXPORT_DISABLED_DETAIL = "Data export is temporarily unavailable."
+
+
 @app.get("/api/export/json")
-async def export_json(
-    batch: Optional[str] = None,
-    is_hiring: Optional[bool] = None,
-    industry: Optional[str] = None,
-    country: Optional[str] = None,
-    search: Optional[str] = None,
-    top_company: Optional[bool] = None,
-    source: Optional[str] = None,
-):
-    """Export companies to JSON"""
-    companies = company_cache.get_companies(
-        limit=10000,
-        batch=batch,
-        is_hiring=is_hiring,
-        industry=industry,
-        country=country,
-        search=search,
-        top_company=top_company,
-        source=source,
-    )
-
-    # Create JSON file
-    json_str = json.dumps(companies, indent=2, default=str)
-
-    return StreamingResponse(
-        io.BytesIO(json_str.encode()),
-        media_type="application/json",
-        headers={
-            "Content-Disposition": f"attachment; filename=yc_companies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        }
-    )
+async def export_json():
+    """Disabled — data export is temporarily unavailable."""
+    raise HTTPException(status_code=503, detail=_EXPORT_DISABLED_DETAIL)
 
 
 @app.get("/api/export/csv")
-async def export_csv(
-    batch: Optional[str] = None,
-    is_hiring: Optional[bool] = None,
-    industry: Optional[str] = None,
-    country: Optional[str] = None,
-    search: Optional[str] = None,
-    top_company: Optional[bool] = None,
-    source: Optional[str] = None,
-):
-    """Export companies to CSV"""
-    companies = company_cache.get_companies(
-        limit=10000,
-        batch=batch,
-        is_hiring=is_hiring,
-        industry=industry,
-        country=country,
-        search=search,
-        top_company=top_company,
-        source=source,
-    )
-
-    if not companies:
-        raise HTTPException(status_code=404, detail="No companies found")
-
-    # Create CSV
-    output = io.StringIO()
-
-    # Get fieldnames from first company (exclude raw_json)
-    fieldnames = [k for k in companies[0].keys() if k != 'raw_json']
-
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
-    writer.writeheader()
-
-    for company in companies:
-        # Remove raw_json field
-        company_data = {k: v for k, v in company.items() if k != 'raw_json'}
-        writer.writerow(company_data)
-
-    csv_str = output.getvalue()
-
-    return StreamingResponse(
-        io.BytesIO(csv_str.encode()),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=yc_companies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        }
-    )
+async def export_csv():
+    """Disabled — data export is temporarily unavailable."""
+    raise HTTPException(status_code=503, detail=_EXPORT_DISABLED_DETAIL)
 
 
 @app.websocket("/ws/scrape")
@@ -1688,6 +1622,38 @@ async def get_user_votes(user_identifier: str):
     except Exception as e:
         logger.error(f"Get user votes error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class FeatureInterestRequest(BaseModel):
+    feature: str = "db-export"          # which paused feature the interest is for
+    email: Optional[str] = None         # optional — for "notify me when it's back"
+    user_identifier: Optional[str] = None  # stable per-browser id to dedupe clicks
+
+
+@app.post("/api/feature-interest")
+async def register_feature_interest(request: FeatureInterestRequest):
+    """Record that a user wants a currently-unavailable feature (e.g. data export).
+
+    Deduplicated per (feature, user_identifier) so one browser counts once.
+    Returns the running interest count so the UI can show demand.
+    """
+    feature = (request.feature or "").strip() or "db-export"
+    email = (request.email or "").strip() or None
+    try:
+        result = db.record_feature_interest(
+            feature=feature,
+            user_identifier=(request.user_identifier or "").strip() or None,
+            email=email,
+        )
+        return {
+            "success": True,
+            "feature": feature,
+            "already_registered": not result["created"],
+            "count": result["count"],
+        }
+    except Exception as e:
+        logger.error(f"Feature interest error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ============================================================================

@@ -278,6 +278,19 @@ class Database:
                 )
             ''')
 
+            # Interest in currently-unavailable features (e.g. data export).
+            # Deduped per (feature, user_identifier) so one browser counts once.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS feature_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feature TEXT NOT NULL,
+                    user_identifier TEXT,
+                    email TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (feature, user_identifier)
+                )
+            ''')
+
             # Bring existing databases up to the multi-source schema before indexing
             self._migrate_schema(cursor)
 
@@ -589,6 +602,42 @@ class Database:
                 json.dumps(company)
             ))
             return cursor.lastrowid
+
+    def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
+                                email: Optional[str] = None) -> Dict:
+        """Record interest in a currently-unavailable feature.
+
+        Deduped per (feature, user_identifier). Returns {"created": bool, "count": int}.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT OR IGNORE INTO feature_requests (feature, user_identifier, email)
+                   VALUES (?, ?, ?)''',
+                (feature, user_identifier, email),
+            )
+            created = cursor.rowcount > 0
+            # Keep the email fresh if the same browser re-submits with one
+            if not created and email is not None and user_identifier is not None:
+                cursor.execute(
+                    '''UPDATE feature_requests SET email = ?
+                       WHERE feature = ? AND user_identifier = ?''',
+                    (email, feature, user_identifier),
+                )
+            cursor.execute(
+                'SELECT COUNT(*) FROM feature_requests WHERE feature = ?', (feature,)
+            )
+            count = cursor.fetchone()[0]
+            return {"created": created, "count": count}
+
+    def get_feature_interest_count(self, feature: str) -> int:
+        """Return the number of distinct interest registrations for a feature."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT COUNT(*) FROM feature_requests WHERE feature = ?', (feature,)
+            )
+            return cursor.fetchone()[0] or 0
 
     def get_companies(self,
                      limit: int = 100,

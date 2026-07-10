@@ -754,6 +754,57 @@ class DatabasePostgres:
                 )
                 return cur.fetchone() is not None
 
+    # ========== FEATURE INTEREST METHODS ==========
+
+    def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
+                                email: Optional[str] = None) -> Dict:
+        """Record interest in a currently-unavailable feature.
+
+        Deduped per (feature, user_identifier). Returns {"created": bool, "count": int}.
+        The CREATE TABLE is defensive so the endpoint works even if the Supabase
+        migration hasn't been applied yet (idempotent, cheap).
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS feature_requests (
+                        id BIGSERIAL PRIMARY KEY,
+                        feature TEXT NOT NULL,
+                        user_identifier TEXT,
+                        email TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        UNIQUE (feature, user_identifier)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO feature_requests (feature, user_identifier, email)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (feature, user_identifier)
+                    DO UPDATE SET email = COALESCE(EXCLUDED.email, feature_requests.email)
+                    RETURNING (xmax = 0) AS inserted
+                    """,
+                    (feature, user_identifier, email),
+                )
+                row = cur.fetchone()
+                created = bool(row[0]) if row else False
+                cur.execute(
+                    "SELECT COUNT(*) FROM feature_requests WHERE feature = %s", (feature,)
+                )
+                count = cur.fetchone()[0]
+                return {"created": created, "count": count}
+
+    def get_feature_interest_count(self, feature: str) -> int:
+        """Return the number of distinct interest registrations for a feature."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM feature_requests WHERE feature = %s", (feature,)
+                )
+                return cur.fetchone()[0] or 0
+
     # ========== STARTUP IDEA VALIDATOR METHODS ==========
 
     def get_yc_company_count(self) -> int:

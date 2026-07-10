@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Helmet } from 'react-helmet-async';
 import { useQuery } from '@tanstack/react-query';
@@ -28,13 +28,11 @@ import {
   TrendingUp,
   Layers,
   CheckCircle2,
-  Github,
-  FileJson,
-  FileText,
   Filter,
   SlidersHorizontal,
-  Lock,
   Loader2,
+  Send,
+  Mail,
 } from 'lucide-react';
 import { apiClient, type Company, type CompanyFilter } from '../lib/api';
 import { SourceBadge, sourceLabel } from '../components/ui/SourceBadge';
@@ -58,9 +56,6 @@ const mobileHiddenColumns = new Set([
   'nonprofit', 'funding_last_round_name', 'employee_count',
   'employee_growth_6m', 'website', 'founders', 'exit', 'year_founded',
 ]);
-
-const GITHUB_REPO = 'konstantinmb/exploreyc';
-const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 
 function formatFunding(v?: number | null): string {
   if (!v) return '—';
@@ -406,103 +401,57 @@ function getColumns(source: string): ColumnDef<Company, any>[] {
   return columns;
 }
 
-const LS_KEY = 'yc_gh_star_verified';
-const POLL_INTERVAL_MS = 5000;
-const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const FEATURE_KEY = 'db-export';
+const FEATURE_INTEREST_LS_KEY = 'yc_feature_interest_db-export';
 
-async function fetchStarCount(): Promise<number> {
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}`, {
-    headers: { Accept: 'application/vnd.github.v3+json' },
-  });
-  if (!res.ok) throw new Error('GitHub API error');
-  const data = await res.json();
-  return data.stargazers_count as number;
+// Stable per-browser id so one browser's interest counts once (shared with roadmap votes).
+function getClientId(): string {
+  let id = localStorage.getItem('roadmap-user-id');
+  if (!id) {
+    id = `user-${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem('roadmap-user-id', id);
+  }
+  return id;
 }
 
-function ExportModal({
+// Data export is currently paused. Instead of downloading, users register interest
+// ("I want this feature") which is persisted server-side so we can measure demand.
+function FeatureInterestModal({
   open,
   onClose,
-  filters,
 }: {
   open: boolean;
   onClose: () => void;
-  filters: CompanyFilter;
 }) {
-  const [baselineCount, setBaselineCount] = useState<number | null>(null);
-  const [liveCount, setLiveCount] = useState<number | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
-  const [starVerified, setStarVerified] = useState(false);
-  const [pollFailed, setPollFailed] = useState(false);
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'done' | 'error'>('idle');
+  const [count, setCount] = useState<number | null>(null);
 
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const stopPolling = useCallback(() => {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-  }, []);
-
-  // On modal open: check localStorage, fetch baseline count
+  // If this browser already registered interest, show the thank-you state on open.
   useEffect(() => {
     if (!open) return;
-    if (localStorage.getItem(LS_KEY) === 'true') {
-      setStarVerified(true);
-      return;
+    if (localStorage.getItem(FEATURE_INTEREST_LS_KEY) === 'true') {
+      setStatus('done');
     }
-    fetchStarCount()
-      .then((count) => { setBaselineCount(count); setLiveCount(count); })
-      .catch(() => { /* non-fatal: gate stays locked */ });
   }, [open]);
 
-  // Start polling when user clicks the star button
-  useEffect(() => {
-    if (!isPolling || starVerified) return;
-
-    intervalRef.current = setInterval(async () => {
-      try {
-        const count = await fetchStarCount();
-        setLiveCount(count);
-        if (baselineCount !== null && count > baselineCount) {
-          setStarVerified(true);
-          localStorage.setItem(LS_KEY, 'true');
-          stopPolling();
-        }
-      } catch {
-        // keep polling silently on transient errors
-      }
-    }, POLL_INTERVAL_MS);
-
-    timeoutRef.current = setTimeout(() => {
-      stopPolling();
-      setIsPolling(false);
-      setPollFailed(true);
-    }, POLL_TIMEOUT_MS);
-
-    return stopPolling;
-  }, [isPolling, starVerified, baselineCount, stopPolling]);
-
-  // Clean up on modal close
-  useEffect(() => {
-    if (!open) {
-      stopPolling();
-      setIsPolling(false);
-      setPollFailed(false);
+  const handleSubmit = async () => {
+    setStatus('submitting');
+    try {
+      const { data } = await apiClient.submitFeatureInterest({
+        feature: FEATURE_KEY,
+        email: email.trim() || undefined,
+        user_identifier: getClientId(),
+      });
+      setCount(data.count ?? null);
+      localStorage.setItem(FEATURE_INTEREST_LS_KEY, 'true');
+      setStatus('done');
+    } catch {
+      setStatus('error');
     }
-  }, [open, stopPolling]);
-
-  const handleStarClick = () => {
-    window.open(GITHUB_URL, '_blank', 'noopener,noreferrer');
-    setIsPolling(true);
-    setPollFailed(false);
   };
 
-  const handleDownload = (type: 'csv' | 'json') => {
-    if (!starVerified) return;
-    if (type === 'csv') apiClient.exportCSV(filters);
-    else apiClient.exportJSON(filters);
-  };
-
-  const displayCount = liveCount ?? baselineCount;
+  const done = status === 'done';
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -510,153 +459,76 @@ function ExportModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Download className="w-4 h-4 text-[#FB651E]" />
-            Export YC Company Data
+            Data export
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground mt-1">
-            This is an open-source project. Export is free — all we ask is a GitHub star to help others discover it.
+            Export is paused while we rebuild it. Want it back? Let us know and we'll
+            prioritise it.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 pt-2">
-          {/* GitHub star section */}
-          <HackerCard glowColor={starVerified ? 'green' : 'orange'} className="p-4">
-            <div className="flex items-center justify-between mb-3">
+          {done ? (
+            <HackerCard glowColor="green" className="p-4">
               <div className="flex items-center gap-2">
-                <Github className="w-4 h-4 text-foreground" />
-                <span className="text-sm font-semibold">exploreyc</span>
-              </div>
-              {displayCount !== null && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                  <span className="font-mono tabular-nums">{displayCount.toLocaleString()}</span>
-                </div>
-              )}
-            </div>
-
-            {starVerified ? (
-              <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-sm">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                <span className="text-sm text-emerald-500 font-semibold">Star confirmed — thank you!</span>
+                <span className="text-sm text-emerald-500 font-semibold">
+                  Thanks — we've noted your interest!
+                </span>
               </div>
-            ) : (
-              <>
-                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                  ExploreYC is open source. Star the repo to unlock the download — it helps more founders discover the tool.
+              {count !== null && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  You're one of{' '}
+                  <span className="text-foreground font-semibold tabular-nums">
+                    {count.toLocaleString()}
+                  </span>{' '}
+                  {count === 1 ? 'person' : 'people'} who want this feature back.
                 </p>
-                <button
-                  onClick={handleStarClick}
-                  disabled={isPolling}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] disabled:opacity-70 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors rounded-sm"
-                >
-                  <Star className="w-4 h-4 fill-white" />
-                  {isPolling ? 'Waiting for your star…' : 'Star on GitHub'}
-                </button>
+              )}
+            </HackerCard>
+          ) : (
+            <HackerCard glowColor="orange" className="p-4">
+              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                Click below to tell us you want CSV / JSON export. Leave an email if you'd
+                like us to notify you when it's back — totally optional.
+              </p>
 
-                {/* Polling status */}
-                {isPolling && !pollFailed && (
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
-                    <span>Checking for your star every 5 s…</span>
-                  </div>
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 border border-border rounded-sm bg-background/50 focus-within:border-[#FB651E]/50 transition-colors">
+                <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com (optional)"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+                />
+              </div>
+
+              <button
+                onClick={handleSubmit}
+                disabled={status === 'submitting'}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] disabled:opacity-70 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors rounded-sm"
+              >
+                {status === 'submitting' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    I want this feature
+                  </>
                 )}
+              </button>
 
-                {/* Timeout fallback */}
-                {pollFailed && (
-                  <div className="mt-2 text-xs text-muted-foreground leading-relaxed">
-                    Couldn't detect your star automatically.{' '}
-                    <a
-                      href={GITHUB_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#FB651E] hover:underline"
-                    >
-                      Verify on GitHub
-                    </a>
-                    {' '}then{' '}
-                    <button
-                      className="text-[#FB651E] hover:underline"
-                      onClick={() => {
-                        setPollFailed(false);
-                        setIsPolling(true);
-                      }}
-                    >
-                      try again
-                    </button>
-                    .
-                  </div>
-                )}
-              </>
-            )}
-          </HackerCard>
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="bg-background px-3 text-xs text-muted-foreground">
-                {starVerified ? 'Download your data' : 'Star to unlock download'}
-              </span>
-            </div>
-          </div>
-
-          {/* Active filters summary */}
-          {(filters.batch || filters.industry || filters.country || filters.search || filters.is_hiring || filters.top_company) && (
-            <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-sm border border-border">
-              <span className="text-foreground font-medium">Exporting filtered data:</span>{' '}
-              {[
-                filters.search && `search="${filters.search}"`,
-                filters.batch && `batch=${filters.batch}`,
-                filters.industry && `industry=${filters.industry}`,
-                filters.country && `country=${filters.country}`,
-                filters.is_hiring && 'hiring=true',
-                filters.top_company && 'top_company=true',
-              ]
-                .filter(Boolean)
-                .join(', ')}
-            </div>
+              {status === 'error' && (
+                <p className="text-xs text-red-500 mt-2">
+                  Something went wrong — please try again.
+                </p>
+              )}
+            </HackerCard>
           )}
-
-          {/* Download buttons — locked until star verified */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => handleDownload('csv')}
-              disabled={!starVerified}
-              className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-sm text-sm font-medium transition-colors group ${
-                starVerified
-                  ? 'border-border hover:border-emerald-500/50 hover:bg-emerald-500/5 cursor-pointer'
-                  : 'border-border opacity-40 cursor-not-allowed'
-              }`}
-            >
-              {starVerified ? (
-                <FileText className="w-4 h-4 text-emerald-500" />
-              ) : (
-                <Lock className="w-4 h-4 text-muted-foreground" />
-              )}
-              <span className={starVerified ? 'group-hover:text-emerald-500 transition-colors' : ''}>CSV</span>
-            </button>
-            <button
-              onClick={() => handleDownload('json')}
-              disabled={!starVerified}
-              className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-sm text-sm font-medium transition-colors group ${
-                starVerified
-                  ? 'border-border hover:border-blue-500/50 hover:bg-blue-500/5 cursor-pointer'
-                  : 'border-border opacity-40 cursor-not-allowed'
-              }`}
-            >
-              {starVerified ? (
-                <FileJson className="w-4 h-4 text-blue-500" />
-              ) : (
-                <Lock className="w-4 h-4 text-muted-foreground" />
-              )}
-              <span className={starVerified ? 'group-hover:text-blue-500 transition-colors' : ''}>JSON</span>
-            </button>
-          </div>
-
-          <p className="text-[10px] text-muted-foreground/60 text-center">
-            Export respects your active filters · Up to 10,000 companies
-          </p>
         </div>
       </DialogContent>
     </Dialog>
@@ -724,20 +596,6 @@ export function DatabasePage() {
       ...(source !== 'yc' && { source }),
     }),
     [currentPage, debouncedSearch, batch, industry, country, isHiring, topOnly, source],
-  );
-
-  // Export filters (without pagination)
-  const exportFilters: CompanyFilter = useMemo(
-    () => ({
-      ...(debouncedSearch && { search: debouncedSearch }),
-      ...(batch && { batch }),
-      ...(industry && { industry }),
-      ...(country && { country }),
-      ...(isHiring && { is_hiring: true }),
-      ...(topOnly && { top_company: true }),
-      ...(source !== 'yc' && { source }),
-    }),
-    [debouncedSearch, batch, industry, country, isHiring, topOnly, source],
   );
 
   const { data, isLoading, isFetching } = useQuery({
@@ -833,7 +691,7 @@ export function DatabasePage() {
                 className="flex items-center gap-2 px-4 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white text-sm font-semibold font-mono transition-colors rounded-sm flex-shrink-0"
               >
                 <Download className="w-4 h-4" />
-                Export Data
+                I want export
               </button>
             }
           />
@@ -1155,23 +1013,20 @@ export function DatabasePage() {
           className="mt-6 text-center"
         >
           <p className="text-xs text-muted-foreground font-mono">
-            Want the full dataset?{' '}
+            Data export (CSV / JSON) is paused while we rebuild it.{' '}
             <button
               onClick={() => setExportOpen(true)}
               className="text-[#FB651E] hover:underline"
             >
-              Export as CSV or JSON
+              I want this feature
             </button>
-            {' '}— just star us on GitHub first{' '}
-            <Star className="w-3 h-3 inline-block text-yellow-500 fill-yellow-500" />
           </p>
         </motion.div>
       </div>
 
-      <ExportModal
+      <FeatureInterestModal
         open={exportOpen}
         onClose={() => setExportOpen(false)}
-        filters={exportFilters}
       />
     </div>
   );
