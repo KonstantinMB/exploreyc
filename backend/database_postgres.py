@@ -871,6 +871,18 @@ class DatabasePostgres:
             logger.error(f"Failed to update embedding for company {company_id}: {e}")
             return False
 
+    def update_company_embeddings_batch(self, pairs) -> int:
+        if not pairs:
+            return 0
+        rows = [("[" + ",".join(map(str, emb)) + "]", cid) for cid, emb in pairs]
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "UPDATE companies SET embedding = %s::vector WHERE id = %s", rows
+                )
+            conn.commit()
+        return len(rows)
+
     def find_similar_companies_by_embedding(
         self,
         embedding: List[float],
@@ -892,6 +904,9 @@ class DatabasePostgres:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Convert Python list to PostgreSQL vector format
                 embedding_str = '[' + ','.join(map(str, embedding)) + ']'
+
+                # Raise HNSW index recall (no-op for IVFFlat indexes)
+                cur.execute("SET LOCAL hnsw.ef_search = 60")
 
                 # Query using cosine similarity
                 # <=> is the cosine distance operator in pgvector
