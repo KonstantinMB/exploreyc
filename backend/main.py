@@ -1112,10 +1112,17 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
 
     key = hashlib.sha1(idea.lower().encode()).hexdigest()
 
-    # Return cached result if available
-    cached = db.get_idea_answer_cache(key) if hasattr(db, "get_idea_answer_cache") else None
-    if cached:
-        return {**cached, "cached": True}
+    # Return cached result if available. Cache read is non-fatal: if the
+    # idea_answer_cache table doesn't exist yet (migration not applied), or any
+    # transient DB issue occurs, degrade to computing a fresh answer rather than
+    # 500-ing the search.
+    if hasattr(db, "get_idea_answer_cache"):
+        try:
+            cached = db.get_idea_answer_cache(key)
+            if cached:
+                return {**cached, "cached": True}
+        except Exception as e:
+            logger.warning(f"hero cache read failed (non-fatal): {e}")
 
     # Guard: require embeddings to be present
     if not hasattr(db, "count_companies_with_embeddings"):
