@@ -1660,63 +1660,22 @@ async def _run_daily_scrape():
         if deleted > 0:
             logger.info(f"Cleaned up {deleted} old change log entries (>90 days old)")
 
-        # Generate embeddings for new companies (if OpenAI API key is configured)
+        # Generate embeddings for new companies using batch API
         embeddings_generated = 0
         try:
-            from embedding_service import get_embedding_service
-            from idea_filter import get_search_text_for_embedding
-
-            # Check if OpenAI API key is available
-            if os.getenv('OPENAI_API_KEY'):
-                embedding_service = get_embedding_service()
-
-                # Get companies without embeddings (limit to 50 per scrape to avoid rate limits)
-                companies_without_embeddings = db.get_companies_without_embeddings(limit=50)
-
-                if companies_without_embeddings:
-                    logger.info(f"🤖 Generating embeddings for {len(companies_without_embeddings)} new companies")
-
-                    for company in companies_without_embeddings:
-                        try:
-                            # Create description text from available fields
-                            description_parts = []
-                            if company.get('one_liner'):
-                                description_parts.append(company['one_liner'])
-                            if company.get('long_description'):
-                                description_parts.append(company['long_description'])
-
-                            description = ' '.join(description_parts).strip()
-
-                            if description:
-                                # Filter AI words and generate embedding
-                                search_text = get_search_text_for_embedding(description)
-                                embedding = embedding_service.generate_embedding(search_text)
-
-                                # Store embedding in database
-                                if db.update_company_embedding(company['id'], embedding):
-                                    embeddings_generated += 1
-                                    logger.info(f"✅ Generated embedding for {company['name']} (ID: {company['id']})")
-                                else:
-                                    logger.warning(f"⚠️ Failed to store embedding for {company['name']} (ID: {company['id']})")
-
-                            # Rate limiting: small delay between requests
-                            await asyncio.sleep(0.2)
-
-                        except Exception as e:
-                            logger.error(f"❌ Error generating embedding for {company['name']} (ID: {company['id']}): {e}")
-                            continue
-
-                    logger.info(f"🎉 Generated {embeddings_generated} embeddings successfully")
+            if hasattr(db, "get_companies_for_embedding"):
+                from idea_filter import get_search_text_for_embedding
+                missing = db.get_companies_for_embedding(only_missing=True, limit=2000)
+                if missing:
+                    embedding_service = get_embedding_service()
+                    texts = [get_search_text_for_embedding(db.build_company_embedding_text(c)) for c in missing]
+                    vectors = embedding_service.generate_embeddings_batch(texts)
+                    embeddings_generated = db.update_company_embeddings_batch([(c["id"], v) for c, v in zip(missing, vectors)])
+                    logger.info(f"Daily embedding backfill: embedded {embeddings_generated} new companies")
                 else:
-                    logger.info("✅ All companies already have embeddings")
-            else:
-                logger.info("ℹ️ OPENAI_API_KEY not configured, skipping embedding generation")
-
-        except ImportError:
-            logger.warning("⚠️ Embedding service not available, skipping embedding generation")
+                    logger.info("Daily embedding backfill: all companies already have embeddings")
         except Exception as e:
-            logger.error(f"❌ Error in embedding generation: {e}")
-            # Don't fail the entire scrape if embedding generation fails
+            logger.error(f"Daily embedding backfill failed (non-fatal): {e}")
 
         logger.info(f"Daily scrape completed: {total_scraped} companies, {embeddings_generated} embeddings, {deleted} changes cleaned")
         return {"scraped": total_scraped, "embeddings_generated": embeddings_generated, "cleaned_up": deleted}
