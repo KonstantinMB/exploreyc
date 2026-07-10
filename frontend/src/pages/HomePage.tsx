@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useApp } from '../contexts/AppContext';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
 import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
+import { HeroAnswerBox } from '../components/HeroAnswerBox';
 import { OptimizedMap } from '../components/OptimizedMap';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { CompaniesBrowser } from '../components/CompaniesBrowser';
@@ -60,6 +61,10 @@ export function HomePage() {
           <p className="text-lg text-muted-foreground font-mono max-w-2xl mb-8">
             Search, analyze, and build on startup data from Y Combinator, a16z &amp; more — {totalCompanies.toLocaleString()}+ companies in one place, now with a free, open-source API.
           </p>
+
+          <div className="mb-8">
+            <HeroAnswerBox />
+          </div>
 
           {/* Live Stats - inline terminal style */}
           <motion.div

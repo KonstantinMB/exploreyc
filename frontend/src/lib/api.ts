@@ -272,6 +272,10 @@ export const apiClient = {
   validateIdea: (idea: string, maxSimilar: number = 10) =>
     api.post<ValidationResult>('/api/validate-idea', { idea, max_similar: maxSimilar }),
 
+  // Hero Answer Box
+  heroAnswer: (idea: string) =>
+    api.post<HeroAnswer>('/api/hero-answer', { idea }),
+
   // Batch Wrapped
   getBatchWrapped: (batch: string) =>
     api.get(`/api/batch/${encodeURIComponent(batch)}/wrapped`),
@@ -370,6 +374,29 @@ export interface CompanyFundingDetails {
     name: string
     is_lead: boolean
   }>
+}
+
+// Hero Answer Box
+export interface HeroClosest {
+  id: number
+  name: string
+  slug: string
+  batch: string
+  similarity: number
+}
+
+export interface HeroAnswer {
+  meter: 'open' | 'emerging' | 'competitive' | 'crowded'
+  headline: string
+  summary: string
+  closest: HeroClosest[]
+  total_similar: number
+  top_industries: { name: string; count: number }[]
+  recent_share: number
+  hiring_share: number
+  market_size_percentage: number
+  cached: boolean
+  prose: string | null
 }
 
 // WebSocket connection for live scrape updates
