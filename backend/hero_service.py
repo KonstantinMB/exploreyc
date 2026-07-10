@@ -58,7 +58,7 @@ def build_verdict(idea: str, similar: List[Dict], portfolio_total: int) -> Dict:
                         "first-mover space — or that it lives outside YC's portfolio. Worth a deeper look."),
         }
 
-    names = ", ".join(f'{c["name"]} ({c["batch"]})' for c in closest)
+    names = ", ".join(f'{c["name"]} ({c["batch"] or "unknown"})' for c in closest)
     label = {"emerging": "Emerging", "competitive": "Competitive", "crowded": "Crowded"}[meter]
     headline = f"{label} — {n} YC compan{'y' if n == 1 else 'ies'} overlap"
     recency_clause = (f" {int(recent_share*100)}% are from the latest batches" if recent_share >= 0.4 else "")

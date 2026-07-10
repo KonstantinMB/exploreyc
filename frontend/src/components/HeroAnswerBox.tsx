@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ArrowRight } from 'lucide-react'
 import { apiClient, type HeroAnswer } from '../lib/api'
@@ -111,25 +112,25 @@ export function HeroAnswerBox() {
             {answer.closest.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {answer.closest.map((c) => (
-                  <a
+                  <Link
                     key={c.id}
-                    href={`/company/${c.slug}`}
+                    to={`/company/${c.slug}`}
                     className="inline-flex items-center gap-1 rounded border border-[#FB651E]/30 bg-[#FB651E]/5 px-2 py-1 text-xs hover:border-[#FB651E]/60 transition-colors"
                   >
                     {c.name}{' '}
                     <span className="text-muted-foreground">
                       {Math.round(c.similarity * 100)}%
                     </span>
-                  </a>
+                  </Link>
                 ))}
               </div>
             )}
-            <a
-              href="/validator"
+            <Link
+              to="/validator"
               className="mt-3 inline-flex items-center gap-1 text-xs text-[#FB651E] hover:underline"
             >
               Full breakdown <ArrowRight className="h-3 w-3" />
-            </a>
+            </Link>
           </motion.div>
         )}
       </AnimatePresence>

@@ -117,11 +117,8 @@ def main() -> None:
     emb = get_embedding_service()
     client = OpenAI()  # reads OPENAI_API_KEY from env
 
-    # Portfolio total — same logic as /api/hero-answer
-    if hasattr(db, "count_companies"):
-        portfolio_total = db.count_companies()
-    else:
-        portfolio_total = 6000  # safe fallback for non-Postgres environments
+    # Portfolio total — identical to /api/hero-answer (YC-only denominator)
+    portfolio_total = db.get_yc_company_count() if hasattr(db, "get_yc_company_count") else 6000
 
     logger.info("portfolio_total=%d, warming %d ideas", portfolio_total, len(POPULAR))
 

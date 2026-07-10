@@ -1128,13 +1128,9 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
     embedding = get_embedding_service().generate_embedding_for_idea(search_text)
     similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32)
 
-    # Portfolio total: count_companies() with no filters counts all companies; use
-    # source='yc' semantics by passing no batch/filter (all rows ARE yc-sourced).
-    # count_companies() is the correct existing method (no get_company_count exists).
-    if hasattr(db, "count_companies"):
-        portfolio_total = db.count_companies()
-    else:
-        portfolio_total = 6000  # safe fallback for non-Postgres environments
+    # Portfolio total: use YC-only count so the denominator matches the YC-only
+    # numerator in market_size_percentage (both must be source='yc').
+    portfolio_total = db.get_yc_company_count() if hasattr(db, "get_yc_company_count") else 6000
 
     verdict = build_verdict(idea, similar, portfolio_total)
 
@@ -1730,7 +1726,6 @@ async def _run_daily_scrape():
         embeddings_generated = 0
         try:
             if hasattr(db, "get_companies_for_embedding"):
-                from idea_filter import get_search_text_for_embedding
                 missing = db.get_companies_for_embedding(only_missing=True, limit=2000)
                 if missing:
                     embedding_service = get_embedding_service()

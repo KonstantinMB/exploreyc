@@ -11,7 +11,6 @@ Usage:
 import os
 import sys
 import argparse
-from typing import Optional
 
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
@@ -25,8 +24,7 @@ FULL_REEMBED = "--full" in sys.argv
 
 
 def generate_embeddings_for_companies(
-    limit: Optional[int] = None,
-    company_id: Optional[int] = None
+    limit: int = None,
 ):
     """Generate embeddings for companies"""
 
