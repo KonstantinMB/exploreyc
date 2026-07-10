@@ -1064,10 +1064,23 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
     if db.count_companies_with_embeddings() == 0:
         raise HTTPException(status_code=503, detail="Company embeddings not yet generated.")
 
-    # Embed → similarity search → verdict (zero LLM chat calls)
-    search_text = get_search_text_for_embedding(idea)
-    embedding = get_embedding_service().generate_embedding_for_idea(search_text)
-    similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32)
+    # Embed → similarity search → verdict (zero LLM chat calls).
+    # Wrap in try/except so an embedding/search failure (e.g. OpenAI quota,
+    # transient DB error) returns a handled 503 — which passes through the CORS
+    # middleware — instead of a raw 500 that arrives at the browser without CORS
+    # headers (surfacing as a confusing cross-origin error).
+    try:
+        search_text = get_search_text_for_embedding(idea)
+        embedding = get_embedding_service().generate_embedding_for_idea(search_text)
+        similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"hero-answer search failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Search is temporarily unavailable — please try again shortly.",
+        )
 
     # Portfolio total: use YC-only count so the denominator matches the YC-only
     # numerator in market_size_percentage (both must be source='yc').

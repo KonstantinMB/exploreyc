@@ -136,7 +136,7 @@ export function HeroAnswerBox() {
           initial={{ opacity: 0, y: 14, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.5, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
-          className={`group flex items-end gap-2 rounded-2xl border bg-background/85 p-2 pl-4 backdrop-blur-md transition-all duration-300 ${
+          className={`group flex items-center gap-2 rounded-2xl border bg-background/85 p-2 pl-4 backdrop-blur-md transition-all duration-300 ${
             focused
               ? 'border-[#FB651E]/70 shadow-[0_0_0_4px_rgba(251,101,30,0.10),0_20px_60px_-20px_rgba(251,101,30,0.55)]'
               : 'border-border shadow-[0_10px_40px_-24px_rgba(0,0,0,0.5)] hover:border-[#FB651E]/40'
@@ -144,7 +144,7 @@ export function HeroAnswerBox() {
         >
           <span
             aria-hidden
-            className="select-none pt-3 font-mono text-lg font-bold leading-none text-[#FB651E]"
+            className="select-none self-center font-mono text-lg font-bold leading-none text-[#FB651E]"
           >
             &gt;_
           </span>
