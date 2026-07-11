@@ -79,6 +79,20 @@ def test_count_companies_merged():
     assert cache.count_companies(merged=False, source="all") == 2
 
 
+def test_has_logo_filter_excludes_clearbit_and_empty():
+    cache = CompanyCache()
+    cache._build_cache([
+        _c(id=1, source="yc", dedupe_key="a.com",
+           small_logo_thumb_url="https://bookface/logo.png"),
+        _c(id=2, source="hackernews", dedupe_key="b.com", small_logo_thumb_url=None),
+        _c(id=3, source="hackernews", dedupe_key="c.com",
+           small_logo_thumb_url="https://logo.clearbit.com/x.github.io"),
+    ])
+    rows = cache.get_companies(source="all", has_logo=True)
+    assert [r["id"] for r in rows] == [1]  # only the real logo (clearbit + null excluded)
+    assert cache.count_companies(source="all", has_logo=True) == 1
+
+
 def test_logo_having_companies_sort_first():
     cache = CompanyCache()
     cache._build_cache([

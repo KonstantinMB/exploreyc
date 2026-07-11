@@ -102,6 +102,7 @@ export interface CompanyFilter {
   top_company?: boolean
   source?: string // undefined -> YC only; 'all' -> every source; or a source key like 'a16z'
   merged?: boolean // collapse same-domain rows across sources into one card
+  has_logo?: boolean // only companies with a real, renderable logo
 }
 
 export interface Source {

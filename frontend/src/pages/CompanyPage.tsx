@@ -23,6 +23,7 @@ import { Button } from '../components/ui/button';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { CompanyResearch } from '../components/CompanyResearch';
 import { SourceBadge, MergedSourceBadges, sourceLabel } from '../components/ui/SourceBadge';
+import { CompanyLogo } from '../components/ui/CompanyLogo';
 
 function formatLocations(allLocations: string, maxShow = 2): string {
   if (!allLocations?.trim()) return '';
@@ -154,13 +155,13 @@ export function CompanyPage() {
           className="mb-8"
         >
           <div className="flex items-start gap-6 mb-6">
-            {company.small_logo_thumb_url && (
-              <img
-                src={company.small_logo_thumb_url}
-                alt={company.name}
-                className="w-24 h-24 rounded-xl border border-border shadow-lg flex-shrink-0"
-              />
-            )}
+            <CompanyLogo
+              src={company.small_logo_thumb_url}
+              name={company.name}
+              className="w-24 h-24"
+              rounded="rounded-xl"
+              letterClass="text-4xl"
+            />
             <div className="flex-1 min-w-0">
               <h1 className="text-4xl font-bold text-[#FB651E] mb-2 break-words">
                 {company.name}

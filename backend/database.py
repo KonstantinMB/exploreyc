@@ -680,6 +680,16 @@ class Database:
             )
             return cursor.rowcount
 
+    def clear_broken_logos(self) -> int:
+        """Null out known-broken logo URLs (Clearbit fallbacks that mostly 404'd)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE companies SET small_logo_thumb_url = NULL "
+                "WHERE small_logo_thumb_url LIKE '%clearbit.com%'"
+            )
+            return cursor.rowcount
+
     def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
                                 email: Optional[str] = None) -> Dict:
         """Record interest in a currently-unavailable feature.

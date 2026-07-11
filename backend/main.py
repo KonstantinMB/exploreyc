@@ -283,6 +283,7 @@ class CompanyFilter(BaseModel):
     top_company: Optional[bool] = None
     source: Optional[str] = None  # None -> YC only, 'all' -> every source, or a source key
     merged: bool = False  # collapse same-domain rows across sources into one card
+    has_logo: bool = False  # only companies with a real, renderable logo
 
 
 # Background task storage
@@ -560,6 +561,7 @@ async def get_companies(filters: CompanyFilter):
         top_company=filters.top_company,
         source=filters.source,
         merged=filters.merged,
+        has_logo=filters.has_logo,
     )
 
     total = company_cache.count_companies(
@@ -571,6 +573,7 @@ async def get_companies(filters: CompanyFilter):
         top_company=filters.top_company,
         source=filters.source,
         merged=filters.merged,
+        has_logo=filters.has_logo,
     )
 
     return {
@@ -1840,9 +1843,17 @@ async def _run_source_sync(full: bool = False):
             db.delete_source_companies_with_batch()
             if hasattr(db, "delete_source_companies_with_batch") else 0
         )
+        # Null out broken Clearbit logo URLs so they stop rendering as broken images.
+        cleaned_logos = (
+            db.clear_broken_logos() if hasattr(db, "clear_broken_logos") else 0
+        )
         company_cache.refresh(db)
-        logger.info(f"Source sync completed: {results}, embedded {embedded}, deduped {deduped}")
-        return {"results": results, "embedded": embedded, "deduped": deduped}
+        logger.info(
+            f"Source sync completed: {results}, embedded {embedded}, "
+            f"deduped {deduped}, cleaned_logos {cleaned_logos}"
+        )
+        return {"results": results, "embedded": embedded, "deduped": deduped,
+                "cleaned_logos": cleaned_logos}
     except Exception as e:
         logger.error(f"Source sync error: {e}")
         raise
@@ -2430,9 +2441,11 @@ async def enrich_companies_bulk(
                 WHERE 1=1
             """
             params = []
+            is_postgres = 'Postgres' in db.__class__.__name__
+            ph = "%s" if is_postgres else "?"
 
             if batch:
-                query += " AND batch = ?"
+                query += f" AND batch = {ph}"
                 params.append(batch)
 
             if top_only:
@@ -2453,26 +2466,52 @@ async def enrich_companies_bulk(
             # Prioritize NEWER companies first (newest batches = more viewer interest)
             # Parse batch into sortable format: W25 → 202501, S24 → 202406
             # This ensures chronological ordering: W25 > S24 > W24 > S23
-            query += """
-                ORDER BY
-                    CASE WHEN coresignal_last_updated IS NULL THEN 0 ELSE 1 END,
-                    (
-                        CASE
-                            -- Short format: W25, S24, etc. (2-3 char length)
-                            WHEN batch GLOB '[WS][0-9][0-9]' THEN
-                                (2000 + CAST(SUBSTR(batch, 2, 2) AS INTEGER)) * 100 +
-                                CASE WHEN batch LIKE 'W%' THEN 1 ELSE 6 END
-                            -- Long format: Winter 2025, Summer 2024, etc.
-                            WHEN batch LIKE 'Winter%' THEN
-                                CAST(REPLACE(REPLACE(batch, 'Winter ', ''), ' ', '') AS INTEGER) * 100 + 1
-                            WHEN batch LIKE 'Summer%' THEN
-                                CAST(REPLACE(REPLACE(batch, 'Summer ', ''), ' ', '') AS INTEGER) * 100 + 6
-                            ELSE 0
-                        END
-                    ) DESC,
-                    CASE WHEN funding_total_usd IS NULL THEN 0 ELSE 1 END,
-                    CASE WHEN team_size IS NOT NULL THEN team_size ELSE 0 END DESC
-            """
+            if is_postgres:
+                # On Postgres (psycopg2), literal % must be doubled to %% because
+                # the query is mogrified against `params` — a bare % is parsed as a
+                # placeholder and raises "list index out of range". GLOB is SQLite-only,
+                # so use a POSIX regex (~) for the short-format check.
+                query += """
+                    ORDER BY
+                        CASE WHEN coresignal_last_updated IS NULL THEN 0 ELSE 1 END,
+                        (
+                            CASE
+                                -- Short format: W25, S24, etc.
+                                WHEN batch ~ '^[WS][0-9][0-9]$' THEN
+                                    (2000 + CAST(SUBSTR(batch, 2, 2) AS INTEGER)) * 100 +
+                                    CASE WHEN batch LIKE 'W%%' THEN 1 ELSE 6 END
+                                -- Long format: Winter 2025, Summer 2024, etc.
+                                WHEN batch LIKE 'Winter%%' THEN
+                                    CAST(REPLACE(REPLACE(batch, 'Winter ', ''), ' ', '') AS INTEGER) * 100 + 1
+                                WHEN batch LIKE 'Summer%%' THEN
+                                    CAST(REPLACE(REPLACE(batch, 'Summer ', ''), ' ', '') AS INTEGER) * 100 + 6
+                                ELSE 0
+                            END
+                        ) DESC,
+                        CASE WHEN funding_total_usd IS NULL THEN 0 ELSE 1 END,
+                        CASE WHEN team_size IS NOT NULL THEN team_size ELSE 0 END DESC
+                """
+            else:
+                query += """
+                    ORDER BY
+                        CASE WHEN coresignal_last_updated IS NULL THEN 0 ELSE 1 END,
+                        (
+                            CASE
+                                -- Short format: W25, S24, etc.
+                                WHEN batch GLOB '[WS][0-9][0-9]' THEN
+                                    (2000 + CAST(SUBSTR(batch, 2, 2) AS INTEGER)) * 100 +
+                                    CASE WHEN batch LIKE 'W%' THEN 1 ELSE 6 END
+                                -- Long format: Winter 2025, Summer 2024, etc.
+                                WHEN batch LIKE 'Winter%' THEN
+                                    CAST(REPLACE(REPLACE(batch, 'Winter ', ''), ' ', '') AS INTEGER) * 100 + 1
+                                WHEN batch LIKE 'Summer%' THEN
+                                    CAST(REPLACE(REPLACE(batch, 'Summer ', ''), ' ', '') AS INTEGER) * 100 + 6
+                                ELSE 0
+                            END
+                        ) DESC,
+                        CASE WHEN funding_total_usd IS NULL THEN 0 ELSE 1 END,
+                        CASE WHEN team_size IS NOT NULL THEN team_size ELSE 0 END DESC
+                """
             query += f" LIMIT {limit}"
 
             logger.info("📊 Enrichment priority: Unenriched companies → Newest batches → Companies without funding → Larger teams")

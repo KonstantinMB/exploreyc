@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { apiClient, type Company, type CompanyFilter } from '../lib/api';
 import { SourceBadge, sourceLabel } from '../components/ui/SourceBadge';
+import { CompanyLogo } from '../components/ui/CompanyLogo';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useApp } from '../contexts/AppContext';
 import { HackerCard } from '../components/ui/hacker-card';
@@ -109,23 +110,13 @@ const columns: ColumnDef<Company, any>[] = [
           to={`/company/${company.slug}`}
           className="flex items-center gap-2 min-w-0 group"
         >
-          {company.small_logo_thumb_url ? (
-            <img
-              src={company.small_logo_thumb_url}
-              alt=""
-              className="w-5 h-5 rounded-sm object-contain flex-shrink-0 bg-muted"
-              loading="lazy"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          ) : (
-            <div className="w-5 h-5 rounded-sm bg-[#FB651E]/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-[8px] font-bold text-[#FB651E]">
-                {company.name.charAt(0)}
-              </span>
-            </div>
-          )}
+          <CompanyLogo
+            src={company.small_logo_thumb_url}
+            name={company.name}
+            className="w-5 h-5"
+            rounded="rounded-sm"
+            letterClass="text-[8px]"
+          />
           <span className="font-medium text-xs truncate group-hover:text-[#FB651E] transition-colors max-w-[160px]">
             {info.getValue() as string}
           </span>
@@ -558,6 +549,7 @@ export function DatabasePage() {
   const [isHiring, setIsHiring] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
   const [source, setSource] = useState('all'); // 'all' (default) | 'yc' | 'a16z' | 'hackernews' | ...
+  const [logoOnly, setLogoOnly] = useState(true); // showcase only companies with a real logo
   const [currentPage, setCurrentPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [exportOpen, setExportOpen] = useState(false);
@@ -594,8 +586,9 @@ export function DatabasePage() {
       ...(isHiring && { is_hiring: true }),
       ...(topOnly && { top_company: true }),
       ...(source !== 'yc' && { source }),
+      ...(logoOnly && { has_logo: true }),
     }),
-    [currentPage, debouncedSearch, batch, industry, country, isHiring, topOnly, source],
+    [currentPage, debouncedSearch, batch, industry, country, isHiring, topOnly, source, logoOnly],
   );
 
   const { data, isLoading, isFetching } = useQuery({
@@ -857,6 +850,19 @@ export function DatabasePage() {
               >
                 <Star className="w-3 h-3 inline-block mr-1 mb-0.5" />
                 Top Co.
+              </button>
+
+              {/* Toggle: only companies with a real logo */}
+              <button
+                onClick={() => { setLogoOnly(!logoOnly); resetPage(); }}
+                title="Only show companies that have a real logo"
+                className={`h-8 px-3 text-xs font-mono border rounded-sm transition-colors whitespace-nowrap ${
+                  logoOnly
+                    ? 'bg-[#FB651E]/10 border-[#FB651E]/50 text-[#FB651E]'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-border/80'
+                }`}
+              >
+                With logo
               </button>
 
               {/* Clear filters */}
