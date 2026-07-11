@@ -159,12 +159,18 @@ class CompanyCache:
         return str(created) if not hasattr(created, "isoformat") else created.isoformat()
 
     @staticmethod
+    def _has_usable_logo(c: Dict) -> bool:
+        """True only when the company has a real, renderable logo. Clearbit URLs
+        are treated as no-logo: they were a fallback that mostly 404'd (broken
+        images), so they must not count as a logo for sorting/filtering."""
+        url = (c.get("small_logo_thumb_url") or "").strip()
+        return bool(url) and "clearbit.com" not in url
+
+    @staticmethod
     def _priority_sort_key(c: Dict):
-        """Sort key (used with reverse=True): logo-having companies first, then
-        newest-first. A real logo (non-empty small_logo_thumb_url) ranks a row
-        ahead of logo-less ones so image-rich companies lead every list view."""
-        has_logo = 1 if (c.get("small_logo_thumb_url") or "").strip() else 0
-        return (has_logo, CompanyCache._created_sort_key(c))
+        """Sort key (used with reverse=True): companies with a real logo first,
+        then newest-first, so image-rich companies lead every list view."""
+        return (1 if CompanyCache._has_usable_logo(c) else 0, CompanyCache._created_sort_key(c))
 
     @staticmethod
     def _merge_group(rows: List[Dict]) -> Dict:
@@ -175,8 +181,13 @@ class CompanyCache:
             rows, key=lambda r: CompanyCache._SOURCE_PRIORITY.get(r.get("source") or "yc", 99)
         )
         merged = dict(primary)
-        for field in ("one_liner", "small_logo_thumb_url", "long_description",
-                      "country", "all_locations", "website"):
+        # Prefer a real (non-Clearbit) logo from ANY source in the group.
+        if not CompanyCache._has_usable_logo(merged):
+            for r in rows:
+                if CompanyCache._has_usable_logo(r):
+                    merged["small_logo_thumb_url"] = r["small_logo_thumb_url"]
+                    break
+        for field in ("one_liner", "long_description", "country", "all_locations", "website"):
             if not merged.get(field):
                 for r in rows:
                     if r.get(field):
@@ -210,6 +221,7 @@ class CompanyCache:
         search: Optional[str] = None,
         top_company: Optional[bool] = None,
         source: Optional[str] = None,
+        has_logo: bool = False,
     ) -> List[Dict]:
         """Apply filters to companies list."""
         result = [c for c in self._companies if self._source_matches(c, source)]
@@ -225,6 +237,8 @@ class CompanyCache:
             result = [c for c in result if self._matches_search(c, search)]
         if top_company is not None:
             result = [c for c in result if c.get("top_company") == top_company]
+        if has_logo:
+            result = [c for c in result if self._has_usable_logo(c)]
         return result
 
     def get_companies(
@@ -239,15 +253,23 @@ class CompanyCache:
         top_company: Optional[bool] = None,
         source: Optional[str] = None,
         merged: bool = False,
+        has_logo: bool = False,
     ) -> List[Dict]:
         """Get companies with filters and pagination.
 
         When merged=True, rows sharing a dedupe_key are collapsed into one
         canonical entry (with a merged_sources badge cluster) before pagination.
+        has_logo=True keeps only companies with a real, renderable logo (applied
+        after merge so a merged card inherits a logo from any of its sources).
         """
-        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company, source)
+        filtered = self._filter_companies(
+            batch, is_hiring, industry, country, search, top_company, source,
+            has_logo=has_logo and not merged,
+        )
         if merged:
             filtered = self._apply_merge(filtered)
+            if has_logo:
+                filtered = [c for c in filtered if self._has_usable_logo(c)]
         return filtered[offset : offset + limit]
 
     def count_companies(
@@ -260,11 +282,17 @@ class CompanyCache:
         top_company: Optional[bool] = None,
         source: Optional[str] = None,
         merged: bool = False,
+        has_logo: bool = False,
     ) -> int:
         """Count companies matching filters (post-merge count when merged=True)."""
-        filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company, source)
+        filtered = self._filter_companies(
+            batch, is_hiring, industry, country, search, top_company, source,
+            has_logo=has_logo and not merged,
+        )
         if merged:
             filtered = self._apply_merge(filtered)
+            if has_logo:
+                filtered = [c for c in filtered if self._has_usable_logo(c)]
         return len(filtered)
 
     def get_company_by_id(self, company_id: int) -> Optional[Dict]:

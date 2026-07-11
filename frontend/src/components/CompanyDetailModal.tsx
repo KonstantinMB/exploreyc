@@ -10,6 +10,7 @@ import {
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { SourceBadge, MergedSourceBadges, sourceLabel } from './ui/SourceBadge';
+import { CompanyLogo } from './ui/CompanyLogo';
 import type { Company } from '../lib/api';
 
 interface CompanyDetailModalProps {
@@ -58,13 +59,13 @@ export function CompanyDetailModal({ company, open, onClose, showViewFullPage }:
       <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <div className="flex items-start gap-4">
-            {company.small_logo_thumb_url && (
-              <img
-                src={company.small_logo_thumb_url}
-                alt={company.name}
-                className="w-16 h-16 rounded-lg border"
-              />
-            )}
+            <CompanyLogo
+              src={company.small_logo_thumb_url}
+              name={company.name}
+              className="w-16 h-16"
+              rounded="rounded-lg"
+              letterClass="text-2xl"
+            />
             <div className="flex-1">
               <DialogTitle className="text-2xl font-bold text-[#FB651E]">
                 {company.name}

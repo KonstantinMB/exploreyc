@@ -298,6 +298,20 @@ class DatabasePostgres:
             conn.commit()
         return n
 
+    def clear_broken_logos(self) -> int:
+        """Null out known-broken logo URLs (Clearbit fallbacks that mostly 404'd)
+        so they stop rendering as broken images and don't count as a logo. Safe to
+        run repeatedly / on a schedule."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE companies SET small_logo_thumb_url = NULL "
+                    "WHERE small_logo_thumb_url ILIKE '%clearbit.com%'"
+                )
+                n = cur.rowcount
+            conn.commit()
+        return n
+
     def get_companies(
         self,
         limit: int = 100,

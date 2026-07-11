@@ -9,6 +9,7 @@ import { apiClient } from '../lib/api';
 import type { Company, CompanyFilter } from '../lib/api';
 import { formatNumber } from '../lib/utils';
 import { SourceBadge, MergedSourceBadges } from './ui/SourceBadge';
+import { CompanyLogo } from './ui/CompanyLogo';
 
 interface CompaniesBrowserProps {
   refreshTrigger?: number;
@@ -27,12 +28,15 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
   // users can uncheck to return to per-source rows. Semantic = all-source vector search.
   const [mergeSources, setMergeSources] = useState(true);
   const [semantic, setSemantic] = useState(false);
+  // Showcase only companies with a real logo by default (hides logo-less rows).
+  const [logoOnly, setLogoOnly] = useState(true);
 
   const PAGE_SIZE = 20;
 
   useEffect(() => {
     loadCompanies();
-  }, [currentPage, refreshTrigger]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, refreshTrigger, mergeSources, semantic, logoOnly]);
 
   const loadCompanies = async () => {
     setLoading(true);
@@ -57,6 +61,7 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
         filters.merged = true;
         filters.source = 'all';
       }
+      if (logoOnly) filters.has_logo = true;
 
       const response = await apiClient.getCompanies(filters);
       setCompanies(response.data.companies);
@@ -140,6 +145,15 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
                 />
                 Semantic search
               </label>
+
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer" title="Only show companies that have a real logo">
+                <input
+                  type="checkbox"
+                  checked={logoOnly}
+                  onChange={(e) => { setLogoOnly(e.target.checked); setCurrentPage(0); }}
+                />
+                With logo
+              </label>
             </div>
 
             <span className="text-sm text-muted-foreground">
@@ -182,13 +196,12 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
                         )}
                       </div>
                     </div>
-                    {company.small_logo_thumb_url && (
-                      <img
-                        src={company.small_logo_thumb_url}
-                        alt={company.name}
-                        className="w-12 h-12 rounded"
-                      />
-                    )}
+                    <CompanyLogo
+                      src={company.small_logo_thumb_url}
+                      name={company.name}
+                      className="w-12 h-12"
+                      letterClass="text-lg"
+                    />
                   </div>
                 </CardHeader>
                 <CardContent>
