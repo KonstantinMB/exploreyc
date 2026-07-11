@@ -894,6 +894,13 @@ class DatabasePostgres:
                 cur.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
                 return cur.fetchone()[0]
 
+    def get_total_company_count(self) -> int:
+        """Return total companies across ALL sources (all-source hero denominator)."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM companies")
+                return cur.fetchone()[0]
+
     def count_companies_with_embeddings(self) -> int:
         """Return number of companies that have embeddings (for validator setup check)"""
         with self.get_connection() as conn:
