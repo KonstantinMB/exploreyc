@@ -1829,9 +1829,14 @@ async def _run_source_sync(full: bool = False):
         db.backfill_dedupe_keys()
         results = sync_service.run_sync(db, full=full)
         embedded = sync_service.embed_missing(db)
+        # Drop HN/PH rows that carry a YC batch — they duplicate the canonical YC row.
+        deduped = (
+            db.delete_source_companies_with_batch()
+            if hasattr(db, "delete_source_companies_with_batch") else 0
+        )
         company_cache.refresh(db)
-        logger.info(f"Source sync completed: {results}, embedded {embedded}")
-        return {"results": results, "embedded": embedded}
+        logger.info(f"Source sync completed: {results}, embedded {embedded}, deduped {deduped}")
+        return {"results": results, "embedded": embedded, "deduped": deduped}
     except Exception as e:
         logger.error(f"Source sync error: {e}")
         raise

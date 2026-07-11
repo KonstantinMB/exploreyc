@@ -281,6 +281,23 @@ class DatabasePostgres:
             conn.commit()
         return len(rows)
 
+    def delete_source_companies_with_batch(self, sources=("hackernews", "producthunt")) -> int:
+        """Delete rows from the given non-YC sources that carry a YC batch (e.g. a
+        Launch HN advertising '(YC W26)'). A batch means the company is a YC company
+        that already exists as the canonical source='yc' row, so the duplicate is
+        removed. Never touches source='yc'. Safe to run repeatedly / on a schedule."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM companies "
+                    "WHERE source = ANY(%s) AND source <> 'yc' "
+                    "AND batch IS NOT NULL AND batch <> ''",
+                    (list(sources),),
+                )
+                n = cur.rowcount
+            conn.commit()
+        return n
+
     def get_companies(
         self,
         limit: int = 100,

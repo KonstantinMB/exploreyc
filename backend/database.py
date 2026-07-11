@@ -667,6 +667,19 @@ class Database:
                 )
             return len(rows)
 
+    def delete_source_companies_with_batch(self, sources=("hackernews", "producthunt")) -> int:
+        """Delete rows from the given non-YC sources that carry a YC batch (they
+        duplicate the canonical source='yc' row). Never touches source='yc'."""
+        placeholders = ",".join("?" for _ in sources)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"DELETE FROM companies WHERE source IN ({placeholders}) "
+                f"AND source <> 'yc' AND batch IS NOT NULL AND batch <> ''",
+                tuple(sources),
+            )
+            return cursor.rowcount
+
     def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
                                 email: Optional[str] = None) -> Dict:
         """Record interest in a currently-unavailable feature.

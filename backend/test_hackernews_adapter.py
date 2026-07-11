@@ -1,5 +1,18 @@
-from ingestion.hackernews import parse_title, HackerNewsAdapter
+from ingestion.hackernews import parse_title, HackerNewsAdapter, clean_hn_text
 from ingestion import registry
+
+
+def test_clean_hn_text_decodes_entities_and_strips_tags():
+    raw = ('Hey, we&#x27;re building '
+           '<a href="https:&#x2F;&#x2F;sonarly.com" rel="nofollow">https:&#x2F;&#x2F;sonarly.com</a>.'
+           '<p>Second paragraph.')
+    out = clean_hn_text(raw)
+    assert "<a" not in out and "<p>" not in out
+    assert "&#x27;" not in out and "&#x2F;" not in out
+    assert "we're building https://sonarly.com." in out
+    assert "\n\nSecond paragraph." in out
+    assert clean_hn_text(None) is None
+    assert clean_hn_text("") is None
 
 
 def test_parse_launch_with_yc_batch():
@@ -72,6 +85,14 @@ def test_same_name_posts_get_unique_slugs_no_collision():
     assert a["slug"] != b["slug"]                 # unique -> no UNIQUE(source, slug) violation
     assert a["slug"] == "inconvo-100" and b["slug"] == "inconvo-200"
     assert a["dedupe_key"] == b["dedupe_key"] == "inconvo.com"  # same domain still merges
+
+
+def test_to_row_sets_clearbit_logo_and_cleans_description():
+    row = HackerNewsAdapter()._to_row(_hit(
+        story_text="We&#x27;re here.<p>Line two.",
+    ))
+    assert row["small_logo_thumb_url"] == "https://logo.clearbit.com/acme.com"
+    assert row["long_description"] == "We're here.\n\nLine two."
 
 
 def test_registry_has_all_adapters():

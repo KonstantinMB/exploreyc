@@ -707,7 +707,7 @@ export function DatabasePage() {
           {[
             {
               label: 'Total Companies',
-              value: stats?.total_companies?.toLocaleString() ?? '—',
+              value: (stats?.total_all_companies ?? stats?.total_companies)?.toLocaleString() ?? '—',
               icon: Building2,
               color: 'text-[#FB651E]',
             },
