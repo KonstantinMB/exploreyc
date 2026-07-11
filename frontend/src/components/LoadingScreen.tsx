@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from './ui/Logo';
 
 const LOADING_TIPS = [
-  'Discovering startups across YC & a16z...',
+  'Discovering startups across YC, Hacker News, Product Hunt & a16z...',
   'Mapping companies across the globe...',
   'Indexing industries and hiring status...',
   'Building your explorer view...',
