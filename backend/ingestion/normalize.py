@@ -10,13 +10,33 @@ import re
 import unicodedata
 
 # Hosts shared by many unrelated projects. A company whose only "website" is a
-# shared host must NOT merge with another on the same host, so we fall back to a
-# source-scoped dedupe key for these.
+# shared host must NOT merge with another on the same host (the meaningful
+# identity there is the URL path, e.g. github.com/<user>/<repo>), so we fall back
+# to a source-scoped dedupe key. Entries are registrable (last-two-label) domains.
 SHARED_HOST_DENYLIST = {
-    "github.io", "notion.site", "vercel.app", "netlify.app", "webflow.io",
-    "wixsite.com", "substack.com", "medium.com", "gitbook.io", "herokuapp.com",
-    "pages.dev", "framer.website", "carrd.co", "bubbleapps.io", "replit.app",
-    "onrender.com", "web.app", "firebaseapp.com", "square.site", "godaddysites.com",
+    # Code / project hosts (very common in Show HN links)
+    "github.com", "github.io", "githubusercontent.com", "gitlab.com", "bitbucket.org",
+    "sourceforge.net", "codeberg.org", "gitea.com", "npmjs.com", "pypi.org", "crates.io",
+    "huggingface.co", "kaggle.com", "codepen.io", "codesandbox.io", "stackblitz.com",
+    "glitch.me", "jsfiddle.net", "observablehq.com",
+    # Site builders / app-hosting platforms
+    "notion.site", "vercel.app", "netlify.app", "webflow.io", "wixsite.com",
+    "gitbook.io", "herokuapp.com", "pages.dev", "framer.website", "carrd.co",
+    "bubbleapps.io", "replit.app", "replit.com", "onrender.com", "web.app",
+    "firebaseapp.com", "square.site", "godaddysites.com", "streamlit.app", "fly.dev",
+    "railway.app", "surge.sh", "github.dev",
+    # Publishing / social / content platforms
+    "substack.com", "medium.com", "dev.to", "hashnode.dev", "blogspot.com",
+    "wordpress.com", "tumblr.com", "youtube.com", "youtu.be", "vimeo.com",
+    "twitter.com", "x.com", "reddit.com", "linkedin.com", "facebook.com",
+    "instagram.com", "threads.net", "producthunt.com", "news.ycombinator.com",
+    "arxiv.org", "t.me", "discord.gg", "discord.com", "slack.com",
+    # Docs / paste / forms / stores
+    "docs.google.com", "drive.google.com", "sites.google.com", "google.com",
+    "notion.so", "figma.com", "loom.com", "typeform.com", "airtable.com",
+    "apps.apple.com", "apple.com", "play.google.com", "gumroad.com", "itch.io",
+    # App / extension marketplaces (path is the identity, not the host)
+    "visualstudio.com", "mozilla.org", "atlassian.com", "shopify.com", "chrome.com",
 }
 
 
