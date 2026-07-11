@@ -71,9 +71,9 @@ def _to_row(node):
         for e in (node.get("topics", {}) or {}).get("edges", [])
         if e.get("node", {}).get("name")
     ]
+    # Product Hunt provides a real thumbnail; if absent, leave null (no broken
+    # Clearbit fallback) so the row sorts after logo-having companies.
     thumb = (node.get("thumbnail") or {}).get("url")
-    if not thumb and domain:
-        thumb = f"https://logo.clearbit.com/{domain}"
     return {
         "id": to_global_id("producthunt", int(node["id"])),
         "source": "producthunt",

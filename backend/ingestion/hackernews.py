@@ -97,9 +97,10 @@ class HackerNewsAdapter:
             "top_company": False,
             "nonprofit": False,
             "country": None,
-            # HN gives no logo; fall back to a Clearbit logo keyed on the domain
-            # (allowlisted in the logo proxy; the UI hides it gracefully on 404).
-            "small_logo_thumb_url": f"https://logo.clearbit.com/{domain}" if domain else None,
+            # No logo — HN provides none, and Clearbit fallbacks were mostly broken
+            # (404). Leave null so the UI shows a clean letter-avatar and these rows
+            # sort AFTER companies that have a real logo (see company_cache ordering).
+            "small_logo_thumb_url": None,
             # Merge on domain when present; otherwise keep each post distinct (by id) —
             # domainless posts can't be reliably merged by name without false positives.
             "dedupe_key": dedupe_key(domain, "hackernews", object_id),
