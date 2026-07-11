@@ -1,6 +1,9 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useApp } from '../contexts/AppContext';
+import { apiClient, type Source } from '../lib/api';
+import { SourceBadge } from '../components/ui/SourceBadge';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
 import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
 import { HeroAnswerBox } from '../components/HeroAnswerBox';
@@ -27,6 +30,21 @@ const item = {
 
 export function HomePage() {
   const { stats, selectedCompany, setSelectedCompany } = useApp();
+
+  // Data provenance: which sources the companies come from, with live counts.
+  const [sources, setSources] = useState<Source[]>([]);
+  useEffect(() => {
+    apiClient
+      .getSources()
+      .then((r) =>
+        setSources(
+          (r.data.sources || [])
+            .filter((s) => s.count > 0)
+            .sort((a, b) => b.count - a.count),
+        ),
+      )
+      .catch(() => {});
+  }, []);
 
   // Second-most recent batch (latest may not have started yet, e.g. Summer 2026 vs Spring 2026)
   const wrappedBatch = getSecondMostRecentBatch(stats?.by_batch);
@@ -110,6 +128,31 @@ export function HomePage() {
                 <span className="font-bold text-[#FB651E]">{totalIndustries}+</span> industries
               </span>
             </motion.div>
+
+            {/* Data provenance — where the company data is sourced from */}
+            {sources.length > 0 && (
+              <motion.div
+                variants={item}
+                className="mt-6 flex flex-col items-center gap-2"
+              >
+                <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground/60">
+                  Sourced from
+                </span>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {sources.map((s) => (
+                    <span
+                      key={s.key}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/30 px-2.5 py-1 font-mono text-xs"
+                      title={`${s.display_name}: ${s.count.toLocaleString()} companies`}
+                    >
+                      <SourceBadge source={s.key} />
+                      <span className="text-foreground">{s.display_name}</span>
+                      <span className="font-bold text-[#FB651E]">{s.count.toLocaleString()}</span>
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* Primary CTAs */}
             <motion.div
