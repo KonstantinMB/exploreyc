@@ -31,9 +31,10 @@ class CompanyCache:
 
     def _build_cache(self, companies: List[Dict]) -> None:
         """Build indices and derived data from company list."""
-        # Order: companies WITH a real logo first, then newest-first. Keeps the
-        # image-rich YC/a16z/Product Hunt rows ahead of logo-less Hacker News rows
-        # across every list view (browse, database, map subset).
+        # Order: Y Combinator companies first, then (within a source) real-logo
+        # rows, then newest-first. YC leads every mixed-source list (e.g. the
+        # Database "All sources" view); single-source/YC-only views are unchanged
+        # since the YC dimension is constant there.
         self._companies = sorted(companies, key=self._priority_sort_key, reverse=True)
         self._companies_by_id = {c["id"]: c for c in companies if c.get("id") is not None}
 
@@ -168,9 +169,16 @@ class CompanyCache:
 
     @staticmethod
     def _priority_sort_key(c: Dict):
-        """Sort key (used with reverse=True): companies with a real logo first,
-        then newest-first, so image-rich companies lead every list view."""
-        return (1 if CompanyCache._has_usable_logo(c) else 0, CompanyCache._created_sort_key(c))
+        """Sort key (used with reverse=True): Y Combinator companies first, then
+        (within a source) real-logo companies, then newest-first. This keeps YC
+        rows ahead in mixed-source lists (the Database page's "All sources" view)
+        while single-source views keep their logo-first, newest-first ordering."""
+        is_yc = 1 if (c.get("source") or "yc") == "yc" else 0
+        return (
+            is_yc,
+            1 if CompanyCache._has_usable_logo(c) else 0,
+            CompanyCache._created_sort_key(c),
+        )
 
     @staticmethod
     def _merge_group(rows: List[Dict]) -> Dict:
