@@ -113,7 +113,25 @@ def make_cache_key(idea: str) -> str:
 
 
 def main() -> None:
+    # Fail-soft: skip cleanly (exit 0) on config gaps so the daily workflow doesn't
+    # go red. Pre-warming is a nice-to-have — the live /api/hero-answer still works.
+    if not (os.environ.get("OPENAI_API_KEY") or "").strip():
+        logger.warning("OPENAI_API_KEY not set — skipping hero pre-warm (no-op).")
+        return
+
     db = get_database()
+    # Vector search is Postgres/pgvector-only. Running against SQLite (DATABASE_URL
+    # unset) has no find_similar_companies_by_embedding — skip instead of erroring
+    # once per seed idea.
+    if not hasattr(db, "find_similar_companies_by_embedding"):
+        logger.warning(
+            "DB has no vector search (SQLite / DATABASE_URL unset) — skipping hero pre-warm (no-op)."
+        )
+        return
+    if hasattr(db, "count_companies_with_embeddings") and db.count_companies_with_embeddings() == 0:
+        logger.warning("No company embeddings present yet — skipping hero pre-warm (no-op).")
+        return
+
     emb = get_embedding_service()
     client = OpenAI()  # reads OPENAI_API_KEY from env
 
