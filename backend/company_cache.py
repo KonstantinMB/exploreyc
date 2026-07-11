@@ -150,6 +150,52 @@ class CompanyCache:
             return True
         return csrc == source
 
+    # Primary-row priority when merging the same company across sources
+    # (richest / most-geocoded first).
+    _SOURCE_PRIORITY = {"yc": 0, "a16z": 1, "techstars": 2, "producthunt": 3, "hackernews": 4}
+
+    @staticmethod
+    def _created_sort_key(c: Dict):
+        created = c.get("created_at")
+        if created is None:
+            return ""
+        return str(created) if not hasattr(created, "isoformat") else created.isoformat()
+
+    @staticmethod
+    def _merge_group(rows: List[Dict]) -> Dict:
+        """Collapse rows sharing a dedupe_key into one canonical presentation:
+        the highest-priority source is the primary; missing display fields are
+        gap-filled from other rows; is_hiring is OR-ed; merged_sources lists all."""
+        primary = min(
+            rows, key=lambda r: CompanyCache._SOURCE_PRIORITY.get(r.get("source") or "yc", 99)
+        )
+        merged = dict(primary)
+        for field in ("one_liner", "small_logo_thumb_url", "long_description",
+                      "country", "all_locations", "website"):
+            if not merged.get(field):
+                for r in rows:
+                    if r.get(field):
+                        merged[field] = r[field]
+                        break
+        merged["is_hiring"] = any(r.get("is_hiring") for r in rows)
+        merged["merged_sources"] = [
+            {"key": r.get("source") or "yc", "source_url": r.get("source_url")}
+            for r in sorted(rows, key=lambda r: CompanyCache._SOURCE_PRIORITY.get(
+                r.get("source") or "yc", 99))
+        ]
+        return merged
+
+    def _apply_merge(self, filtered: List[Dict]) -> List[Dict]:
+        """Group filtered rows by dedupe_key and merge each group. Rows without a
+        dedupe_key stand alone (keyed by id). Preserves created_at DESC ordering."""
+        groups: Dict[str, List[Dict]] = {}
+        for c in filtered:
+            key = c.get("dedupe_key") or f'id:{c.get("id")}'
+            groups.setdefault(key, []).append(c)
+        merged = [self._merge_group(g) for g in groups.values()]
+        merged.sort(key=self._created_sort_key, reverse=True)
+        return merged
+
     def _filter_companies(
         self,
         batch: Optional[str] = None,
@@ -187,9 +233,16 @@ class CompanyCache:
         search: Optional[str] = None,
         top_company: Optional[bool] = None,
         source: Optional[str] = None,
+        merged: bool = False,
     ) -> List[Dict]:
-        """Get companies with filters and pagination."""
+        """Get companies with filters and pagination.
+
+        When merged=True, rows sharing a dedupe_key are collapsed into one
+        canonical entry (with a merged_sources badge cluster) before pagination.
+        """
         filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company, source)
+        if merged:
+            filtered = self._apply_merge(filtered)
         return filtered[offset : offset + limit]
 
     def count_companies(
@@ -201,9 +254,12 @@ class CompanyCache:
         search: Optional[str] = None,
         top_company: Optional[bool] = None,
         source: Optional[str] = None,
+        merged: bool = False,
     ) -> int:
-        """Count companies matching filters."""
+        """Count companies matching filters (post-merge count when merged=True)."""
         filtered = self._filter_companies(batch, is_hiring, industry, country, search, top_company, source)
+        if merged:
+            filtered = self._apply_merge(filtered)
         return len(filtered)
 
     def get_company_by_id(self, company_id: int) -> Optional[Dict]:

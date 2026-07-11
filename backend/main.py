@@ -282,6 +282,7 @@ class CompanyFilter(BaseModel):
     search: Optional[str] = None
     top_company: Optional[bool] = None
     source: Optional[str] = None  # None -> YC only, 'all' -> every source, or a source key
+    merged: bool = False  # collapse same-domain rows across sources into one card
 
 
 # Background task storage
@@ -558,6 +559,7 @@ async def get_companies(filters: CompanyFilter):
         search=filters.search,
         top_company=filters.top_company,
         source=filters.source,
+        merged=filters.merged,
     )
 
     total = company_cache.count_companies(
@@ -568,6 +570,7 @@ async def get_companies(filters: CompanyFilter):
         search=filters.search,
         top_company=filters.top_company,
         source=filters.source,
+        merged=filters.merged,
     )
 
     return {
