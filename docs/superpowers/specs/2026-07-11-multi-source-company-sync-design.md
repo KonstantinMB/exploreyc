@@ -38,14 +38,19 @@ opposite of meshing. This design keeps the PR's genuinely-new ideas and drops th
    a16z + YC, …) presents as a single card showing multiple source badges.
 4. **Incremental cursor sync** for the new sources (`sync_state`), so daily runs pull
    deltas, not full refreshes.
-5. **Zero data loss** and **zero regression** to existing YC/a16z data, IDs, analytics,
-   embeddings, and the hero validator.
+5. **Vector search covers all sources.** Every new-source company gets an embedding via
+   the existing automated backfill, and similarity retrieval searches the whole corpus
+   (deduped by `dedupe_key`) — not just YC (see §3.8).
+6. **Zero data loss** and **zero regression** to existing YC/a16z data, IDs, and the
+   YC-scoped analytics metrics (market-size %, crowding).
 
 ### Non-goals (explicitly out of scope)
 
 - Replacing the YC Algolia scraper or adopting yc-oss's delta feed (keep current setup).
 - Physically merging rows / retiring the global-id scheme (canonical-row merge — rejected).
-- Extending embeddings or the hero idea-validator to non-YC sources (stays YC-only).
+- Changing the **market-size % / crowding** metric's meaning: it stays a YC-denominated
+  metric ("% of *YC* companies similar"), computed on a separate YC-only path so broadening
+  retrieval does not reintroduce the prior over-counting bug (see §3.8).
 
 ## 2. Chosen approach: grouping-layer merge (option A)
 
@@ -141,9 +146,7 @@ A new self-contained package (mirrors the existing flat-service style but groupe
      (existing upsert on `id` + `(source, source_id)`/`(source, slug)`)
   4. soft-mark `result.removed_source_ids` (never hard delete)
   5. persist new cursor + status to `sync_state`
-  6. `company_cache.refresh(db)`
-  - New sources do **not** get embeddings (embeddings/hero stay YC-only); they're searchable
-    via the existing cache substring search.
+  6. embedding backfill for the newly-upserted rows (see §3.8), then `company_cache.refresh(db)`
 
 ### 3.4 `dedupe_key` backfill
 
@@ -195,7 +198,37 @@ A new self-contained package (mirrors the existing flat-service style but groupe
   exist; add a "merged" view affordance.
 - Cards degrade gracefully for rows lacking `batch`/`all_locations` (HN launches).
 
-## 4. What we keep vs. drop from the PR
+### 3.8 Vector embeddings across all sources (`embedding_service.py`, `database_postgres.py`)
+
+Vector search must cover the whole corpus. The pieces already exist (pgvector column,
+HNSW index, batched generation, automated daily backfill) — the change is to stop scoping
+them to YC. Three edits, plus one preservation:
+
+- **Generation — cover all sources.** `get_companies_for_embedding` (`database_postgres.py:873`)
+  and the parallel counters (`:811`/`:822`) currently hardcode `WHERE source = 'yc'`.
+  Generalize the *embedding backfill* query to return every source's rows missing an
+  `embedding` (keep it batched). `build_company_embedding_text` already uses
+  `name, one_liner, long_description, industry, subindustry, tags, industries`, which HN /
+  Product Hunt / Techstars rows populate well enough (with graceful fallback when sparse).
+  The HNSW index at `20260710…` already covers the column regardless of source, so new
+  vectors are query-visible immediately — directly avoiding the prior "new companies
+  disappeared from search" (IVFFlat) regression.
+- **Retrieval — search all sources.** `find_similar_companies_by_embedding`
+  (`database_postgres.py:944`, filters `source = 'yc'` at `:980`/`:1023`) drops the source
+  filter so similarity spans the full corpus, and **dedupes results by `dedupe_key`** (via
+  a `DISTINCT ON (dedupe_key)` / window over cosine distance) so a company present in
+  multiple sources returns once, tagged with its `merged_sources`.
+- **Backfill wiring.** `sync_service` embeds newly-upserted rows in the same run; the
+  existing daily embedding backfill (already automated) is broadened to all sources as the
+  catch-all. New sources therefore get vectors without a manual step.
+- **Preserve the YC-scoped metric.** The **market-size % / crowding** computation
+  (`database_postgres.py:842`, currently `AND source = 'yc'`) keeps its own YC-only
+  numerator+denominator path, unchanged. Broadened retrieval feeds the *similar-companies
+  list*; it does **not** feed the metric's counts. This keeps "% of YC companies" honest
+  and avoids re-triggering the market-size over-counting bug.
+
+**Cost note:** embedding the added corpus (HN + stubs) is a one-time batched backfill plus
+small daily deltas — negligible against the existing ~6k YC embeddings.
 
 | From the PR | Disposition |
 | --- | --- |
@@ -227,6 +260,9 @@ read path (merged view):
   (with/without `(YC S26)`, em/en dash variants, non-company noise).
 - `test_merge_grouping.py`: rows across sources sharing a domain collapse to one canonical
   entry with correct primary selection, gap-fill, and `merged_sources`.
+- `test_embedding_all_sources.py`: `get_companies_for_embedding` returns non-YC rows;
+  `find_similar_companies_by_embedding` returns cross-source matches deduped by `dedupe_key`;
+  and the market-size % path stays YC-only (regression guard).
 - `sync_service` dry-run against live HN (bounded lookback) as a smoke check.
 
 ## 7. Risks & mitigations
@@ -235,13 +271,22 @@ read path (merged view):
 - **HN noise (non-company Show HN posts)** → require URL/domain or YC-batch marker; source
   tag allows later filtering.
 - **Merged-view correctness vs. YC-only analytics** → merge is read-only and opt-in;
-  analytics keep `WHERE source = 'yc'`.
+  market-size %/crowding keep their separate `WHERE source = 'yc'` path (§3.8).
+- **Broadened retrieval changing hero results** → intended (search now spans all sources),
+  but the market-size metric is preserved on its own path; regression guarded by
+  `test_embedding_all_sources.py`.
+- **Sparse embedding text for HN/stub rows** → `build_company_embedding_text` fallback
+  handles missing industry/tags; embedding still keys on name + one_liner + description.
 - **SQLite/Postgres drift** → schema change applied to both; tests run on SQLite locally.
+  (Note: vector retrieval is Postgres/pgvector-only, as today.)
 
 ## 8. Rollout
 
 1. Migration (+ SQLite parity) — additive only.
 2. Register sources, ship ingestion package + HN adapter (+ stubs), backfill `dedupe_key`.
-3. Wire merged read path + cron endpoint (behind opt-in flag), keep default YC-only.
-4. Frontend badges + merged cluster.
-5. Trigger a bounded HN run, verify grouping, then enable in daily cron.
+3. Broaden embedding generation + retrieval to all sources (§3.8), keeping the YC-only
+   market-size path separate; run a one-time all-source embedding backfill.
+4. Wire merged read path + cron endpoint (behind opt-in flag), keep default YC-only.
+5. Frontend badges + merged cluster.
+6. Trigger a bounded HN run, verify grouping + cross-source vector hits, then enable in
+   daily cron.
