@@ -31,14 +31,10 @@ class CompanyCache:
 
     def _build_cache(self, companies: List[Dict]) -> None:
         """Build indices and derived data from company list."""
-        # Sort by created_at DESC (newest first) for get_companies pagination
-        def sort_key(c):
-            created = c.get("created_at")
-            if created is None:
-                return ""
-            return str(created) if not hasattr(created, "isoformat") else created.isoformat()
-
-        self._companies = sorted(companies, key=sort_key, reverse=True)
+        # Order: companies WITH a real logo first, then newest-first. Keeps the
+        # image-rich YC/a16z/Product Hunt rows ahead of logo-less Hacker News rows
+        # across every list view (browse, database, map subset).
+        self._companies = sorted(companies, key=self._priority_sort_key, reverse=True)
         self._companies_by_id = {c["id"]: c for c in companies if c.get("id") is not None}
 
         # Source breakdown (all sources) for /api/filters/sources
@@ -163,6 +159,14 @@ class CompanyCache:
         return str(created) if not hasattr(created, "isoformat") else created.isoformat()
 
     @staticmethod
+    def _priority_sort_key(c: Dict):
+        """Sort key (used with reverse=True): logo-having companies first, then
+        newest-first. A real logo (non-empty small_logo_thumb_url) ranks a row
+        ahead of logo-less ones so image-rich companies lead every list view."""
+        has_logo = 1 if (c.get("small_logo_thumb_url") or "").strip() else 0
+        return (has_logo, CompanyCache._created_sort_key(c))
+
+    @staticmethod
     def _merge_group(rows: List[Dict]) -> Dict:
         """Collapse rows sharing a dedupe_key into one canonical presentation:
         the highest-priority source is the primary; missing display fields are
@@ -194,7 +198,7 @@ class CompanyCache:
             key = c.get("dedupe_key") or f'id:{c.get("id")}'
             groups.setdefault(key, []).append(c)
         merged = [self._merge_group(g) for g in groups.values()]
-        merged.sort(key=self._created_sort_key, reverse=True)
+        merged.sort(key=self._priority_sort_key, reverse=True)
         return merged
 
     def _filter_companies(

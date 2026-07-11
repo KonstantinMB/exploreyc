@@ -87,11 +87,12 @@ def test_same_name_posts_get_unique_slugs_no_collision():
     assert a["dedupe_key"] == b["dedupe_key"] == "inconvo.com"  # same domain still merges
 
 
-def test_to_row_sets_clearbit_logo_and_cleans_description():
+def test_to_row_has_no_logo_and_cleans_description():
     row = HackerNewsAdapter()._to_row(_hit(
         story_text="We&#x27;re here.<p>Line two.",
     ))
-    assert row["small_logo_thumb_url"] == "https://logo.clearbit.com/acme.com"
+    # No fake logo (Clearbit was broken) — HN rows sort after logo-having companies.
+    assert row["small_logo_thumb_url"] is None
     assert row["long_description"] == "We're here.\n\nLine two."
 
 

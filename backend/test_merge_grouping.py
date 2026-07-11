@@ -77,3 +77,29 @@ def test_count_companies_merged():
     ])
     assert cache.count_companies(merged=True, source="all") == 1
     assert cache.count_companies(merged=False, source="all") == 2
+
+
+def test_logo_having_companies_sort_first():
+    cache = CompanyCache()
+    cache._build_cache([
+        # newer, but NO logo (Hacker News)
+        _c(id=1, source="hackernews", dedupe_key="a.com",
+           small_logo_thumb_url=None, created_at="2026-05-01"),
+        # older, but HAS a logo (YC)
+        _c(id=2, source="yc", dedupe_key="b.com",
+           small_logo_thumb_url="https://logo.png", created_at="2026-01-01"),
+    ])
+    rows = cache.get_companies(source="all")
+    assert [r["id"] for r in rows] == [2, 1]  # logo-having first despite being older
+
+
+def test_logo_priority_holds_in_merged_view():
+    cache = CompanyCache()
+    cache._build_cache([
+        _c(id=1, source="hackernews", dedupe_key="a.com",
+           small_logo_thumb_url=None, created_at="2026-05-01", source_url="hn/1"),
+        _c(id=2, source="yc", dedupe_key="b.com",
+           small_logo_thumb_url="https://logo.png", created_at="2026-01-01", source_url="yc/2"),
+    ])
+    rows = cache.get_companies(source="all", merged=True)
+    assert rows[0]["dedupe_key"] == "b.com"  # the logo-having canonical row leads
