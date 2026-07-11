@@ -72,6 +72,8 @@ def _to_row(node):
         if e.get("node", {}).get("name")
     ]
     thumb = (node.get("thumbnail") or {}).get("url")
+    if not thumb and domain:
+        thumb = f"https://logo.clearbit.com/{domain}"
     return {
         "id": to_global_id("producthunt", int(node["id"])),
         "source": "producthunt",

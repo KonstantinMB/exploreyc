@@ -102,7 +102,8 @@ class CompanyCache:
                 by_batch_industry[b][ind] = by_batch_industry[b].get(ind, 0) + 1
 
         self._stats = {
-            "total_companies": total,
+            "total_companies": total,               # YC-only (hero / YC-facing views)
+            "total_all_companies": len(companies),  # every source (Database page)
             "hiring": hiring,
             "by_batch": by_batch,
             "by_industry": by_industry,

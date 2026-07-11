@@ -4,6 +4,7 @@ Ports the sync-PR's HN parsing into a native Python adapter. Uses the HN Algolia
 search_by_date endpoint (no key) filtered on created_at_i for incremental pulls.
 """
 
+import html
 import json
 import re
 import time
@@ -17,6 +18,22 @@ from sources import to_global_id
 _SEARCH = "https://hn.algolia.com/api/v1/search_by_date"
 _MAX_PAGES = 20
 _HITS_PER_PAGE = 100
+
+
+def clean_hn_text(text):
+    """HN story_text is HTML (paragraph <p>, <a href> links, entities like
+    &#x27; / &#x2F;). Convert it to clean, readable plain text with paragraph
+    breaks so the company page (which renders text, whitespace-pre-wrap) doesn't
+    show raw tags/entities."""
+    if not text:
+        return None
+    t = re.sub(r"<p>", "\n\n", text, flags=re.I)
+    # Links: keep the visible label (HN's label is usually the URL itself).
+    t = re.sub(r'<a\s+[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r"\2", t, flags=re.I | re.S)
+    t = re.sub(r"<[^>]+>", "", t)          # strip any remaining tags
+    t = html.unescape(t)                    # decode &#x27; &#x2F; &quot; &amp; ...
+    t = re.sub(r"\n{3,}", "\n\n", t)        # collapse excess blank lines
+    return t.strip() or None
 
 
 def parse_title(title):
@@ -67,11 +84,11 @@ class HackerNewsAdapter:
             "source": "hackernews",
             "source_id": object_id,
             "source_url": f"https://news.ycombinator.com/item?id={object_id}",
-            "name": name,
+            "name": html.unescape(name),
             "slug": slug,
             "website": hit.get("url"),
-            "one_liner": parsed["blurb"],
-            "long_description": hit.get("story_text"),
+            "one_liner": html.unescape(parsed["blurb"]) if parsed["blurb"] else None,
+            "long_description": clean_hn_text(hit.get("story_text")),
             "batch": parsed["batch"],
             "tags": [tag],
             "industries": [],
@@ -80,6 +97,9 @@ class HackerNewsAdapter:
             "top_company": False,
             "nonprofit": False,
             "country": None,
+            # HN gives no logo; fall back to a Clearbit logo keyed on the domain
+            # (allowlisted in the logo proxy; the UI hides it gracefully on 404).
+            "small_logo_thumb_url": f"https://logo.clearbit.com/{domain}" if domain else None,
             # Merge on domain when present; otherwise keep each post distinct (by id) —
             # domainless posts can't be reliably merged by name without false positives.
             "dedupe_key": dedupe_key(domain, "hackernews", object_id),

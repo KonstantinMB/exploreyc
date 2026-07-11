@@ -35,6 +35,24 @@ def test_backfill_dedupe_keys(tmp_path):
     assert db.backfill_dedupe_keys() == 0
 
 
+def test_delete_source_companies_with_batch(tmp_path):
+    db = Database(str(tmp_path / "t.db"))
+    db.insert_company({"id": 1, "source": "yc", "slug": "yc-acme", "name": "Acme",
+                       "batch": "W26", "isHiring": False})               # YC — keep
+    db.insert_company({"id": 3_000_000_001, "source": "hackernews", "slug": "hn-acme",
+                       "name": "Acme", "batch": "W26", "isHiring": False})  # HN+batch — delete
+    db.insert_company({"id": 3_000_000_002, "source": "hackernews", "slug": "hn-nb",
+                       "name": "NoBatch", "batch": None, "isHiring": False})  # HN, no batch — keep
+    db.insert_company({"id": 4_000_000_001, "source": "producthunt", "slug": "ph-x",
+                       "name": "X", "batch": "S25", "isHiring": False})   # PH+batch — delete
+    n = db.delete_source_companies_with_batch()
+    assert n == 2
+    assert db.get_company_by_id(1) is not None                # YC untouched
+    assert db.get_company_by_id(3_000_000_002) is not None    # HN no-batch untouched
+    assert db.get_company_by_id(3_000_000_001) is None        # HN+batch removed
+    assert db.get_company_by_id(4_000_000_001) is None        # PH+batch removed
+
+
 def test_insert_company_persists_dedupe_key(tmp_path):
     db = Database(str(tmp_path / "t.db"))
     db.insert_company({

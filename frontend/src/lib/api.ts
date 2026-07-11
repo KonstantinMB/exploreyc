@@ -160,7 +160,8 @@ export interface UsageStats {
 }
 
 export interface Stats {
-  total_companies: number
+  total_companies: number          // YC-only
+  total_all_companies?: number     // every source (YC + Hacker News + a16z + ...)
   hiring: number
   by_batch: Record<string, number>
   by_industry: Record<string, number>
