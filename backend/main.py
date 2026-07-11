@@ -1777,6 +1777,41 @@ async def daily_scrape(request: Request, background_tasks: BackgroundTasks):
     }
 
 
+async def _run_source_sync(full: bool = False):
+    """Background task: pull new companies from all registered sources, embed, refresh."""
+    from ingestion import sync_service
+    try:
+        db.backfill_dedupe_keys()
+        results = sync_service.run_sync(db, full=full)
+        embedded = sync_service.embed_missing(db)
+        company_cache.refresh(db)
+        logger.info(f"Source sync completed: {results}, embedded {embedded}")
+        return {"results": results, "embedded": embedded}
+    except Exception as e:
+        logger.error(f"Source sync error: {e}")
+        raise
+
+
+@app.post("/api/cron/sync-sources")
+async def cron_sync_sources(request: Request, background_tasks: BackgroundTasks):
+    """Pull new companies from non-YC sources (Hacker News, ...), backfill dedupe_key
+    + embeddings, and refresh the cache. ?full=1 forces a full backfill; ?sync=1 waits."""
+    _verify_cron_secret(request)
+    full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
+    sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+
+    if sync_mode:
+        result = await _run_source_sync(full=full)
+        return {"success": True, "status": "completed", **result}
+
+    background_tasks.add_task(_run_source_sync, full)
+    return {
+        "success": True,
+        "status": "started",
+        "message": "Source sync started in background. Check logs for completion.",
+    }
+
+
 @app.post("/api/cron/update-hiring-board")
 async def update_hiring_board_cron(request: Request, background_tasks: BackgroundTasks):
     """Update hiring board data from WorkAtAStartup API (triggered by daily cron)"""

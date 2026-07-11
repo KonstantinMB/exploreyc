@@ -4,6 +4,8 @@ on:
   schedule:
     # Daily scrape at 2 AM UTC
     - cron: '0 2 * * *'
+    # Multi-source sync (Hacker News, ...) at 2:30 AM UTC (after scrape, before pre-warm)
+    - cron: '30 2 * * *'
     # Send digests at 10 AM UTC
     - cron: '0 10 * * *'
     # Hero answer-box pre-warm at 3 AM UTC (after scrape, needs Task 12 embeddings)
@@ -23,6 +25,19 @@ jobs:
             -H "Content-Type: application/json" \
             -v
         timeout-minutes: 10
+
+  sync-sources:
+    runs-on: ubuntu-latest
+    # Only run multi-source sync at 2:30 AM UTC (after daily scrape at 2 AM)
+    if: github.event.schedule == '30 2 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Sync non-YC company sources (Hacker News, ...)
+        run: |
+          curl -X POST "${{ secrets.BACKEND_URL }}/api/cron/sync-sources?sync=1" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -v
+        timeout-minutes: 20
 
   send-digests:
     runs-on: ubuntu-latest
