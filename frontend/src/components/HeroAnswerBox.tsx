@@ -320,7 +320,7 @@ export function HeroAnswerBox() {
           className="mt-4 flex items-center justify-center gap-1.5 font-mono text-[11px] text-muted-foreground/60"
         >
           <Sparkles className="h-3 w-3 text-[#FB651E]" />
-          instant semantic search across the YC &amp; a16z portfolio
+          instant semantic search across YC, Hacker News, Product Hunt &amp; a16z
         </motion.p>
       )}
     </div>

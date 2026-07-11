@@ -53,18 +53,18 @@ def build_verdict(idea: str, similar: List[Dict], portfolio_total: int) -> Dict:
         return {
             "meter": meter, "total_similar": 0, "closest": [], "top_industries": [],
             "recent_share": 0.0, "hiring_share": 0.0, "market_size_percentage": market_size,
-            "headline": "Open field — no close YC matches",
-            "summary": ("No YC company is doing something close to this. That can mean genuine "
-                        "first-mover space — or that it lives outside YC's portfolio. Worth a deeper look."),
+            "headline": "Open field — no close matches",
+            "summary": ("No company we track is doing something close to this. That can mean genuine "
+                        "first-mover space — or that it lives outside our sources. Worth a deeper look."),
         }
 
     names = ", ".join(f'{c["name"]} ({c["batch"] or "unknown"})' for c in closest)
     label = {"emerging": "Emerging", "competitive": "Competitive", "crowded": "Crowded"}[meter]
-    headline = f"{label} — {n} YC compan{'y' if n == 1 else 'ies'} overlap"
+    headline = f"{label} — {n} compan{'y' if n == 1 else 'ies'} overlap"
     recency_clause = (f" {int(recent_share*100)}% are from the latest batches" if recent_share >= 0.4 else "")
     hiring_clause = (f" and {int(hiring_share*100)}% are hiring" if hiring_share >= 0.3 else "")
     ind_clause = (f" Most cluster in {top_industries[0]['name']}." if top_industries else "")
-    summary = (f"{n} YC compan{'y' if n == 1 else 'ies'} overlap with this idea. "
+    summary = (f"{n} compan{'y' if n == 1 else 'ies'} overlap with this idea. "
                f"Closest: {names}.{(' This space is active —' + recency_clause + hiring_clause + '.') if (recency_clause or hiring_clause) else ''}"
                f"{ind_clause}").replace("  ", " ").strip()
     return {

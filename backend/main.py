@@ -1101,11 +1101,13 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
     # transient DB error) returns a handled 503 — which passes through the CORS
     # middleware — instead of a raw 500 that arrives at the browser without CORS
     # headers (surfacing as a confusing cross-origin error).
-    # source_filter="yc": the hero verdict is YC-framed (market-size % = % of YC).
+    # source_filter=None: search ALL sources (YC + Hacker News + Product Hunt + a16z),
+    # deduped by dedupe_key. Denominator is the all-source total so market_size %
+    # stays consistent (all-source numerator over all-source total).
     try:
         search_text = get_search_text_for_embedding(idea)
         embedding = get_embedding_service().generate_embedding_for_idea(search_text)
-        similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32, source_filter="yc")
+        similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32)
     except HTTPException:
         raise
     except Exception as e:
@@ -1115,9 +1117,13 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
             detail="Search is temporarily unavailable — please try again shortly.",
         )
 
-    # Portfolio total: use YC-only count so the denominator matches the YC-only
-    # numerator in market_size_percentage (both must be source='yc').
-    portfolio_total = db.get_yc_company_count() if hasattr(db, "get_yc_company_count") else 6000
+    # Portfolio total across ALL sources (matches the all-source similar count).
+    if hasattr(db, "get_total_company_count"):
+        portfolio_total = db.get_total_company_count()
+    elif hasattr(db, "get_yc_company_count"):
+        portfolio_total = db.get_yc_company_count()
+    else:
+        portfolio_total = 6000
 
     verdict = build_verdict(idea, similar, portfolio_total)
 

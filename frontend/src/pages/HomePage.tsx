@@ -49,7 +49,7 @@ export function HomePage() {
   // Second-most recent batch (latest may not have started yet, e.g. Summer 2026 vs Spring 2026)
   const wrappedBatch = getSecondMostRecentBatch(stats?.by_batch);
 
-  const totalCompanies = stats?.total_companies || 0;
+  const totalCompanies = stats?.total_all_companies ?? stats?.total_companies ?? 0;
   const totalCountries = stats?.by_country ? Object.keys(stats.by_country).length : 0;
   const totalIndustries = stats?.by_industry ? Object.keys(stats.by_industry).length : 0;
 
@@ -102,7 +102,7 @@ export function HomePage() {
               className="mt-5 max-w-xl font-mono text-base leading-relaxed text-muted-foreground"
             >
               Ask anything about {totalCompanies.toLocaleString()}+ startups from Y&nbsp;Combinator,
-              a16z &amp; more — instant answers on a free, open-source API.
+              Hacker&nbsp;News, Product&nbsp;Hunt, a16z &amp; more — instant answers on a free, open-source API.
             </motion.p>
 
             {/* SEARCH — the centerpiece */}

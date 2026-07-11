@@ -3,7 +3,7 @@
  * Add a new source = one entry in BRAND below.
  */
 
-type Brand = { bg: string; fg: string; text: string; label: string; title: string };
+type Brand = { bg: string; fg: string; text: string; label: string; title: string; img?: string };
 
 const BRAND: Record<string, Brand> = {
   yc: {
@@ -20,7 +20,7 @@ const BRAND: Record<string, Brand> = {
   },
   producthunt: {
     bg: 'bg-[#DA552F]', fg: 'text-white', text: 'P',
-    label: 'Product Hunt', title: 'Product Hunt',
+    label: 'Product Hunt', title: 'Product Hunt', img: '/ph-logo.png',
   },
   techstars: {
     bg: 'bg-[#12B886]', fg: 'text-white', text: 'T',
@@ -53,11 +53,20 @@ export function SourceBadge({
 
   return (
     <span className={`inline-flex items-center gap-1.5 ${className}`} title={brand.title}>
-      <span
-        className={`inline-flex items-center justify-center rounded-sm font-bold leading-none tracking-tight ${brand.bg} ${brand.fg} ${isWordmark ? wordmark : square}`}
-      >
-        {brand.text}
-      </span>
+      {brand.img ? (
+        <img
+          src={brand.img}
+          alt={brand.label}
+          className={`${square} rounded-full object-contain`}
+          loading="lazy"
+        />
+      ) : (
+        <span
+          className={`inline-flex items-center justify-center rounded-sm font-bold leading-none tracking-tight ${brand.bg} ${brand.fg} ${isWordmark ? wordmark : square}`}
+        >
+          {brand.text}
+        </span>
+      )}
       {showLabel && <span className="text-xs text-muted-foreground">{brand.label}</span>}
     </span>
   );
