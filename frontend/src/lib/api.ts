@@ -29,6 +29,11 @@ export interface Company {
   id: number
   source?: string
   source_id?: string
+  dedupe_key?: string
+  // Present when a company was merged across sources (source=all&merged=true)
+  merged_sources?: { key: string; source_url?: string }[]
+  // Present on semantic-search results (/api/companies/similar)
+  similarity_score?: number
   name: string
   slug: string
   website: string
@@ -96,6 +101,7 @@ export interface CompanyFilter {
   search?: string
   top_company?: boolean
   source?: string // undefined -> YC only; 'all' -> every source; or a source key like 'a16z'
+  merged?: boolean // collapse same-domain rows across sources into one card
 }
 
 export interface Source {
@@ -205,6 +211,9 @@ export const apiClient = {
     api.post<{ companies: Company[]; total: number; has_more: boolean }>('/api/companies', filters),
   getCompany: (id: number) => api.get<Company>(`/api/companies/${id}`),
   getCompanyBySlug: (slug: string) => api.get<Company>(`/api/company/slug/${slug}`),
+  // All-source semantic search (vector search across YC + Hacker News + a16z + ...)
+  getSimilarCompanies: (query: string, limit = 12) =>
+    api.post<{ companies: Company[]; total: number }>('/api/companies/similar', { query, limit }),
 
   // Stats
   getStats: () => api.get<Stats>('/api/stats'),

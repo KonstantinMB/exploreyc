@@ -59,8 +59,8 @@ class DatabasePostgres:
                      top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
                      industries, latitude, longitude, country,
                      founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
-                     raw_json, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     dedupe_key, raw_json, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         source = EXCLUDED.source,
                         source_id = EXCLUDED.source_id,
@@ -93,6 +93,7 @@ class DatabasePostgres:
                         ticker_symbol = EXCLUDED.ticker_symbol,
                         funded_date = EXCLUDED.funded_date,
                         source_url = EXCLUDED.source_url,
+                        dedupe_key = COALESCE(EXCLUDED.dedupe_key, companies.dedupe_key),
                         raw_json = EXCLUDED.raw_json,
                         updated_at = NOW()
                 """, (
@@ -128,6 +129,7 @@ class DatabasePostgres:
                     company.get("ticker_symbol"),
                     company.get("funded_date"),
                     company.get("source_url"),
+                    company.get("dedupe_key"),
                     json.dumps(company) if company else None,
                 ))
                 return cur.rowcount
@@ -186,11 +188,12 @@ class DatabasePostgres:
                 company.get("ticker_symbol"),
                 company.get("funded_date"),
                 company.get("source_url"),
+                company.get("dedupe_key"),
                 json.dumps(company) if company else None,
             )
 
         total = 0
-        cols = "(id, source, source_id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url, raw_json)"
+        cols = "(id, source, source_id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url, dedupe_key, raw_json)"
         upsert_sql = f"""
             INSERT INTO companies {cols}
             VALUES %s
@@ -209,6 +212,7 @@ class DatabasePostgres:
                 exit_type = EXCLUDED.exit_type, acquirer = EXCLUDED.acquirer,
                 ticker_symbol = EXCLUDED.ticker_symbol, funded_date = EXCLUDED.funded_date,
                 source_url = EXCLUDED.source_url,
+                dedupe_key = COALESCE(EXCLUDED.dedupe_key, companies.dedupe_key),
                 raw_json = EXCLUDED.raw_json, updated_at = NOW()
         """
         rows = [_row(c) for c in companies]
@@ -217,6 +221,65 @@ class DatabasePostgres:
                 execute_values(cur, upsert_sql, rows, page_size=batch_size)
                 total = cur.rowcount
         return total
+
+    # ========== MULTI-SOURCE SYNC: cursor + dedupe_key ==========
+
+    def get_sync_cursor(self, source: str) -> Optional[str]:
+        """Return the stored incremental cursor for a source (None if never run)."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT last_cursor FROM sync_state WHERE source = %s", (source,))
+                row = cur.fetchone()
+                return row[0] if row else None
+
+    def save_sync_state(self, source: str, cursor_value: Optional[str], status: str,
+                        records_upserted: int, error: Optional[str] = None) -> None:
+        """Upsert the per-source sync bookkeeping row."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sync_state
+                    (source, last_run_at, last_cursor, last_status, records_upserted, error, updated_at)
+                    VALUES (%s, NOW(), %s, %s, %s, %s, NOW())
+                    ON CONFLICT (source) DO UPDATE SET
+                        last_run_at = NOW(), last_cursor = EXCLUDED.last_cursor,
+                        last_status = EXCLUDED.last_status,
+                        records_upserted = EXCLUDED.records_upserted,
+                        error = EXCLUDED.error, updated_at = NOW()
+                    """,
+                    (source, cursor_value, status, records_upserted, error),
+                )
+                conn.commit()
+
+    def set_dedupe_key(self, company_id: int, key: str) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE companies SET dedupe_key = %s WHERE id = %s", (key, company_id)
+                )
+                conn.commit()
+
+    def backfill_dedupe_keys(self) -> int:
+        """Populate dedupe_key for any rows missing one, using the shared normalizer."""
+        from ingestion.normalize import norm_domain, dedupe_key
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, source, slug, website FROM companies WHERE dedupe_key IS NULL"
+                )
+                rows = cur.fetchall()
+            with conn.cursor() as cur:
+                for r in rows:
+                    key = dedupe_key(
+                        norm_domain(r["website"]), r["source"] or "yc",
+                        r["slug"] or str(r["id"]),
+                    )
+                    cur.execute(
+                        "UPDATE companies SET dedupe_key = %s WHERE id = %s", (key, r["id"])
+                    )
+            conn.commit()
+        return len(rows)
 
     def get_companies(
         self,
@@ -819,7 +882,7 @@ class DatabasePostgres:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT COUNT(*) FROM companies WHERE embedding IS NOT NULL AND source = 'yc'"
+                    "SELECT COUNT(*) FROM companies WHERE embedding IS NOT NULL"
                 )
                 return cur.fetchone()[0] or 0
 
@@ -839,7 +902,6 @@ class DatabasePostgres:
                     SELECT id, name, one_liner, long_description
                     FROM companies
                     WHERE embedding IS NULL
-                        AND source = 'yc'
                         AND (one_liner IS NOT NULL OR long_description IS NOT NULL)
                     ORDER BY id DESC
                     LIMIT %s
@@ -881,10 +943,10 @@ class DatabasePostgres:
         Returns:
             List of dicts with id, name, one_liner, long_description,
             industry, subindustry, tags, industries.
+
+        Covers ALL sources (not just YC) so vector search spans the full corpus.
         """
-        where = "WHERE source = 'yc'"
-        if only_missing:
-            where += " AND embedding IS NULL"
+        where = "WHERE embedding IS NULL" if only_missing else "WHERE TRUE"
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
@@ -945,19 +1007,29 @@ class DatabasePostgres:
         self,
         embedding: List[float],
         limit: int = 10,
-        min_similarity: float = 0.5
+        min_similarity: float = 0.5,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         """
-        Find companies similar to the given embedding vector using cosine similarity
+        Find companies similar to the given embedding vector using cosine similarity.
 
         Args:
             embedding: The embedding vector (1536 dimensions)
             limit: Maximum number of results to return
             min_similarity: Minimum similarity score (0-1, where 1 is identical)
+            source_filter:
+                - a source key (e.g. 'yc') -> restrict to that source. The hero
+                  idea-validator passes 'yc' so its market-size % / "N YC companies
+                  overlap" verdict stays YC-scoped and unchanged.
+                - None -> search ALL sources, deduped by dedupe_key so a company
+                  present in several sources appears once (all-source semantic search).
 
         Returns:
             List of companies with similarity scores, ordered by similarity (highest first)
         """
+        cols = ("id, name, slug, website, one_liner, long_description, "
+                "industry, subindustry, tags, industries, batch, is_hiring, "
+                "team_size, all_locations, country, small_logo_thumb_url, source, dedupe_key")
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Convert Python list to PostgreSQL vector format
@@ -966,22 +1038,34 @@ class DatabasePostgres:
                 # Raise HNSW index recall (no-op for IVFFlat indexes)
                 cur.execute("SET LOCAL hnsw.ef_search = 60")
 
-                # Query using cosine similarity
-                # <=> is the cosine distance operator in pgvector
-                # 1 - cosine_distance = cosine_similarity
-                cur.execute("""
-                    SELECT
-                        id, name, slug, website, one_liner, long_description,
-                        industry, subindustry, tags, industries, batch, is_hiring,
-                        team_size, all_locations, country, small_logo_thumb_url,
-                        (1 - (embedding <=> %s::vector)) AS similarity_score
-                    FROM companies
-                    WHERE embedding IS NOT NULL
-                        AND source = 'yc'
-                        AND (1 - (embedding <=> %s::vector)) >= %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s
-                """, (embedding_str, embedding_str, min_similarity, embedding_str, limit))
+                # <=> is the cosine distance operator in pgvector; 1 - dist = similarity
+                if source_filter:
+                    cur.execute(f"""
+                        SELECT {cols},
+                            (1 - (embedding <=> %s::vector)) AS similarity_score
+                        FROM companies
+                        WHERE embedding IS NOT NULL
+                            AND source = %s
+                            AND (1 - (embedding <=> %s::vector)) >= %s
+                        ORDER BY embedding <=> %s::vector
+                        LIMIT %s
+                    """, (embedding_str, source_filter, embedding_str, min_similarity,
+                          embedding_str, limit))
+                else:
+                    # All sources: keep one row per company (dedupe by domain), then rank.
+                    cur.execute(f"""
+                        SELECT * FROM (
+                            SELECT DISTINCT ON (COALESCE(dedupe_key, id::text))
+                                {cols},
+                                (1 - (embedding <=> %s::vector)) AS similarity_score
+                            FROM companies
+                            WHERE embedding IS NOT NULL
+                                AND (1 - (embedding <=> %s::vector)) >= %s
+                            ORDER BY COALESCE(dedupe_key, id::text), embedding <=> %s::vector
+                        ) sub
+                        ORDER BY similarity_score DESC
+                        LIMIT %s
+                    """, (embedding_str, embedding_str, min_similarity, embedding_str, limit))
 
                 companies = [dict(row) for row in cur.fetchall()]
 
@@ -995,12 +1079,16 @@ class DatabasePostgres:
     def find_companies_by_text_search(
         self,
         idea: str,
-        limit: int = 10
+        limit: int = 10,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         """
         Fallback: find companies by text match when embedding search returns nothing.
         Useful when user pastes a company description - finds companies whose
         one_liner or long_description overlaps with the pasted text.
+
+        source_filter mirrors find_similar_companies_by_embedding: 'yc' restricts to
+        YC (hero verdict), None searches all sources deduped by dedupe_key.
         """
         if not idea or len(idea.strip()) < 10:
             return []
@@ -1011,21 +1099,36 @@ class DatabasePostgres:
         if len(phrase) < 10:
             return []
         search_term = f"%{phrase}%"
+        src_clause = "AND source = %s" if source_filter else ""
+        params = [search_term, search_term]
+        if source_filter:
+            params.append(source_filter)
+        params.extend([search_term, limit])
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT
                         id, name, slug, website, one_liner, long_description,
                         industry, subindustry, tags, industries, batch, is_hiring,
-                        team_size, all_locations, country, small_logo_thumb_url
+                        team_size, all_locations, country, small_logo_thumb_url, source, dedupe_key
                     FROM companies
                     WHERE (one_liner ILIKE %s OR long_description ILIKE %s)
-                        AND source = 'yc'
+                        {src_clause}
                         AND (one_liner IS NOT NULL OR long_description IS NOT NULL)
                     ORDER BY CASE WHEN one_liner ILIKE %s THEN 0 ELSE 1 END
                     LIMIT %s
-                """, (search_term, search_term, search_term, limit))
+                """, params)
                 companies = [dict(row) for row in cur.fetchall()]
+                # When searching all sources, keep one row per company (dedupe by domain).
+                if not source_filter:
+                    seen, deduped = set(), []
+                    for c in companies:
+                        key = c.get("dedupe_key") or f'id:{c.get("id")}'
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        deduped.append(c)
+                    companies = deduped
                 for c in companies:
                     c["similarity_score"] = 0.65  # Placeholder for text match
                 return companies

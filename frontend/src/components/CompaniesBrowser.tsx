@@ -8,6 +8,7 @@ import { Button } from './ui/button';
 import { apiClient } from '../lib/api';
 import type { Company, CompanyFilter } from '../lib/api';
 import { formatNumber } from '../lib/utils';
+import { SourceBadge, MergedSourceBadges } from './ui/SourceBadge';
 
 interface CompaniesBrowserProps {
   refreshTrigger?: number;
@@ -22,6 +23,9 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
   const [search, setSearch] = useState('');
   const [batchFilter, setBatchFilter] = useState('');
   const [hiringFilter, setHiringFilter] = useState<boolean | undefined>(undefined);
+  // Merge same-company rows across sources; semantic = all-source vector search.
+  const [mergeSources, setMergeSources] = useState(false);
+  const [semantic, setSemantic] = useState(false);
 
   const PAGE_SIZE = 20;
 
@@ -32,6 +36,14 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
   const loadCompanies = async () => {
     setLoading(true);
     try {
+      // Semantic search: all-source vector search (single page of ranked matches).
+      if (semantic && search.trim()) {
+        const response = await apiClient.getSimilarCompanies(search.trim(), PAGE_SIZE);
+        setCompanies(response.data.companies);
+        setTotal(response.data.companies.length);
+        return;
+      }
+
       const filters: CompanyFilter = {
         limit: PAGE_SIZE,
         offset: currentPage * PAGE_SIZE,
@@ -40,6 +52,10 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
       if (search) filters.search = search;
       if (batchFilter) filters.batch = batchFilter;
       if (hiringFilter !== undefined) filters.is_hiring = hiringFilter;
+      if (mergeSources) {
+        filters.merged = true;
+        filters.source = 'all';
+      }
 
       const response = await apiClient.getCompanies(filters);
       setCompanies(response.data.companies);
@@ -100,10 +116,30 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
           </div>
 
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mt-4">
-            <Button onClick={handleSearch} className="bg-[#FB651E] hover:bg-[#E65C00]">
-              <Search className="mr-2 h-4 w-4" />
-              Search
-            </Button>
+            <div className="flex flex-wrap items-center gap-4">
+              <Button onClick={handleSearch} className="bg-[#FB651E] hover:bg-[#E65C00]">
+                <Search className="mr-2 h-4 w-4" />
+                Search
+              </Button>
+
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={mergeSources}
+                  onChange={(e) => { setMergeSources(e.target.checked); setCurrentPage(0); }}
+                />
+                Merge sources
+              </label>
+
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer" title="All-source semantic (vector) search">
+                <input
+                  type="checkbox"
+                  checked={semantic}
+                  onChange={(e) => { setSemantic(e.target.checked); setCurrentPage(0); }}
+                />
+                Semantic search
+              </label>
+            </div>
 
             <span className="text-sm text-muted-foreground">
               {formatNumber(total)} companies found
@@ -131,12 +167,19 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <CardTitle className="text-lg">{company.name}</CardTitle>
-                      {company.is_hiring && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mt-1">
-                          <Briefcase className="h-3 w-3 mr-1" />
-                          Hiring
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        {company.merged_sources && company.merged_sources.length > 0 ? (
+                          <MergedSourceBadges sources={company.merged_sources} />
+                        ) : (
+                          <SourceBadge source={company.source} />
+                        )}
+                        {company.is_hiring && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                            <Briefcase className="h-3 w-3 mr-1" />
+                            Hiring
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {company.small_logo_thumb_url && (
                       <img
@@ -153,10 +196,12 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
                   </p>
 
                   <div className="space-y-2 text-xs text-muted-foreground">
-                    <div className="flex items-center">
-                      <Calendar className="h-3 w-3 mr-2" />
-                      {company.batch}
-                    </div>
+                    {company.batch && (
+                      <div className="flex items-center">
+                        <Calendar className="h-3 w-3 mr-2" />
+                        {company.batch}
+                      </div>
+                    )}
 
                     {company.all_locations && (
                       <div className="flex items-center">

@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { SourceBadge, sourceLabel } from './ui/SourceBadge';
+import { SourceBadge, MergedSourceBadges, sourceLabel } from './ui/SourceBadge';
 import type { Company } from '../lib/api';
 
 interface CompanyDetailModalProps {
@@ -83,10 +83,17 @@ export function CompanyDetailModal({ company, open, onClose, showViewFullPage }:
         >
           {/* Status Badges */}
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
-              <SourceBadge source={company.source} />
-              <span className="text-sm font-medium text-foreground">{sourceLabel(company.source)}</span>
-            </span>
+            {company.merged_sources && company.merged_sources.length > 1 ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
+                <MergedSourceBadges sources={company.merged_sources} />
+                <span className="text-sm font-medium text-foreground">{company.merged_sources.length} sources</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
+                <SourceBadge source={company.source} />
+                <span className="text-sm font-medium text-foreground">{sourceLabel(company.source)}</span>
+              </span>
+            )}
             {company.is_hiring && (
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 border border-green-200">
                 <Briefcase className="h-4 w-4 mr-1" />

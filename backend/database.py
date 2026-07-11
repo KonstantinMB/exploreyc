@@ -291,6 +291,19 @@ class Database:
                 )
             ''')
 
+            # Per-source incremental sync cursor (parity with the Postgres migration)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sync_state (
+                    source TEXT PRIMARY KEY,
+                    last_run_at TEXT,
+                    last_cursor TEXT,
+                    last_status TEXT,
+                    records_upserted INTEGER DEFAULT 0,
+                    error TEXT,
+                    updated_at TEXT
+                )
+            ''')
+
             # Bring existing databases up to the multi-source schema before indexing
             self._migrate_schema(cursor)
 
@@ -301,6 +314,7 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_country ON companies(country)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_funding_total ON companies(funding_total_usd)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_companies_source ON companies(source)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_dedupe_key ON companies(dedupe_key)')
             cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_source_slug ON companies(source, slug)')
             cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_source_native ON companies(source, source_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_investor_name ON investors(name)')
@@ -333,6 +347,7 @@ class Database:
             "ticker_symbol": "TEXT",
             "funded_date": "TEXT",
             "source_url": "TEXT",
+            "dedupe_key": "TEXT",
         }
         for col, ddl in additions.items():
             if col not in existing:
@@ -564,8 +579,8 @@ class Database:
                  top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
                  industries, latitude, longitude, country,
                  founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
-                 raw_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 dedupe_key, raw_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 company.get('id'),
                 company.get('source', 'yc'),
@@ -599,9 +614,58 @@ class Database:
                 company.get('ticker_symbol'),
                 company.get('funded_date'),
                 company.get('source_url'),
+                company.get('dedupe_key'),
                 json.dumps(company)
             ))
             return cursor.lastrowid
+
+    # ========== MULTI-SOURCE SYNC: cursor + dedupe_key ==========
+
+    def get_sync_cursor(self, source: str) -> Optional[str]:
+        """Return the stored incremental cursor for a source (None if never run)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT last_cursor FROM sync_state WHERE source = ?", (source,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def save_sync_state(self, source: str, cursor_value: Optional[str], status: str,
+                        records_upserted: int, error: Optional[str] = None) -> None:
+        """Upsert the per-source sync bookkeeping row."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO sync_state
+                (source, last_run_at, last_cursor, last_status, records_upserted, error, updated_at)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (source, cursor_value, status, records_upserted, error),
+            )
+
+    def set_dedupe_key(self, company_id: int, key: str) -> None:
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                "UPDATE companies SET dedupe_key = ? WHERE id = ?", (key, company_id)
+            )
+
+    def backfill_dedupe_keys(self) -> int:
+        """Populate dedupe_key for any rows missing one, using the shared normalizer."""
+        from ingestion.normalize import norm_domain, dedupe_key
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, source, slug, website FROM companies WHERE dedupe_key IS NULL"
+            )
+            rows = cursor.fetchall()
+            for r in rows:
+                key = dedupe_key(
+                    norm_domain(r["website"]), r["source"] or "yc", r["slug"] or str(r["id"])
+                )
+                cursor.execute(
+                    "UPDATE companies SET dedupe_key = ? WHERE id = ?", (key, r["id"])
+                )
+            return len(rows)
 
     def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
                                 email: Optional[str] = None) -> Dict:

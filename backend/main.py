@@ -282,6 +282,7 @@ class CompanyFilter(BaseModel):
     search: Optional[str] = None
     top_company: Optional[bool] = None
     source: Optional[str] = None  # None -> YC only, 'all' -> every source, or a source key
+    merged: bool = False  # collapse same-domain rows across sources into one card
 
 
 # Background task storage
@@ -558,6 +559,7 @@ async def get_companies(filters: CompanyFilter):
         search=filters.search,
         top_company=filters.top_company,
         source=filters.source,
+        merged=filters.merged,
     )
 
     total = company_cache.count_companies(
@@ -568,6 +570,7 @@ async def get_companies(filters: CompanyFilter):
         search=filters.search,
         top_company=filters.top_company,
         source=filters.source,
+        merged=filters.merged,
     )
 
     return {
@@ -609,6 +612,31 @@ async def get_company_by_slug(slug: str):
         raise HTTPException(status_code=404, detail="Company not found")
 
     return company
+
+
+class SimilarQuery(BaseModel):
+    query: str
+    limit: int = 12
+
+
+@app.post("/api/companies/similar")
+async def companies_similar(body: SimilarQuery):
+    """All-source semantic search: return companies across every source most similar
+    to a free-text query, deduped by domain. Vector search spans the full corpus
+    (YC + Hacker News + a16z + ...), unlike the YC-scoped hero idea-validator."""
+    if not body.query or not body.query.strip():
+        raise HTTPException(status_code=400, detail="query is required")
+    if not hasattr(db, "find_similar_companies_by_embedding"):
+        raise HTTPException(status_code=503, detail="Semantic search unavailable (no vector DB)")
+    if db.count_companies_with_embeddings() == 0:
+        raise HTTPException(status_code=503, detail="Company embeddings not yet generated")
+    search_text = get_search_text_for_embedding(body.query, min_length=3)
+    embedding = get_embedding_service().generate_embedding_for_idea(search_text)
+    # source_filter=None -> all sources, deduped by dedupe_key
+    results = db.find_similar_companies_by_embedding(
+        embedding, limit=min(body.limit, 50), min_similarity=0.3
+    )
+    return {"companies": results, "total": len(results)}
 
 
 # Allowed domains for logo proxy (YC and common CDNs)
@@ -964,13 +992,14 @@ async def validate_startup_idea(request: IdeaValidationRequest, request_obj: Req
             similar_companies = db.find_similar_companies_by_embedding(
                 embedding=idea_embedding,
                 limit=max_similar,
-                min_similarity=0.32  # Lower threshold to catch pasted descriptions & near-matches
+                min_similarity=0.32,  # Lower threshold to catch pasted descriptions & near-matches
+                source_filter="yc",   # Hero verdict is YC-framed (market-size % = % of YC companies)
             )
             logger.info(f"Found {len(similar_companies)} similar companies (embedding)")
 
             # Fallback: when embedding returns nothing, try text search (catches pasted company descriptions)
             if len(similar_companies) == 0 and hasattr(db, 'find_companies_by_text_search'):
-                text_matches = db.find_companies_by_text_search(idea_text, limit=max_similar)
+                text_matches = db.find_companies_by_text_search(idea_text, limit=max_similar, source_filter="yc")
                 if text_matches:
                     similar_companies = text_matches
                     logger.info(f"Fallback text search found {len(similar_companies)} companies")
@@ -1072,10 +1101,11 @@ async def hero_answer(req: HeroAnswerRequest, request: Request):
     # transient DB error) returns a handled 503 — which passes through the CORS
     # middleware — instead of a raw 500 that arrives at the browser without CORS
     # headers (surfacing as a confusing cross-origin error).
+    # source_filter="yc": the hero verdict is YC-framed (market-size % = % of YC).
     try:
         search_text = get_search_text_for_embedding(idea)
         embedding = get_embedding_service().generate_embedding_for_idea(search_text)
-        similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32)
+        similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32, source_filter="yc")
     except HTTPException:
         raise
     except Exception as e:
@@ -1180,12 +1210,13 @@ async def gamified_startup_prediction(request: GamifiedPredictionRequest, reques
             matched_companies = db.find_similar_companies_by_embedding(
                 embedding=idea_embedding,
                 limit=max_matches,
-                min_similarity=0.32
+                min_similarity=0.32,
+                source_filter="yc",   # gamified predictor scores against YC portfolio
             )
 
             # Fallback to text search if needed
             if len(matched_companies) == 0 and hasattr(db, 'find_companies_by_text_search'):
-                matched_companies = db.find_companies_by_text_search(idea_text, limit=max_matches)
+                matched_companies = db.find_companies_by_text_search(idea_text, limit=max_matches, source_filter="yc")
 
         except Exception as e:
             logger.error(f"Similarity search failed: {e}")
@@ -1774,6 +1805,41 @@ async def daily_scrape(request: Request, background_tasks: BackgroundTasks):
         "success": True,
         "status": "started",
         "message": "Daily scrape started in background. Check logs for completion.",
+    }
+
+
+async def _run_source_sync(full: bool = False):
+    """Background task: pull new companies from all registered sources, embed, refresh."""
+    from ingestion import sync_service
+    try:
+        db.backfill_dedupe_keys()
+        results = sync_service.run_sync(db, full=full)
+        embedded = sync_service.embed_missing(db)
+        company_cache.refresh(db)
+        logger.info(f"Source sync completed: {results}, embedded {embedded}")
+        return {"results": results, "embedded": embedded}
+    except Exception as e:
+        logger.error(f"Source sync error: {e}")
+        raise
+
+
+@app.post("/api/cron/sync-sources")
+async def cron_sync_sources(request: Request, background_tasks: BackgroundTasks):
+    """Pull new companies from non-YC sources (Hacker News, ...), backfill dedupe_key
+    + embeddings, and refresh the cache. ?full=1 forces a full backfill; ?sync=1 waits."""
+    _verify_cron_secret(request)
+    full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
+    sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+
+    if sync_mode:
+        result = await _run_source_sync(full=full)
+        return {"success": True, "status": "completed", **result}
+
+    background_tasks.add_task(_run_source_sync, full)
+    return {
+        "success": True,
+        "status": "started",
+        "message": "Source sync started in background. Check logs for completion.",
     }
 
 

@@ -22,7 +22,7 @@ import { apiClient, type Company } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { CompanyResearch } from '../components/CompanyResearch';
-import { SourceBadge, sourceLabel } from '../components/ui/SourceBadge';
+import { SourceBadge, MergedSourceBadges, sourceLabel } from '../components/ui/SourceBadge';
 
 function formatLocations(allLocations: string, maxShow = 2): string {
   if (!allLocations?.trim()) return '';
@@ -171,11 +171,18 @@ export function CompanyPage() {
 
               {/* Status Badges */}
               <div className="flex flex-wrap gap-2 items-center">
-                {/* Source (incubator / VC) brand */}
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
-                  <SourceBadge source={company.source} />
-                  <span className="text-sm font-medium text-foreground">{sourceLabel(company.source)}</span>
-                </span>
+                {/* Source (incubator / VC / launch platform) brand — cluster when merged */}
+                {company.merged_sources && company.merged_sources.length > 1 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
+                    <MergedSourceBadges sources={company.merged_sources} />
+                    <span className="text-sm font-medium text-foreground">{company.merged_sources.length} sources</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
+                    <SourceBadge source={company.source} />
+                    <span className="text-sm font-medium text-foreground">{sourceLabel(company.source)}</span>
+                  </span>
+                )}
                 {company.is_hiring && (
                   <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-800 border border-green-200">
                     <Briefcase className="h-4 w-4 mr-1.5" />
