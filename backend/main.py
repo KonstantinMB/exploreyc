@@ -1811,6 +1811,20 @@ async def daily_scrape(request: Request, background_tasks: BackgroundTasks):
 async def _run_source_sync(full: bool = False):
     """Background task: pull new companies from all registered sources, embed, refresh."""
     from ingestion import sync_service
+    # Guard: the multi-source migration must be applied first. Probe the sync_state
+    # table so a missing migration surfaces a clear, actionable message rather than a
+    # cryptic 500 mid-sync.
+    try:
+        db.get_sync_cursor("__schema_probe__")
+    except Exception as e:
+        msg = (
+            "Multi-source schema not found — apply migration "
+            "supabase/migrations/20260711130000_multi_source_sync.sql "
+            "(adds companies.dedupe_key + the sync_state table) before syncing. "
+            f"Underlying error: {e}"
+        )
+        logger.error(f"Source sync blocked: {msg}")
+        raise HTTPException(status_code=503, detail=msg)
     try:
         db.backfill_dedupe_keys()
         results = sync_service.run_sync(db, full=full)

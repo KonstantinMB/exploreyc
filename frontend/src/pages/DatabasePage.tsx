@@ -557,7 +557,7 @@ export function DatabasePage() {
   const [country, setCountry] = useState('');
   const [isHiring, setIsHiring] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
-  const [source, setSource] = useState('yc'); // 'yc' (default) | 'a16z' | 'all'
+  const [source, setSource] = useState('all'); // 'all' (default) | 'yc' | 'a16z' | 'hackernews' | ...
   const [currentPage, setCurrentPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [exportOpen, setExportOpen] = useState(false);

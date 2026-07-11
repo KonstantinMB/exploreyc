@@ -23,8 +23,9 @@ export function CompaniesBrowser({ refreshTrigger }: CompaniesBrowserProps) {
   const [search, setSearch] = useState('');
   const [batchFilter, setBatchFilter] = useState('');
   const [hiringFilter, setHiringFilter] = useState<boolean | undefined>(undefined);
-  // Merge same-company rows across sources; semantic = all-source vector search.
-  const [mergeSources, setMergeSources] = useState(false);
+  // Show all sources merged by default (same company across YC/HN/a16z = one card);
+  // users can uncheck to return to per-source rows. Semantic = all-source vector search.
+  const [mergeSources, setMergeSources] = useState(true);
   const [semantic, setSemantic] = useState(false);
 
   const PAGE_SIZE = 20;
