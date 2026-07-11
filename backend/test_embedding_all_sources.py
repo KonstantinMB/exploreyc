@@ -57,7 +57,9 @@ def test_hero_callsites_pass_source_filter_yc():
     src = MAIN.read_text()
     # The 5 hero/validator paths (3 embedding + 2 text-search fallbacks) must all
     # pin source_filter="yc"; the all-source endpoint (below) must NOT.
-    assert src.count('source_filter="yc"') == 5, "expected exactly 5 YC-scoped hero calls"
+    # Count code lines only — comments may mention the kwarg without being a call.
+    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
+    assert code.count('source_filter="yc"') == 5, "expected exactly 5 YC-scoped hero calls"
 
 
 def test_all_source_endpoint_is_not_yc_scoped():
