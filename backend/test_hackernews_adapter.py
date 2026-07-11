@@ -37,7 +37,8 @@ def test_to_row_sets_source_and_key():
     assert row["source"] == "hackernews"
     assert row["source_id"] == "42"
     assert row["id"] == 3_000_000_042
-    assert row["dedupe_key"] == "acme.com"
+    assert row["dedupe_key"] == "acme.com"       # merges on domain when present
+    assert row["slug"] == "acme-42"              # slug is unique (name + HN id)
     assert row["batch"] == "S26"
     assert row["isHiring"] is False
     assert row["tags"] == ["Launch HN"]
@@ -52,11 +53,25 @@ def test_to_row_drops_noise_without_domain_or_batch():
     assert row is None
 
 
-def test_to_row_shared_host_falls_back_to_source_slug():
+def test_to_row_shared_host_stays_distinct_by_id():
+    # A shared host (github.io) can't merge, so each post is distinct by its id.
     row = HackerNewsAdapter()._to_row(_hit(
         title="Show HN: MyProj – a tool", url="https://myproj.github.io", objectID="7",
     ))
-    assert row["dedupe_key"] == "hackernews:myproj"
+    assert row["dedupe_key"] == "hackernews:7"
+
+
+def test_same_name_posts_get_unique_slugs_no_collision():
+    # Regression: two different posts named "Inconvo" must NOT collide on (source, slug).
+    a = HackerNewsAdapter()._to_row(_hit(
+        title="Launch HN: Inconvo (YC S26) – a", url="https://inconvo.com", objectID="100",
+    ))
+    b = HackerNewsAdapter()._to_row(_hit(
+        title="Show HN: Inconvo – b", url="https://inconvo.com", objectID="200",
+    ))
+    assert a["slug"] != b["slug"]                 # unique -> no UNIQUE(source, slug) violation
+    assert a["slug"] == "inconvo-100" and b["slug"] == "inconvo-200"
+    assert a["dedupe_key"] == b["dedupe_key"] == "inconvo.com"  # same domain still merges
 
 
 def test_registry_has_all_adapters():
