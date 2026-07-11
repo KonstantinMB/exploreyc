@@ -83,6 +83,33 @@ The Vite dev server proxies `/api` and `/ws` to `localhost:8000`, so the fronten
 
 **Minimum viable local setup:** leave `DATABASE_URL` unset (falls back to SQLite) and provide just an `OPENAI_API_KEY` for the idea-validator features. Every other integration degrades gracefully if its key is missing — see [`.env.example`](.env.example) for the full list.
 
+---
+
+### 🐳 Docker quick start (alternative)
+
+No Python or Node required - just [Docker](https://docs.docker.com/get-docker/).
+
+```bash
+git clone https://github.com/KonstantinMB/exploreyc.git
+cd exploreyc
+cp .env.example .env   # add OPENAI_API_KEY etc. if you want - DATABASE_URL is set automatically
+docker compose up
+```
+
+| Service  | URL                   |
+|----------|-----------------------|
+| Frontend | http://localhost:5173 |
+| Backend  | http://localhost:8000 |
+| Postgres | localhost:5432        |
+
+On first start `docker/init-db.sh` runs all Postgres-compatible migrations automatically. Data persists in a named volume across restarts; `docker compose down -v` wipes it.
+
+If you add a new migration, append it to `docker/init-db.sh` and run `docker compose down -v && docker compose up`.
+
+> For production deployment see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+
+
 ### Seeding local data
 
 The local SQLite database starts empty. To populate it, scrape YC company data from the public Algolia API (no API keys needed):

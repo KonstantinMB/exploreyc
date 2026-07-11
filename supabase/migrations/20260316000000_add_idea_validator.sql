@@ -24,7 +24,7 @@ ON companies (industry)
 WHERE industry IS NOT NULL;
 
 -- Add comment explaining the embedding column
-COMMENT ON COLUMN companies.embedding IS 'OpenAI text-embedding-3-small vector (1536 dimensions) for semantic similarity search. Generated from: name + one_liner + long_description + tags + industries';
+COMMENT ON COLUMN companies.embedding IS 'OpenAI text-embedding-3-small vector (1536 dimensions) for semantic similarity search. Generated from: name + one_liner + long_description + industry + subindustry + tags + industries (AI-stopword-filtered)';
 
 -- Create function to calculate similarity score (helper for queries)
 CREATE OR REPLACE FUNCTION cosine_similarity(a vector, b vector)

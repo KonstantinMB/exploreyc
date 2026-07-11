@@ -36,6 +36,7 @@ wheels/
 !frontend/tsconfig*.json
 !vercel.json
 !frontend/vercel.json
+!backend/railway.json
 
 # Environment variables
 .env
@@ -66,3 +67,7 @@ private/
 
 # Accidental venv
 path/
+.gstack/
+
+# Claude Code local state (worktrees, plans, settings)
+.claude/

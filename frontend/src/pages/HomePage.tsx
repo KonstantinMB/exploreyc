@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useApp } from '../contexts/AppContext';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
-import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal } from 'lucide-react';
+import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
+import { HeroAnswerBox } from '../components/HeroAnswerBox';
 import { OptimizedMap } from '../components/OptimizedMap';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { CompaniesBrowser } from '../components/CompaniesBrowser';
@@ -40,93 +41,159 @@ export function HomePage() {
       <GridPattern size={32} className="opacity-50" />
 
       <div className="container relative mx-auto px-4 py-12">
-        {/* Hero - terminal style */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-16"
-        >
-          <div className="flex items-center gap-2 mb-6 font-mono text-sm text-muted-foreground">
-            <Terminal className="h-4 w-4 text-[#FB651E]" />
-            <span>$ explore-yc --init</span>
-          </div>
-          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">
-            <span className="text-[#FB651E]">&gt;</span>{' '}
-            <span className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
-              Explore YC Companies
-            </span>
-          </h1>
-          <p className="text-lg text-muted-foreground font-mono max-w-2xl mb-8">
-            Search, analyze, and discover insights from Y Combinator's portfolio. {totalCompanies.toLocaleString()}+ companies, {totalCountries}+ countries.
-          </p>
+        {/* Hero — centered agentic search */}
+        <div className="relative mb-20 overflow-hidden pt-4 pb-2">
+          {/* ambient breathing glow anchored behind the search */}
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-[46%] -z-0 h-[440px] w-[820px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#FB651E]/12 blur-[130px]"
+            animate={{ opacity: [0.5, 0.85, 0.5], scale: [1, 1.06, 1] }}
+            transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+          />
 
-          {/* Live Stats - inline terminal style */}
           <motion.div
             variants={container}
             initial="hidden"
             animate="show"
-            className="flex flex-wrap gap-3 mb-8"
+            className="relative z-10 flex flex-col items-center text-center"
           >
-            {[
-              { val: totalCompanies.toLocaleString(), label: 'companies', color: 'text-[#FB651E]' },
-              { val: `${totalCountries}+`, label: 'countries', color: 'text-[#FB651E]' },
-              { val: `${totalIndustries}+`, label: 'industries', color: 'text-[#FB651E]' },
-            ].map((s) => (
-              <motion.div
-                key={s.label}
-                variants={item}
-                className="flex items-baseline gap-2 font-mono"
+            {/* eyebrow chip */}
+            <motion.div
+              variants={item}
+              className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-background/60 px-3.5 py-1.5 font-mono text-xs text-muted-foreground backdrop-blur"
+            >
+              <Terminal className="h-3.5 w-3.5 text-[#FB651E]" />
+              <span>$ explore-yc --init</span>
+              <span className="ml-0.5 inline-block h-3 w-[7px] animate-pulse bg-[#FB651E]" />
+            </motion.div>
+
+            {/* headline */}
+            <motion.h1
+              variants={item}
+              className="max-w-3xl text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl"
+            >
+              <span className="text-[#FB651E]">&gt;</span>{' '}
+              <span className="bg-gradient-to-br from-foreground via-foreground to-foreground/60 bg-clip-text text-transparent">
+                Explore YC &amp; a16z startups
+              </span>
+            </motion.h1>
+
+            {/* subline */}
+            <motion.p
+              variants={item}
+              className="mt-5 max-w-xl font-mono text-base leading-relaxed text-muted-foreground"
+            >
+              Ask anything about {totalCompanies.toLocaleString()}+ startups from Y&nbsp;Combinator,
+              a16z &amp; more — instant answers on a free, open-source API.
+            </motion.p>
+
+            {/* SEARCH — the centerpiece */}
+            <motion.div variants={item} className="mt-9 flex w-full justify-center">
+              <HeroAnswerBox />
+            </motion.div>
+
+            {/* Live stats — compact terminal status row */}
+            <motion.div
+              variants={item}
+              className="mt-9 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-sm"
+            >
+              <span className="text-muted-foreground/50">$</span>
+              <span className="text-muted-foreground">
+                <span className="font-bold text-[#FB651E]">{totalCompanies.toLocaleString()}</span> companies
+              </span>
+              <span className="text-border">·</span>
+              <span className="text-muted-foreground">
+                <span className="font-bold text-[#FB651E]">{totalCountries}+</span> countries
+              </span>
+              <span className="text-border">·</span>
+              <span className="text-muted-foreground">
+                <span className="font-bold text-[#FB651E]">{totalIndustries}+</span> industries
+              </span>
+            </motion.div>
+
+            {/* Primary CTAs */}
+            <motion.div
+              variants={item}
+              className="mt-8 flex flex-wrap items-center justify-center gap-3"
+            >
+              <a
+                href="#map"
+                className="group inline-flex items-center gap-2 px-5 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white font-mono text-sm border border-[#FB651E]/50 transition-all duration-200 hover:shadow-[0_0_20px_rgba(251,101,30,0.3)]"
               >
-                <span className="text-muted-foreground">$</span>
-                <span className={`text-2xl font-bold ${s.color}`}>{s.val}</span>
-                <span className="text-sm text-muted-foreground">{s.label}</span>
-              </motion.div>
-            ))}
-          </motion.div>
+                Start Exploring
+                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              </a>
+              <Link
+                to="/analytics"
+                className="inline-flex items-center gap-2 px-5 py-2.5 border border-border hover:border-[#FB651E]/50 font-mono text-sm bg-background/50 transition-all duration-200"
+              >
+                View Analytics
+              </Link>
+            </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="flex flex-wrap gap-3"
-          >
-            <a
-              href="#map"
-              className="group inline-flex items-center gap-2 px-5 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white font-mono text-sm border border-[#FB651E]/50 transition-all duration-200 hover:shadow-[0_0_20px_rgba(251,101,30,0.3)]"
+            <motion.div
+              variants={item}
+              className="mt-8 flex flex-wrap items-center justify-center gap-4"
             >
-              Start Exploring
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-            </a>
-            <Link
-              to="/analytics"
-              className="inline-flex items-center gap-2 px-5 py-2.5 border border-border hover:border-[#FB651E]/50 font-mono text-sm bg-background/50 transition-all duration-200"
-            >
-              View Analytics
-            </Link>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="mt-6"
-          >
-            <a
-              href="https://www.producthunt.com/products/yc-company-explorer?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-exploreyc-yc-company-explorer"
+            <motion.a
+              href="https://www.producthunt.com/products/yc-company-explorer?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-exploreyc-2"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block"
+              aria-label="Upvote ExploreYC on Product Hunt"
+              className="group relative inline-flex shrink-0 items-center"
+              whileHover={{ scale: 1.03, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 22 }}
             >
+              {/* Animated upvote nudge — anchored over the badge's vote arrow */}
+              <motion.span
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-2.5 right-3 z-10 flex items-center gap-0.5 rounded-full border border-[#FB651E]/60 bg-background/95 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-[#FB651E] shadow-[0_0_12px_rgba(251,101,30,0.4)]"
+                animate={{ y: [0, -3, 0] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <ChevronUp className="h-3 w-3" />
+                Upvote
+              </motion.span>
+
               <img
-                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1140202&theme=light&t=1778138682064"
-                alt="ExploreYC - YC Company Explorer - Your data layer for Y Combinator's startup ecosystem | Product Hunt"
-                width="250"
-                height="54"
+                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1190010&theme=light&t=1783529184370"
+                alt="ExploreYC — Open-source API for Y Combinator &amp; a16z company data | Product Hunt"
+                width={250}
+                height={54}
+                className="h-[54px] w-auto max-w-full rounded-md transition-shadow duration-200 group-hover:shadow-[0_0_22px_rgba(251,101,30,0.35)]"
               />
+            </motion.a>
+
+            {/* Open Source / GitHub banner */}
+            <a
+              href="https://github.com/KonstantinMB/exploreyc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-center gap-2.5 px-4 py-2 font-mono text-sm border border-border bg-background/50 hover:border-[#FB651E]/50 hover:bg-[#FB651E]/5 transition-all duration-200"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-5 w-5 fill-current text-foreground group-hover:text-[#FB651E] transition-colors"
+                aria-hidden="true"
+              >
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+              </svg>
+              <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+                Open Source —{' '}
+              </span>
+              <span className="text-foreground font-semibold">Star &amp; Contribute</span>
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 fill-current text-[#FB651E]"
+                aria-hidden="true"
+              >
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+              </svg>
             </a>
+            </motion.div>
           </motion.div>
-        </motion.div>
+        </div>
 
         {/* Batch Wrapped Banner - hacker card */}
         {wrappedBatch && (

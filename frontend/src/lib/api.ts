@@ -13,8 +13,27 @@ const api = axios.create({
   },
 })
 
+// Public-API developer account client — injects the dashboard session token from localStorage.
+export const DEV_TOKEN_KEY = 'dev_token'
+const devApi = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+})
+devApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem(DEV_TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 export interface Company {
   id: number
+  source?: string
+  source_id?: string
+  dedupe_key?: string
+  // Present when a company was merged across sources (source=all&merged=true)
+  merged_sources?: { key: string; source_url?: string }[]
+  // Present on semantic-search results (/api/companies/similar)
+  similarity_score?: number
   name: string
   slug: string
   website: string
@@ -39,6 +58,14 @@ export interface Company {
   country?: string
   created_at: string
   updated_at: string
+  // Source-agnostic fields (populated for a16z and future VC/incubator sources)
+  founders?: string
+  year_founded?: number
+  exit_type?: string
+  acquirer?: string
+  ticker_symbol?: string
+  funded_date?: string
+  source_url?: string
   // Funding data fields (Coresignal)
   funding_total_usd?: number
   funding_last_round_usd?: number
@@ -72,10 +99,69 @@ export interface CompanyFilter {
   industry?: string
   country?: string
   search?: string
+  top_company?: boolean
+  source?: string // undefined -> YC only; 'all' -> every source; or a source key like 'a16z'
+  merged?: boolean // collapse same-domain rows across sources into one card
+}
+
+export interface Source {
+  key: string
+  display_name: string
+  count: number
+}
+
+// ---- Public API developer accounts ----
+export interface ApiUser {
+  id: number
+  email: string
+  company_name?: string
+  plan: string
+  plan_name?: string
+  status: string
+  email_verified: boolean
+  avatar_url?: string | null
+  daily_limit: number
+}
+
+export interface ApiKey {
+  id: number
+  key_prefix: string
+  name?: string
+  is_active: boolean
+  revoked_at?: string | null
+  last_used_at?: string | null
+  created_at: string
+}
+
+export interface UsageSummary {
+  used_24h: number
+  limit: number
+  remaining: number
+}
+
+export interface DevMe extends ApiUser {
+  usage: UsageSummary
+  keys: ApiKey[]
+}
+
+export interface CreatedApiKey {
+  id: number
+  api_key: string
+  key_prefix: string
+  name?: string
+  warning: string
+}
+
+export interface UsageStats {
+  days: number
+  total: number
+  series: { date: string; count: number }[]
+  by_endpoint: { endpoint: string; count: number }[]
 }
 
 export interface Stats {
-  total_companies: number
+  total_companies: number          // YC-only
+  total_all_companies?: number     // every source (YC + Hacker News + a16z + ...)
   hiring: number
   by_batch: Record<string, number>
   by_industry: Record<string, number>
@@ -126,6 +212,9 @@ export const apiClient = {
     api.post<{ companies: Company[]; total: number; has_more: boolean }>('/api/companies', filters),
   getCompany: (id: number) => api.get<Company>(`/api/companies/${id}`),
   getCompanyBySlug: (slug: string) => api.get<Company>(`/api/company/slug/${slug}`),
+  // All-source semantic search (vector search across YC + Hacker News + a16z + ...)
+  getSimilarCompanies: (query: string, limit = 12) =>
+    api.post<{ companies: Company[]; total: number }>('/api/companies/similar', { query, limit }),
 
   // Stats
   getStats: () => api.get<Stats>('/api/stats'),
@@ -143,34 +232,39 @@ export const apiClient = {
     }),
 
   // Filters
+  getSources: () => api.get<{ sources: Source[] }>('/api/filters/sources'),
+
+  // Public API developer accounts + keys
+  devSignup: (email: string, password: string, company_name?: string) =>
+    devApi.post<{ token: string; user: ApiUser }>('/api/dev/signup', { email, password, company_name }),
+  devLogin: (email: string, password: string) =>
+    devApi.post<{ token: string; user: ApiUser }>('/api/dev/login', { email, password }),
+  devLogout: () => devApi.post('/api/dev/logout'),
+  devMe: () => devApi.get<DevMe>('/api/dev/me'),
+  createApiKey: (name?: string) => devApi.post<CreatedApiKey>('/api/dev/keys', { name }),
+  listApiKeys: () => devApi.get<{ keys: ApiKey[] }>('/api/dev/keys'),
+  revokeApiKey: (id: number) => devApi.post(`/api/dev/keys/${id}/revoke`),
+  devUsage: (days = 7) => devApi.get<UsageStats>(`/api/dev/usage?days=${days}`),
+  updateProfile: (data: { company_name?: string; avatar_url?: string }) =>
+    devApi.post<ApiUser>('/api/dev/profile', data),
   getBatches: () => api.get<{ batches: string[] }>('/api/filters/batches'),
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),
 
-  // Export
-  exportJSON: (filters: Partial<CompanyFilter>) => {
-    const params = new URLSearchParams()
-    if (filters.batch) params.append('batch', filters.batch)
-    if (filters.is_hiring !== undefined) params.append('is_hiring', String(filters.is_hiring))
-    if (filters.industry) params.append('industry', filters.industry)
-    if (filters.country) params.append('country', filters.country)
-
-    window.open(`${API_BASE_URL}/api/export/json?${params.toString()}`, '_blank')
-  },
-
-  exportCSV: (filters: Partial<CompanyFilter>) => {
-    const params = new URLSearchParams()
-    if (filters.batch) params.append('batch', filters.batch)
-    if (filters.is_hiring !== undefined) params.append('is_hiring', String(filters.is_hiring))
-    if (filters.industry) params.append('industry', filters.industry)
-    if (filters.country) params.append('country', filters.country)
-
-    window.open(`${API_BASE_URL}/api/export/csv?${params.toString()}`, '_blank')
-  },
+  // Feature interest — data export is currently unavailable; users register demand here.
+  submitFeatureInterest: (payload: { feature?: string; email?: string; user_identifier?: string }) =>
+    api.post<{ success: boolean; feature: string; already_registered: boolean; count: number }>(
+      '/api/feature-interest',
+      payload,
+    ),
 
   // Startup Idea Validator
   validateIdea: (idea: string, maxSimilar: number = 10) =>
     api.post<ValidationResult>('/api/validate-idea', { idea, max_similar: maxSimilar }),
+
+  // Hero Answer Box
+  heroAnswer: (idea: string) =>
+    api.post<HeroAnswer>('/api/hero-answer', { idea }),
 
   // Batch Wrapped
   getBatchWrapped: (batch: string) =>
@@ -270,6 +364,34 @@ export interface CompanyFundingDetails {
     name: string
     is_lead: boolean
   }>
+}
+
+// Hero Answer Box
+export interface HeroClosest {
+  id: number
+  name: string
+  slug: string
+  batch: string
+  similarity: number
+}
+
+export interface HeroAnswer {
+  meter: 'open' | 'emerging' | 'competitive' | 'crowded'
+  headline: string
+  summary: string
+  closest: HeroClosest[]
+  total_similar: number
+  top_industries: { name: string; count: number }[]
+  recent_share: number
+  hiring_share: number
+  market_size_percentage: number
+  cached: boolean
+  prose: string | null
+  // Enrichment for the dedicated /idea breakdown page (present on fresh answers).
+  all_matches?: SimilarCompany[]
+  industry_breakdown?: Record<string, number>
+  batch_timeline?: BatchCount[]
+  market_indicator?: 'green' | 'yellow' | 'crowded'
 }
 
 // WebSocket connection for live scrape updates

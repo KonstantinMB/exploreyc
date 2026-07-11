@@ -2,10 +2,11 @@ import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { AdvancedAnalytics } from '../components/AdvancedAnalytics';
 import { useApp } from '../contexts/AppContext';
-import { TrendingUp, Building2, Globe2, Calendar, ArrowRight, Sparkles, Terminal, Briefcase, Target } from 'lucide-react';
+import { TrendingUp, Building2, Globe2, Calendar, ArrowRight, Sparkles, Briefcase, Target } from 'lucide-react';
 import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
 import { GridPattern } from '../components/ui/grid-pattern';
+import { PageHeader } from '../components/ui/PageHeader';
 
 const container = {
   hidden: { opacity: 0 },
@@ -78,19 +79,11 @@ export function AnalyticsPage() {
           transition={{ duration: 0.5 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-2 mb-4 font-mono text-sm text-muted-foreground">
-            <Terminal className="h-4 w-4 text-[#FB651E]" />
-            <span>$ analyze --data yc-portfolio</span>
-          </div>
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">
-            <span className="text-[#FB651E]">&gt;</span>{' '}
-            <span className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
-              Analytics Dashboard
-            </span>
-          </h1>
-          <p className="text-muted-foreground font-mono">
-            Insights and trends from Y Combinator's portfolio
-          </p>
+          <PageHeader
+            command="$ analyze --data yc-portfolio"
+            title="YC Portfolio Analytics"
+            subtitle="Insights and trends across the Y Combinator portfolio"
+          />
         </motion.div>
 
         {/* Quick Stats Grid */}

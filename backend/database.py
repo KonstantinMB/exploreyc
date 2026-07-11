@@ -40,8 +40,10 @@ class Database:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS companies (
                     id INTEGER PRIMARY KEY,
+                    source TEXT NOT NULL DEFAULT 'yc',
+                    source_id TEXT,
                     name TEXT NOT NULL,
-                    slug TEXT UNIQUE NOT NULL,
+                    slug TEXT NOT NULL,
                     website TEXT,
                     one_liner TEXT,
                     long_description TEXT,
@@ -62,6 +64,13 @@ class Database:
                     latitude REAL,
                     longitude REAL,
                     country TEXT,
+                    founders TEXT,
+                    year_founded INTEGER,
+                    exit_type TEXT,
+                    acquirer TEXT,
+                    ticker_symbol TEXT,
+                    funded_date TEXT,
+                    source_url TEXT,
                     raw_json TEXT,
                     funding_total_usd REAL,
                     funding_last_round_usd REAL,
@@ -214,18 +223,350 @@ class Database:
                 )
             ''')
 
+            # ---- Public API: developer accounts, keys, usage, sessions ----
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    company_name TEXT,
+                    plan TEXT NOT NULL DEFAULT 'free',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    email_verified BOOLEAN NOT NULL DEFAULT 0,
+                    verification_token TEXT,
+                    stripe_customer_id TEXT,
+                    avatar_url TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # Existing local DBs: add avatar_url if missing
+            if 'avatar_url' not in {r[1] for r in cursor.execute("PRAGMA table_info(api_users)").fetchall()}:
+                cursor.execute('ALTER TABLE api_users ADD COLUMN avatar_url TEXT')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    key_prefix TEXT NOT NULL,
+                    key_hash TEXT NOT NULL UNIQUE,
+                    name TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    revoked_at TIMESTAMP,
+                    last_used_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES api_users(id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    api_key_id INTEGER NOT NULL,
+                    endpoint TEXT,
+                    status_code INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (api_key_id) REFERENCES api_keys(id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES api_users(id)
+                )
+            ''')
+
+            # Interest in currently-unavailable features (e.g. data export).
+            # Deduped per (feature, user_identifier) so one browser counts once.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS feature_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feature TEXT NOT NULL,
+                    user_identifier TEXT,
+                    email TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (feature, user_identifier)
+                )
+            ''')
+
+            # Per-source incremental sync cursor (parity with the Postgres migration)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sync_state (
+                    source TEXT PRIMARY KEY,
+                    last_run_at TEXT,
+                    last_cursor TEXT,
+                    last_status TEXT,
+                    records_upserted INTEGER DEFAULT 0,
+                    error TEXT,
+                    updated_at TEXT
+                )
+            ''')
+
+            # Bring existing databases up to the multi-source schema before indexing
+            self._migrate_schema(cursor)
+
             # Create indexes
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_batch ON companies(batch)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring ON companies(is_hiring)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_industry ON companies(industry)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_country ON companies(country)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_funding_total ON companies(funding_total_usd)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_companies_source ON companies(source)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_dedupe_key ON companies(dedupe_key)')
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_source_slug ON companies(source, slug)')
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_companies_source_native ON companies(source, source_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_investor_name ON investors(name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_investor_company ON company_investors(company_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_investor_investor ON company_investors(investor_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_company_id ON hiring_jobs(company_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_role ON hiring_jobs(pretty_role)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_hiring_updated ON hiring_jobs(pretty_updated_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_usage_key_created ON api_usage(api_key_id, created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_sessions_token ON api_sessions(token_hash)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_sessions_expires ON api_sessions(expires_at)')
+
+    def _migrate_schema(self, cursor):
+        """Bring an existing SQLite DB up to the multi-source schema.
+
+        SQLite has no `ADD COLUMN IF NOT EXISTS`, so we gate on PRAGMA table_info.
+        The legacy inline `slug TEXT UNIQUE NOT NULL` creates an un-droppable auto
+        index; we replace it with the composite UNIQUE(source, slug) via a guarded
+        table rebuild. Local-dev only (production is Postgres via database_factory).
+        """
+        existing = {row[1] for row in cursor.execute("PRAGMA table_info(companies)").fetchall()}
+        additions = {
+            "source": "TEXT NOT NULL DEFAULT 'yc'",
+            "source_id": "TEXT",
+            "founders": "TEXT",
+            "year_founded": "INTEGER",
+            "exit_type": "TEXT",
+            "acquirer": "TEXT",
+            "ticker_symbol": "TEXT",
+            "funded_date": "TEXT",
+            "source_url": "TEXT",
+            "dedupe_key": "TEXT",
+        }
+        for col, ddl in additions.items():
+            if col not in existing:
+                cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {ddl}")
+
+        # Backfill provenance for pre-existing (YC) rows
+        cursor.execute("UPDATE companies SET source='yc' WHERE source IS NULL")
+        cursor.execute("UPDATE companies SET source_id=CAST(id AS TEXT) WHERE source_id IS NULL")
+
+        # Drop the legacy global UNIQUE(slug) by rebuilding the table, if present.
+        create_sql = cursor.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='companies'"
+        ).fetchone()[0]
+        if "slug TEXT UNIQUE" in create_sql:
+            cols = [row[1] for row in cursor.execute("PRAGMA table_info(companies)").fetchall()]
+            col_list = ", ".join(f'"{c}"' for c in cols)
+            new_sql = (create_sql
+                       .replace("slug TEXT UNIQUE NOT NULL", "slug TEXT NOT NULL")
+                       .replace("CREATE TABLE IF NOT EXISTS companies", "CREATE TABLE companies_new")
+                       .replace("CREATE TABLE companies", "CREATE TABLE companies_new"))
+            cursor.execute("DROP TABLE IF EXISTS companies_new")
+            cursor.execute(new_sql)
+            cursor.execute(f"INSERT INTO companies_new ({col_list}) SELECT {col_list} FROM companies")
+            cursor.execute("DROP TABLE companies")
+            cursor.execute("ALTER TABLE companies_new RENAME TO companies")
+
+    # ========================================================================
+    # PUBLIC API: developer accounts, keys, usage, sessions
+    # ========================================================================
+
+    @staticmethod
+    def _fmt_dt(value):
+        """Format a datetime for SQLite's CURRENT_TIMESTAMP text comparison (UTC)."""
+        return value.strftime('%Y-%m-%d %H:%M:%S') if hasattr(value, 'strftime') else value
+
+    def create_api_user(self, email, password_hash, company_name=None, verification_token=None) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'INSERT INTO api_users (email, password_hash, company_name, verification_token) VALUES (?, ?, ?, ?)',
+                (email, password_hash, company_name, verification_token))
+            return cur.lastrowid
+
+    def get_api_user_by_email(self, email) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM api_users WHERE email = ?', (email,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_api_user_by_id(self, user_id) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM api_users WHERE id = ?', (user_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def verify_api_user_email(self, token) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                'UPDATE api_users SET email_verified = 1, verification_token = NULL, updated_at = CURRENT_TIMESTAMP '
+                'WHERE verification_token = ?', (token,))
+            return cur.rowcount > 0
+
+    def set_api_user_plan(self, user_id, plan) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET plan = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (plan, user_id))
+            return cur.rowcount > 0
+
+    def set_api_user_status(self, user_id, status) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (status, user_id))
+            return cur.rowcount > 0
+
+    def set_api_user_stripe_customer(self, user_id, customer_id) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET stripe_customer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        (customer_id, user_id))
+            return cur.rowcount > 0
+
+    def update_api_user_profile(self, user_id, company_name=None, avatar_url=None) -> bool:
+        sets, params = [], []
+        if company_name is not None:
+            sets.append('company_name = ?'); params.append(company_name)
+        if avatar_url is not None:
+            sets.append('avatar_url = ?'); params.append(avatar_url)
+        if not sets:
+            return False
+        params.append(user_id)
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(f"UPDATE api_users SET {', '.join(sets)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", params)
+            return cur.rowcount > 0
+
+    def list_api_users(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT u.id, u.email, u.company_name, u.plan, u.status, u.email_verified, u.created_at,
+                       (SELECT COUNT(*) FROM api_keys k WHERE k.user_id = u.id AND k.is_active = 1) AS active_keys
+                FROM api_users u ORDER BY u.created_at DESC''')
+            return [dict(r) for r in cur.fetchall()]
+
+    def create_api_key(self, user_id, key_prefix, key_hash, name=None) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('INSERT INTO api_keys (user_id, key_prefix, key_hash, name) VALUES (?, ?, ?, ?)',
+                        (user_id, key_prefix, key_hash, name))
+            return cur.lastrowid
+
+    def get_api_key_by_hash(self, key_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT k.id, k.user_id, k.is_active, u.plan, u.status AS user_status
+                FROM api_keys k JOIN api_users u ON u.id = k.user_id
+                WHERE k.key_hash = ?''', (key_hash,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def list_api_keys_for_user(self, user_id) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT k.id, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                       (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                FROM api_keys k WHERE k.user_id = ? ORDER BY k.created_at DESC''', (user_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+    def revoke_api_key(self, key_id, user_id=None) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            if user_id is not None:
+                cur.execute('UPDATE api_keys SET is_active = 0, revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+                            (key_id, user_id))
+            else:
+                cur.execute('UPDATE api_keys SET is_active = 0, revoked_at = CURRENT_TIMESTAMP WHERE id = ?', (key_id,))
+            return cur.rowcount > 0
+
+    def list_all_api_keys(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT k.id, k.user_id, u.email, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                       (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                FROM api_keys k JOIN api_users u ON u.id = k.user_id ORDER BY k.created_at DESC''')
+            return [dict(r) for r in cur.fetchall()]
+
+    def log_api_usage(self, api_key_id, endpoint, status_code) -> None:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('INSERT INTO api_usage (api_key_id, endpoint, status_code) VALUES (?, ?, ?)',
+                        (api_key_id, endpoint, status_code))
+
+    def count_api_usage_since(self, api_key_id, since):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*), MIN(created_at) FROM api_usage WHERE api_key_id = ? AND created_at > ?',
+                        (api_key_id, self._fmt_dt(since)))
+            row = cur.fetchone()
+            return (row[0] or 0, row[1])
+
+    def create_api_session(self, user_id, token_hash, expires_at) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('INSERT INTO api_sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+                        (user_id, token_hash, self._fmt_dt(expires_at)))
+            return cur.lastrowid
+
+    def get_api_session(self, token_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT s.user_id, s.expires_at, u.email, u.company_name, u.plan, u.status AS user_status
+                FROM api_sessions s JOIN api_users u ON u.id = s.user_id
+                WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP''', (token_hash,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def delete_api_session(self, token_hash) -> None:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('DELETE FROM api_sessions WHERE token_hash = ?', (token_hash,))
+
+    def delete_expired_api_sessions(self) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('DELETE FROM api_sessions WHERE expires_at < CURRENT_TIMESTAMP')
+            return cur.rowcount
+
+    def cleanup_api_usage(self, older_than) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('DELETE FROM api_usage WHERE created_at < ?', (self._fmt_dt(older_than),))
+            return cur.rowcount
+
+    def get_api_usage_timeseries(self, user_id, since) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT DATE(u.created_at) AS day, COUNT(*) AS count
+                FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                WHERE k.user_id = ? AND u.created_at > ?
+                GROUP BY DATE(u.created_at) ORDER BY day''', (user_id, self._fmt_dt(since)))
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_api_usage_by_endpoint(self, user_id, since, limit=10) -> List[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT u.endpoint AS endpoint, COUNT(*) AS count
+                FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                WHERE k.user_id = ? AND u.created_at > ?
+                GROUP BY u.endpoint ORDER BY count DESC LIMIT ?''', (user_id, self._fmt_dt(since), limit))
+            return [dict(r) for r in cur.fetchall()]
 
     def insert_company(self, company: Dict[str, Any]) -> int:
         """Insert or update a company"""
@@ -233,13 +574,17 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO companies
-                (id, name, slug, website, one_liner, long_description, team_size,
+                (id, source, source_id, name, slug, website, one_liner, long_description, team_size,
                  batch, status, industry, subindustry, all_locations, is_hiring,
                  top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
-                 industries, latitude, longitude, country, raw_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 industries, latitude, longitude, country,
+                 founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
+                 dedupe_key, raw_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 company.get('id'),
+                company.get('source', 'yc'),
+                company.get('source_id') if company.get('source_id') is not None else str(company.get('id')),
                 company.get('name'),
                 company.get('slug'),
                 company.get('website'),
@@ -262,9 +607,114 @@ class Database:
                 company.get('latitude'),
                 company.get('longitude'),
                 company.get('country'),
+                company.get('founders'),
+                company.get('year_founded'),
+                company.get('exit_type'),
+                company.get('acquirer'),
+                company.get('ticker_symbol'),
+                company.get('funded_date'),
+                company.get('source_url'),
+                company.get('dedupe_key'),
                 json.dumps(company)
             ))
             return cursor.lastrowid
+
+    # ========== MULTI-SOURCE SYNC: cursor + dedupe_key ==========
+
+    def get_sync_cursor(self, source: str) -> Optional[str]:
+        """Return the stored incremental cursor for a source (None if never run)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT last_cursor FROM sync_state WHERE source = ?", (source,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def save_sync_state(self, source: str, cursor_value: Optional[str], status: str,
+                        records_upserted: int, error: Optional[str] = None) -> None:
+        """Upsert the per-source sync bookkeeping row."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO sync_state
+                (source, last_run_at, last_cursor, last_status, records_upserted, error, updated_at)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (source, cursor_value, status, records_upserted, error),
+            )
+
+    def set_dedupe_key(self, company_id: int, key: str) -> None:
+        with self.get_connection() as conn:
+            conn.cursor().execute(
+                "UPDATE companies SET dedupe_key = ? WHERE id = ?", (key, company_id)
+            )
+
+    def backfill_dedupe_keys(self) -> int:
+        """Populate dedupe_key for any rows missing one, using the shared normalizer."""
+        from ingestion.normalize import norm_domain, dedupe_key
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, source, slug, website FROM companies WHERE dedupe_key IS NULL"
+            )
+            rows = cursor.fetchall()
+            for r in rows:
+                key = dedupe_key(
+                    norm_domain(r["website"]), r["source"] or "yc", r["slug"] or str(r["id"])
+                )
+                cursor.execute(
+                    "UPDATE companies SET dedupe_key = ? WHERE id = ?", (key, r["id"])
+                )
+            return len(rows)
+
+    def delete_source_companies_with_batch(self, sources=("hackernews", "producthunt")) -> int:
+        """Delete rows from the given non-YC sources that carry a YC batch (they
+        duplicate the canonical source='yc' row). Never touches source='yc'."""
+        placeholders = ",".join("?" for _ in sources)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"DELETE FROM companies WHERE source IN ({placeholders}) "
+                f"AND source <> 'yc' AND batch IS NOT NULL AND batch <> ''",
+                tuple(sources),
+            )
+            return cursor.rowcount
+
+    def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
+                                email: Optional[str] = None) -> Dict:
+        """Record interest in a currently-unavailable feature.
+
+        Deduped per (feature, user_identifier). Returns {"created": bool, "count": int}.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT OR IGNORE INTO feature_requests (feature, user_identifier, email)
+                   VALUES (?, ?, ?)''',
+                (feature, user_identifier, email),
+            )
+            created = cursor.rowcount > 0
+            # Keep the email fresh if the same browser re-submits with one
+            if not created and email is not None and user_identifier is not None:
+                cursor.execute(
+                    '''UPDATE feature_requests SET email = ?
+                       WHERE feature = ? AND user_identifier = ?''',
+                    (email, feature, user_identifier),
+                )
+            cursor.execute(
+                'SELECT COUNT(*) FROM feature_requests WHERE feature = ?', (feature,)
+            )
+            count = cursor.fetchone()[0]
+            return {"created": created, "count": count}
+
+    def get_feature_interest_count(self, feature: str) -> int:
+        """Return the number of distinct interest registrations for a feature."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT COUNT(*) FROM feature_requests WHERE feature = ?', (feature,)
+            )
+            return cursor.fetchone()[0] or 0
 
     def get_companies(self,
                      limit: int = 100,
@@ -1183,3 +1633,13 @@ class Database:
                 "total_views": total_views,
                 "avg_views_per_search": round(avg_views, 2)
             }
+
+    # ============================================================================
+    # IDEA ANSWER CACHE METHODS (no-op stubs — caching is Postgres-only)
+    # ============================================================================
+
+    def get_idea_answer_cache(self, query_key: str):
+        return None  # caching is Postgres-only; local dev always computes fresh
+
+    def set_idea_answer_cache(self, query_key: str, answer_json: dict, ttl_hours: int = 24, prose: str = None) -> None:
+        return None

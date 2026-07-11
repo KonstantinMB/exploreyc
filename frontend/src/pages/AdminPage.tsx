@@ -15,7 +15,8 @@ import {
   LogOut,
   Loader2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  KeyRound
 } from 'lucide-react';
 import { HackerCard } from '../components/ui/hacker-card';
 import { Button } from '../components/ui/button';
@@ -228,7 +229,7 @@ export function AdminPage() {
     return (
       <>
         <Helmet>
-          <title>Admin Login - YC Company Explorer</title>
+          <title>Admin Login - ExploreYC</title>
         </Helmet>
         <div className="min-h-screen flex items-center justify-center bg-background p-4">
           <motion.div
@@ -321,7 +322,7 @@ export function AdminPage() {
   return (
     <>
       <Helmet>
-        <title>Admin Dashboard - YC Company Explorer</title>
+        <title>Admin Dashboard - ExploreYC</title>
       </Helmet>
 
       <div className="min-h-screen bg-background p-4 md:p-8">
@@ -814,8 +815,113 @@ export function AdminPage() {
               <p className="text-muted-foreground font-mono">Failed to load stats</p>
             </div>
           )}
+
+          {/* Public API consumers */}
+          <div className="mt-8">
+            <ApiConsumersSection />
+          </div>
         </div>
       </div>
     </>
+  );
+}
+
+function adminFetch(path: string, options: RequestInit = {}) {
+  const token = localStorage.getItem('admin_token');
+  return fetch(path, {
+    ...options,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+}
+
+const API_PLANS = ['free', 'starter', 'pro', 'enterprise'];
+
+function ApiConsumersSection() {
+  const queryClient = useQueryClient();
+  const { data: users } = useQuery({
+    queryKey: ['admin-api-users'],
+    queryFn: async () => (await adminFetch('/api/admin/api-users')).json(),
+  });
+  const { data: keys } = useQuery({
+    queryKey: ['admin-api-keys'],
+    queryFn: async () => (await adminFetch('/api/admin/api-keys')).json(),
+  });
+  const inval = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-api-users'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-api-keys'] });
+  };
+  const revoke = useMutation({
+    mutationFn: (id: number) => adminFetch(`/api/admin/api-keys/${id}/revoke`, { method: 'POST' }),
+    onSuccess: inval,
+  });
+  const setPlan = useMutation({
+    mutationFn: ({ id, plan }: { id: number; plan: string }) =>
+      adminFetch(`/api/admin/api-users/${id}/plan`, { method: 'POST', body: JSON.stringify({ plan }) }),
+    onSuccess: inval,
+  });
+  const setStatus = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      adminFetch(`/api/admin/api-users/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+    onSuccess: inval,
+  });
+
+  return (
+    <HackerCard glowColor="orange" className="p-6">
+      <h2 className="text-xl font-bold font-mono mb-4 flex items-center gap-2">
+        <KeyRound className="h-5 w-5 text-[#FB651E]" /> Public API — Users &amp; Keys
+      </h2>
+
+      <div className="overflow-x-auto mb-6">
+        <table className="w-full font-mono text-sm">
+          <thead className="border-b border-border text-left text-muted-foreground">
+            <tr><th className="pb-2">Email</th><th className="pb-2">Company</th><th className="pb-2">Plan</th><th className="pb-2">Keys</th><th className="pb-2">Status</th></tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {(users?.users || []).map((u: any) => (
+              <tr key={u.id}>
+                <td className="py-2">{u.email}</td>
+                <td className="py-2 text-muted-foreground">{u.company_name || '—'}</td>
+                <td className="py-2">
+                  <select value={u.plan} onChange={(e) => setPlan.mutate({ id: u.id, plan: e.target.value })}
+                          className="bg-background border border-border rounded px-1 py-0.5 text-xs">
+                    {API_PLANS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </td>
+                <td className="py-2 text-muted-foreground">{u.active_keys}</td>
+                <td className="py-2">
+                  <button onClick={() => setStatus.mutate({ id: u.id, status: u.status === 'active' ? 'suspended' : 'active' })}
+                          className={`text-xs ${u.status === 'active' ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {u.status}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!users?.users?.length && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">No API users yet</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full font-mono text-sm">
+          <thead className="border-b border-border text-left text-muted-foreground">
+            <tr><th className="pb-2">Key</th><th className="pb-2">Owner</th><th className="pb-2">Active</th><th className="pb-2">Last used</th><th className="pb-2" /></tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {(keys?.keys || []).map((k: any) => (
+              <tr key={k.id}>
+                <td className="py-2">{k.key_prefix}…{k.name ? ` (${k.name})` : ''}</td>
+                <td className="py-2 text-muted-foreground">{k.email}</td>
+                <td className="py-2">{k.is_active ? <span className="text-emerald-500">yes</span> : <span className="text-red-500">revoked</span>}</td>
+                <td className="py-2 text-muted-foreground">{k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'never'}</td>
+                <td className="py-2 text-right">{k.is_active && (
+                  <button onClick={() => revoke.mutate(k.id)} className="text-xs text-red-500 hover:text-red-600">Revoke</button>
+                )}</td>
+              </tr>
+            ))}
+            {!keys?.keys?.length && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">No API keys yet</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </HackerCard>
   );
 }

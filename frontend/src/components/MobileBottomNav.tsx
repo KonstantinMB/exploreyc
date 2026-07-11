@@ -1,101 +1,183 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, BarChart3, Wrench, Map as MapIcon, DollarSign, Share2, Briefcase, Mail } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Home, BarChart3, Wrench, BookOpen, Map as MapIcon, DollarSign, Share2, Briefcase,
+  Mail, Database, Terminal, Menu, X, Moon, Sun, Command, LogOut, LayoutDashboard,
+} from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
+import { useDevAuth } from '../contexts/DevAuthContext';
+import { Avatar } from './ui/Avatar';
+import { Logo } from './ui/Logo';
 
-interface NavTab {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  path: string;
-}
-
-const allNavTabs: NavTab[] = [
-  { id: 'home', label: 'Home', icon: Home, path: '/' },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/analytics' },
-  { id: 'funding', label: 'Funding', icon: DollarSign, path: '/funding' },
-  { id: 'hiring', label: 'Hiring', icon: Briefcase, path: '/hiring' },
-  { id: 'tools', label: 'Tools', icon: Wrench, path: '/tools' },
-  { id: 'roadmap', label: 'Roadmap', icon: MapIcon, path: '/roadmap' },
-  { id: 'share', label: 'Share', icon: Share2, path: '/share' },
-];
+type Item = { label: string; icon: React.ComponentType<{ className?: string }>; path: string };
 
 const showShareNav = import.meta.env.VITE_SHOW_SHARE_NAV === 'true' || import.meta.env.VITE_SHOW_SHARE_NAV === '1';
-const navTabs = showShareNav ? allNavTabs : allNavTabs.filter((t) => t.id !== 'share');
+
+const groups: { title: string; items: Item[] }[] = [
+  {
+    title: 'Explore',
+    items: [
+      { label: 'Home', icon: Home, path: '/' },
+      { label: 'Database', icon: Database, path: '/database' },
+      { label: 'Analytics', icon: BarChart3, path: '/analytics' },
+      { label: 'Hiring', icon: Briefcase, path: '/hiring' },
+      { label: 'Funding', icon: DollarSign, path: '/funding' },
+    ],
+  },
+  {
+    title: 'More',
+    items: [
+      { label: 'Tools', icon: Wrench, path: '/tools' },
+      { label: 'Founders', icon: BookOpen, path: '/founders' },
+      { label: 'Roadmap', icon: MapIcon, path: '/roadmap' },
+      ...(showShareNav ? [{ label: 'Share', icon: Share2, path: '/share' }] : []),
+    ],
+  },
+];
 
 export function MobileBottomNav() {
   const location = useLocation();
-  const { setContactFormOpen } = useApp();
+  const { darkMode, setDarkMode, setCommandPaletteOpen, setContactFormOpen } = useApp();
+  const { user, logout } = useDevAuth();
+  const [open, setOpen] = useState(false);
 
-  const isActiveTab = (path: string) => {
-    if (path === '/') {
-      return location.pathname === '/';
-    }
-    return location.pathname.startsWith(path);
-  };
-
-  // Don't show on certain full-screen pages
   const hideOnPaths = ['/batch/', '/validator'];
-  const shouldHide = hideOnPaths.some(path => location.pathname.includes(path));
+  if (hideOnPaths.some((p) => location.pathname.includes(p))) return null;
 
-  if (shouldHide) {
-    return null;
-  }
+  const isActive = (path: string) =>
+    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+
+  const close = () => setOpen(false);
 
   return (
-    <nav className="fixed left-0 right-0 z-40 md:hidden border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 overflow-x-hidden" style={{ top: '28px' }}>
-      <div className="flex items-center justify-around gap-0.5 px-1 pt-2 pb-3 h-14 min-w-0">
-        {navTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = isActiveTab(tab.path);
+    <>
+      {/* Top bar with burger */}
+      <nav
+        className="fixed left-0 right-0 z-40 lg:hidden h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 font-mono"
+        style={{ top: '28px' }}
+      >
+        <div className="flex h-full items-center justify-between px-4">
+          <Link to="/" onClick={close} className="flex items-center gap-2 min-w-0">
+            <Logo size={32} />
+            <span className="text-sm font-bold truncate">ExploreYC</span>
+          </Link>
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-label="Menu"
+            className="w-9 h-9 flex items-center justify-center border border-border text-muted-foreground hover:text-[#FB651E] hover:border-[#FB651E]/50 transition-colors"
+          >
+            {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+      </nav>
 
-          return (
-            <Link
-              key={tab.id}
-              to={tab.path}
-              className="flex flex-col items-center justify-center flex-1 min-w-0 py-1 px-1 rounded-lg group gap-0.5"
-            >
-              <div
-                className={`
-                  flex items-center justify-center w-7 h-7 rounded-lg transition-all flex-shrink-0
-                  ${isActive
-                    ? 'bg-[#FB651E]/10'
-                    : 'group-hover:bg-muted/50'
-                  }
-                `}
-              >
-                <Icon
-                  className={`
-                    w-3.5 h-3.5 transition-colors
-                    ${isActive ? 'text-[#FB651E]' : 'text-muted-foreground group-hover:text-foreground'}
-                  `}
-                />
+      {/* Full-screen overlay menu */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 lg:hidden bg-background font-mono overflow-y-auto"
+          >
+            {/* Overlay header */}
+            <div className="flex items-center justify-between px-4 h-14 border-b border-border" style={{ marginTop: '28px' }}>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Terminal className="w-4 h-4 text-[#FB651E]" /> <span>$ navigate</span>
               </div>
-              <span
-                className={`
-                  text-[9px] font-medium transition-colors flex-shrink-0 leading-tight truncate max-w-full
-                  ${isActive ? 'text-[#FB651E]' : 'text-muted-foreground'}
-                `}
-              >
-                {tab.label}
-              </span>
-            </Link>
-          );
-        })}
+              <button onClick={close} aria-label="Close" className="w-9 h-9 flex items-center justify-center border border-border text-muted-foreground hover:text-[#FB651E]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-        {/* Contact button */}
-        <button
-          onClick={() => setContactFormOpen(true)}
-          className="flex flex-col items-center justify-center flex-1 min-w-0 py-1 px-1 rounded-lg group gap-0.5 hover:bg-muted/50 transition-colors"
-          title="Send feedback or bug report"
-        >
-          <div className="flex items-center justify-center w-7 h-7 rounded-lg transition-all flex-shrink-0 group-hover:bg-muted/50">
-            <Mail className="w-3.5 h-3.5 transition-colors text-muted-foreground group-hover:text-foreground" />
-          </div>
-          <span className="text-[9px] font-medium transition-colors flex-shrink-0 leading-tight text-muted-foreground">
-            Contact
-          </span>
-        </button>
-      </div>
-    </nav>
+            <div className="p-4 space-y-6">
+              {/* Account */}
+              {user ? (
+                <div className="border border-border p-3 flex items-center gap-3">
+                  <Avatar src={user.avatar_url} name={user.company_name || user.email} size={40} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold truncate">{user.company_name || 'Developer'}</div>
+                    <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                  </div>
+                  <button onClick={() => { close(); logout(); }} aria-label="Log out"
+                          className="w-9 h-9 flex items-center justify-center border border-border text-red-500">
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Link to="/login" onClick={close} className="flex items-center justify-center gap-2 px-3 py-3 border border-border text-sm">
+                    Log in
+                  </Link>
+                  <Link to="/signup" onClick={close} className="flex items-center justify-center gap-2 px-3 py-3 bg-[#FB651E] text-white text-sm font-semibold">
+                    Get API key
+                  </Link>
+                </div>
+              )}
+
+              {groups.map((group) => (
+                <div key={group.title}>
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-2">{group.title}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = isActive(item.path);
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          onClick={close}
+                          className={`flex items-center gap-2 px-3 py-3 border transition-colors ${
+                            active
+                              ? 'border-[#FB651E]/50 bg-[#FB651E]/10 text-[#FB651E]'
+                              : 'border-border text-foreground hover:border-[#FB651E]/30'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4 flex-shrink-0" />
+                          <span className="text-sm truncate">{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {/* Developers */}
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-2">Developers</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Link to="/api-docs" onClick={close}
+                        className="flex items-center gap-2 px-3 py-3 border border-border text-foreground hover:border-[#FB651E]/30">
+                    <Terminal className="w-4 h-4" /> <span className="text-sm">API Docs</span>
+                  </Link>
+                  <Link to={user ? '/dashboard' : '/signup'} onClick={close}
+                        className="flex items-center gap-2 px-3 py-3 border border-[#FB651E]/40 bg-[#FB651E]/10 text-[#FB651E]">
+                    <LayoutDashboard className="w-4 h-4" /> <span className="text-sm">{user ? 'Dashboard' : 'Get a key'}</span>
+                  </Link>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pt-2 border-t border-border">
+                <button onClick={() => { close(); setContactFormOpen(true); }}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-3 border border-border text-sm text-muted-foreground hover:text-[#FB651E]">
+                  <Mail className="w-4 h-4" /> Contact
+                </button>
+                <button onClick={() => { close(); setCommandPaletteOpen(true); }}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-3 border border-border text-sm text-muted-foreground hover:text-foreground">
+                  <Command className="w-4 h-4" /> Search
+                </button>
+                <button onClick={() => setDarkMode(!darkMode)} aria-label="Toggle theme"
+                        className="w-12 flex items-center justify-center px-3 py-3 border border-border text-muted-foreground hover:text-foreground">
+                  {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

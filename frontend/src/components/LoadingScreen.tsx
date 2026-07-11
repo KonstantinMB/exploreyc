@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Logo } from './ui/Logo';
 
 const LOADING_TIPS = [
-  'Discovering startups from every YC batch...',
+  'Discovering startups across YC & a16z...',
   'Mapping companies across the globe...',
   'Indexing industries and hiring status...',
   'Building your explorer view...',
@@ -47,20 +48,20 @@ export function LoadingScreen({ message, progress = 0, total = 0 }: LoadingScree
           animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ duration: 0.6, type: 'spring', stiffness: 120 }}
         >
-          <motion.img
-            src="/yc-logo.png"
-            alt="YC"
-            className="h-20 w-20 object-contain drop-shadow-lg"
+          <motion.div
+            className="drop-shadow-lg"
             animate={{ y: [0, -4, 0] }}
             transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-          />
+          >
+            <Logo size={80} />
+          </motion.div>
           <motion.p
             className="mt-4 font-mono text-sm text-muted-foreground tracking-wider"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
           >
-            YC Company Explorer
+            ExploreYC
           </motion.p>
         </motion.div>
 

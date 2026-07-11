@@ -17,6 +17,162 @@ except ImportError:
     logger.warning("Resend package not installed. Email functionality will be disabled.")
 
 
+# Shared design tokens matching the frontend hacker/terminal aesthetic.
+# Kept inline because most email clients strip <style> blocks aggressively;
+# we still ship a <style> for clients that respect it, but every template
+# falls back to inline styles for safety.
+_ORANGE = "#FB651E"
+_ORANGE_HOVER = "#E65C00"
+_BG = "#f8f8f6"        # matches frontend light theme bg
+_CARD_BG = "#ffffff"
+_TEXT = "#18181b"      # frontend foreground
+_MUTED = "#71717a"     # muted-foreground
+_BORDER = "#e5e5e5"
+_MONO = "'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, Monaco, Consolas, monospace"
+
+
+def _base_styles() -> str:
+    """Inline-friendly stylesheet shared by every template."""
+    return f"""
+        body {{
+            font-family: {_MONO};
+            margin: 0;
+            padding: 0;
+            background-color: {_BG};
+            color: {_TEXT};
+            font-size: 14px;
+            line-height: 1.6;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: 32px auto;
+            background: {_CARD_BG};
+            border: 1px solid {_BORDER};
+            border-radius: 2px;
+        }}
+        .accent {{
+            height: 3px;
+            background: {_ORANGE};
+        }}
+        .header {{
+            padding: 28px 28px 20px 28px;
+            border-bottom: 1px solid {_BORDER};
+        }}
+        .prompt {{
+            color: {_MUTED};
+            font-size: 12px;
+            margin: 0 0 10px 0;
+        }}
+        .prompt .caret {{ color: {_ORANGE}; }}
+        .title {{
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+            color: {_TEXT};
+            letter-spacing: -0.2px;
+        }}
+        .title .caret {{ color: {_ORANGE}; margin-right: 6px; }}
+        .subtitle {{
+            margin: 8px 0 0 0;
+            color: {_MUTED};
+            font-size: 13px;
+        }}
+        .content {{ padding: 24px 28px; }}
+        .content p {{ margin: 0 0 14px 0; color: {_TEXT}; font-size: 14px; }}
+        .label {{
+            display: inline-block;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: {_MUTED};
+            margin: 0 0 12px 0;
+        }}
+        .section {{ margin: 0 0 28px 0; }}
+        .section-heading {{
+            margin: 0 0 14px 0;
+            font-size: 15px;
+            font-weight: 700;
+            color: {_TEXT};
+        }}
+        .section-heading .caret {{ color: {_ORANGE}; margin-right: 6px; }}
+        .button {{
+            display: inline-block;
+            background: {_ORANGE};
+            color: #ffffff !important;
+            padding: 12px 22px;
+            text-decoration: none;
+            font-family: {_MONO};
+            font-weight: 600;
+            font-size: 13px;
+            border-radius: 2px;
+            letter-spacing: 0.02em;
+        }}
+        .button:hover {{ background: {_ORANGE_HOVER}; }}
+        .code {{
+            font-family: {_MONO};
+            background: {_BG};
+            border: 1px solid {_BORDER};
+            padding: 10px 12px;
+            border-radius: 2px;
+            font-size: 12px;
+            color: {_TEXT};
+            word-break: break-all;
+        }}
+        .company-card {{
+            border: 1px solid {_BORDER};
+            border-left: 2px solid {_ORANGE};
+            padding: 14px 16px;
+            margin: 0 0 10px 0;
+            border-radius: 2px;
+            background: {_CARD_BG};
+        }}
+        .company-name {{
+            font-weight: 700;
+            color: {_TEXT};
+            font-size: 15px;
+            margin: 0 0 4px 0;
+        }}
+        .company-meta {{ margin: 4px 0 8px 0; font-size: 11px; }}
+        .badge {{
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 2px;
+            font-size: 11px;
+            font-family: {_MONO};
+            margin-right: 6px;
+            letter-spacing: 0.02em;
+        }}
+        .badge-batch {{ background: {_ORANGE}; color: #ffffff; }}
+        .badge-hiring {{ background: #10b981; color: #ffffff; }}
+        .badge-arrow {{
+            background: {_BG};
+            border: 1px solid {_BORDER};
+            color: {_TEXT};
+        }}
+        .company-desc {{
+            color: {_MUTED};
+            font-size: 13px;
+            margin: 6px 0 8px 0;
+            line-height: 1.5;
+        }}
+        .company-links {{ font-size: 12px; }}
+        .company-link {{
+            color: {_ORANGE};
+            text-decoration: none;
+            margin-right: 10px;
+        }}
+        .company-link.primary {{ font-weight: 600; }}
+        .footer {{
+            padding: 20px 28px;
+            border-top: 1px solid {_BORDER};
+            text-align: center;
+            font-size: 12px;
+            color: {_MUTED};
+        }}
+        .footer a {{ color: {_ORANGE}; text-decoration: none; }}
+    """
+
+
 class EmailService:
     """Send emails via Resend"""
 
@@ -32,7 +188,7 @@ class EmailService:
 
         resend.api_key = self.api_key
         # Use your verified domain. Set RESEND_FROM_EMAIL in Railway (e.g. YC Explorer <digest@exploreyc.com>)
-        self.from_email = os.environ.get("RESEND_FROM_EMAIL", "YC Explorer <digest@exploreyc.com>")
+        self.from_email = os.environ.get("RESEND_FROM_EMAIL", "ExploreYC <digest@exploreyc.com>")
         self.frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 
     def send_verification_email(self, email: str, verification_token: str) -> bool:
@@ -47,7 +203,7 @@ class EmailService:
             params = {
                 "from": self.from_email,
                 "to": [email],
-                "subject": "Welcome to YC Explorer — confirm your email",
+                "subject": "[ExploreYC] confirm your email",
                 "html": self._render_verification_email(verification_link)
             }
 
@@ -67,7 +223,7 @@ class EmailService:
             params = {
                 "from": self.from_email,
                 "to": [email],
-                "subject": "You're in! Your first digest is coming soon",
+                "subject": "[ExploreYC] subscription confirmed",
                 "html": self._render_welcome_confirmation()
             }
             resend.Emails.send(params)
@@ -79,40 +235,44 @@ class EmailService:
 
     def _render_welcome_confirmation(self) -> str:
         """Render post-verification welcome email"""
-        return f"""
-<!DOCTYPE html>
+        return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #F6F6EF; line-height: 1.6; }}
-        .container {{ max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }}
-        .header {{ background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 36px; text-align: center; }}
-        .header h1 {{ color: white; margin: 0; font-size: 24px; font-weight: 700; }}
-        .content {{ padding: 36px 32px; }}
-        .content p {{ color: #444; font-size: 16px; margin: 0 0 16px 0; }}
-        .cta {{ text-align: center; margin: 28px 0; }}
-        .cta a {{ display: inline-block; background: #FB651E; color: white !important; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; }}
-        .footer {{ background: #F6F6EF; padding: 24px; text-align: center; font-size: 13px; color: #666; }}
-        .footer a {{ color: #FB651E; text-decoration: none; }}
-    </style>
+    <title>Subscription confirmed</title>
+    <style>{_base_styles()}</style>
 </head>
-<body style="padding: 24px 0;">
-    <div class="container">
-        <div class="header">
-            <h1>You're all set! ✓</h1>
+<body style="margin:0;padding:0;background-color:{_BG};font-family:{_MONO};">
+    <div class="container" style="max-width:600px;margin:32px auto;background:{_CARD_BG};border:1px solid {_BORDER};border-radius:2px;">
+        <div class="accent" style="height:3px;background:{_ORANGE};"></div>
+        <div class="header" style="padding:28px 28px 20px 28px;border-bottom:1px solid {_BORDER};">
+            <p class="prompt" style="color:{_MUTED};font-size:12px;margin:0 0 10px 0;font-family:{_MONO};">
+                <span style="color:{_ORANGE};">$</span> exploreyc subscribe --confirm
+            </p>
+            <h1 class="title" style="margin:0;font-size:22px;font-weight:700;color:{_TEXT};font-family:{_MONO};">
+                <span style="color:{_ORANGE};margin-right:6px;">&gt;</span>Subscription confirmed
+            </h1>
+            <p class="subtitle" style="margin:8px 0 0 0;color:{_MUTED};font-size:13px;font-family:{_MONO};">
+                You're in. Daily digests will land in your inbox around 10:00 UTC.
+            </p>
         </div>
-        <div class="content">
-            <p>Your email is verified. You're now subscribed to YC Explorer daily digests.</p>
-            <p>We scan Y Combinator's directory every day. When new companies join or existing ones start hiring, you'll get an email with the details — usually in your inbox by 10am.</p>
-            <p>Nothing to do now. Just sit back and we'll keep you in the loop.</p>
-            <div class="cta">
-                <a href="{self.frontend_url}">Explore companies now →</a>
-            </div>
+        <div class="content" style="padding:24px 28px;font-family:{_MONO};">
+            <p style="margin:0 0 14px 0;color:{_TEXT};font-size:14px;">
+                We scan Y Combinator's directory every day and ship a digest when something
+                interesting happens — new companies, batch moves, fresh hiring activity.
+            </p>
+            <p style="margin:0 0 20px 0;color:{_TEXT};font-size:14px;">
+                Quiet days mean a quiet inbox. We don't send filler.
+            </p>
+            <p style="text-align:center;margin:24px 0 4px 0;">
+                <a href="{self.frontend_url}" class="button" style="display:inline-block;background:{_ORANGE};color:#ffffff;padding:12px 22px;text-decoration:none;font-family:{_MONO};font-weight:600;font-size:13px;border-radius:2px;">
+                    Explore companies &rarr;
+                </a>
+            </p>
         </div>
-        <div class="footer">
-            <p>YC Explorer • <a href="{self.frontend_url}">exploreyc.com</a></p>
+        <div class="footer" style="padding:20px 28px;border-top:1px solid {_BORDER};text-align:center;font-size:12px;color:{_MUTED};font-family:{_MONO};">
+            ExploreYC &middot; <a href="{self.frontend_url}" style="color:{_ORANGE};text-decoration:none;">exploreyc.com</a>
         </div>
     </div>
 </body>
@@ -132,7 +292,6 @@ class EmailService:
             logger.warning(f"Skipping daily digest to {email} (Resend not configured)")
             return False
 
-        # Skip if no changes
         if not new_companies and not newly_hiring and not batch_changes:
             logger.info(f"No changes to report for {email}, skipping email")
             return False
@@ -163,74 +322,75 @@ class EmailService:
         self, new_companies: List[Dict], newly_hiring: List[Dict], batch_changes: List[Dict]
     ) -> str:
         """Generate email subject line"""
-        today = date.today().strftime("%B %d, %Y")
-        total_changes = len(new_companies) + len(newly_hiring) + len(batch_changes)
+        today = date.today().strftime("%Y-%m-%d")
 
         if new_companies:
-            return f"YC Daily Digest - {len(new_companies)} New Companies ({today})"
-        elif newly_hiring:
-            return f"YC Daily Digest - {len(newly_hiring)} Now Hiring ({today})"
-        else:
-            return f"YC Daily Digest - {total_changes} Updates ({today})"
+            n = len(new_companies)
+            return f"[ExploreYC {today}] +{n} new {'company' if n == 1 else 'companies'}"
+        if newly_hiring:
+            return f"[ExploreYC {today}] {len(newly_hiring)} now hiring"
+        n = len(batch_changes)
+        return f"[ExploreYC {today}] {n} update{'' if n == 1 else 's'}"
 
     def _render_verification_email(self, verification_link: str) -> str:
-        """Render welcome + verification email HTML (themed, friendly)"""
-        return f"""
-<!DOCTYPE html>
+        """Render welcome + verification email HTML"""
+        return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; margin: 0; padding: 0; background-color: #F6F6EF; line-height: 1.6; }}
-        .container {{ max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }}
-        .header {{ background: linear-gradient(135deg, #FB651E 0%, #FF8833 100%); padding: 36px 32px; text-align: center; }}
-        .header h1 {{ color: white; margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }}
-        .header p {{ color: rgba(255,255,255,0.95); margin: 8px 0 0 0; font-size: 15px; }}
-        .content {{ padding: 36px 32px; }}
-        .content h2 {{ color: #1a1a1a; font-size: 20px; margin: 0 0 16px 0; font-weight: 600; }}
-        .content p {{ color: #444; font-size: 16px; margin: 0 0 16px 0; }}
-        .highlight {{ background: #FFF8F4; border-left: 4px solid #FB651E; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }}
-        .highlight p {{ margin: 0; color: #333; font-size: 15px; }}
-        .button {{ display: inline-block; background: #FB651E; color: white !important; padding: 16px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; margin: 24px 0; box-shadow: 0 2px 12px rgba(251,101,30,0.35); }}
-        .button:hover {{ background: #E65C00; }}
-        .features {{ margin: 28px 0; }}
-        .feature {{ display: flex; align-items: flex-start; margin-bottom: 16px; }}
-        .feature-icon {{ font-size: 20px; margin-right: 12px; flex-shrink: 0; }}
-        .feature-text {{ color: #444; font-size: 15px; }}
-        .feature-text strong {{ color: #1a1a1a; }}
-        .footer {{ background: #F6F6EF; padding: 24px 32px; text-align: center; font-size: 13px; color: #666; }}
-        .footer a {{ color: #FB651E; text-decoration: none; }}
-        .verify-note {{ font-size: 13px; color: #888; margin-top: 20px; }}
-        .verify-note code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; word-break: break-all; }}
-    </style>
+    <title>Confirm your email</title>
+    <style>{_base_styles()}</style>
 </head>
-<body style="padding: 24px 0;">
-    <div class="container">
-        <div class="header">
-            <h1>Welcome to YC Explorer 🚀</h1>
-            <p>You're one click away from staying in the loop</p>
+<body style="margin:0;padding:0;background-color:{_BG};font-family:{_MONO};">
+    <div class="container" style="max-width:600px;margin:32px auto;background:{_CARD_BG};border:1px solid {_BORDER};border-radius:2px;">
+        <div class="accent" style="height:3px;background:{_ORANGE};"></div>
+        <div class="header" style="padding:28px 28px 20px 28px;border-bottom:1px solid {_BORDER};">
+            <p class="prompt" style="color:{_MUTED};font-size:12px;margin:0 0 10px 0;font-family:{_MONO};">
+                <span style="color:{_ORANGE};">$</span> exploreyc subscribe --verify
+            </p>
+            <h1 class="title" style="margin:0;font-size:22px;font-weight:700;color:{_TEXT};font-family:{_MONO};">
+                <span style="color:{_ORANGE};margin-right:6px;">&gt;</span>Confirm your email
+            </h1>
+            <p class="subtitle" style="margin:8px 0 0 0;color:{_MUTED};font-size:13px;font-family:{_MONO};">
+                One click and you'll be subscribed to the ExploreYC daily digest.
+            </p>
         </div>
-        <div class="content">
-            <h2>Hey there!</h2>
-            <p>Thanks for signing up. We're excited to have you.</p>
-            <p>We scan Y Combinator's directory <strong>every day</strong> to catch new startups and hiring updates. Once you verify your email, you'll get a daily digest with exactly what's new.</p>
+        <div class="content" style="padding:24px 28px;font-family:{_MONO};">
+            <p style="margin:0 0 14px 0;color:{_TEXT};font-size:14px;">
+                ExploreYC tracks Y Combinator's directory daily — new launches, batch moves,
+                and hiring activity — and ships you a digest only when there's something worth reading.
+            </p>
 
-            <div class="highlight">
-                <p><strong>What you'll get:</strong></p>
-                <p style="margin-top: 8px;">🆕 <strong>New companies</strong> — Fresh YC startups as soon as they're added</p>
-                <p>💼 <strong>Hiring alerts</strong> — Companies that just opened roles</p>
-                <p>📊 <strong>Batch updates</strong> — When companies move batches</p>
+            <div style="margin:18px 0 22px 0;border:1px solid {_BORDER};border-left:2px solid {_ORANGE};padding:14px 16px;background:{_BG};border-radius:2px;">
+                <p style="margin:0 0 8px 0;color:{_TEXT};font-size:13px;font-family:{_MONO};">
+                    <span style="color:{_ORANGE};">&gt;</span> what you'll get
+                </p>
+                <p style="margin:0 0 4px 0;color:{_TEXT};font-size:13px;">
+                    <span style="color:{_ORANGE};">·</span> new YC companies as they go live
+                </p>
+                <p style="margin:0 0 4px 0;color:{_TEXT};font-size:13px;">
+                    <span style="color:{_ORANGE};">·</span> hiring alerts when companies open roles
+                </p>
+                <p style="margin:0;color:{_TEXT};font-size:13px;">
+                    <span style="color:{_ORANGE};">·</span> batch moves and notable updates
+                </p>
             </div>
 
-            <p style="text-align: center;">
-                <a href="{verification_link}" class="button">Confirm my email</a>
+            <p style="text-align:center;margin:24px 0 12px 0;">
+                <a href="{verification_link}" class="button" style="display:inline-block;background:{_ORANGE};color:#ffffff;padding:12px 22px;text-decoration:none;font-family:{_MONO};font-weight:600;font-size:13px;border-radius:2px;">
+                    Confirm email &rarr;
+                </a>
             </p>
-            <p class="verify-note">Or copy this link: <br><code>{verification_link}</code></p>
+            <p style="margin:18px 0 6px 0;color:{_MUTED};font-size:12px;font-family:{_MONO};">
+                Or paste this link into your browser:
+            </p>
+            <div class="code" style="font-family:{_MONO};background:{_BG};border:1px solid {_BORDER};padding:10px 12px;border-radius:2px;font-size:12px;color:{_TEXT};word-break:break-all;">
+                {verification_link}
+            </div>
         </div>
-        <div class="footer">
-            <p>YC Explorer • Explore Y Combinator startups</p>
-            <p><a href="{self.frontend_url}">exploreyc.com</a></p>
+        <div class="footer" style="padding:20px 28px;border-top:1px solid {_BORDER};text-align:center;font-size:12px;color:{_MUTED};font-family:{_MONO};">
+            ExploreYC &middot; <a href="{self.frontend_url}" style="color:{_ORANGE};text-decoration:none;">exploreyc.com</a>
         </div>
     </div>
 </body>
@@ -245,90 +405,81 @@ class EmailService:
         unsubscribe_link: str
     ) -> str:
         """Render daily digest email HTML"""
-        today = date.today().strftime("%B %d, %Y")
+        today = date.today().strftime("%Y-%m-%d")
+        total = len(new_companies) + len(newly_hiring) + len(batch_changes)
 
-        # Build sections
         sections = []
 
         if new_companies:
-            companies_html = "\n".join([
-                self._render_company_card(company) for company in new_companies[:20]
-            ])
-            sections.append(f"""
-                <div class="section">
-                    <h2>🆕 {len(new_companies)} New Companies Added</h2>
-                    {companies_html}
-                </div>
-            """)
+            cards = "\n".join(self._render_company_card(c) for c in new_companies[:20])
+            sections.append(self._render_section(
+                f"new companies ({len(new_companies)})",
+                cards,
+            ))
 
         if newly_hiring:
-            companies_html = "\n".join([
-                self._render_company_card(company) for company in newly_hiring[:20]
-            ])
-            sections.append(f"""
-                <div class="section">
-                    <h2>💼 {len(newly_hiring)} Now Hiring</h2>
-                    {companies_html}
-                </div>
-            """)
+            cards = "\n".join(self._render_company_card(c, force_hiring=True) for c in newly_hiring[:20])
+            sections.append(self._render_section(
+                f"now hiring ({len(newly_hiring)})",
+                cards,
+            ))
 
         if batch_changes:
-            companies_html = "\n".join([
-                self._render_company_card(company) for company in batch_changes[:10]
-            ])
-            sections.append(f"""
-                <div class="section">
-                    <h2>📊 {len(batch_changes)} Batch Updates</h2>
-                    {companies_html}
-                </div>
-            """)
+            cards = "\n".join(self._render_batch_change_card(c) for c in batch_changes[:10])
+            sections.append(self._render_section(
+                f"batch updates ({len(batch_changes)})",
+                cards,
+            ))
 
-        return f"""
-<!DOCTYPE html>
+        return f"""<!DOCTYPE html>
 <html>
 <head>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f6f6ef; }}
-        .container {{ max-width: 600px; margin: 40px auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
-        .header {{ background: #FB651E; padding: 30px; text-align: center; }}
-        .header h1 {{ color: white; margin: 0; font-size: 24px; }}
-        .header p {{ color: rgba(255,255,255,0.9); margin: 5px 0 0 0; }}
-        .content {{ padding: 30px; }}
-        .section {{ margin-bottom: 30px; }}
-        .section h2 {{ color: #FB651E; margin-bottom: 15px; font-size: 18px; }}
-        .company-card {{ background: #f9f9f9; border-left: 3px solid #FB651E; padding: 15px; margin-bottom: 12px; border-radius: 4px; min-height: 60px; }}
-        .company-name {{ font-weight: 600; color: #333; margin-bottom: 5px; font-size: 16px; }}
-        .company-batch {{ display: inline-block; background: #FB651E; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-right: 8px; }}
-        .company-hiring {{ display: inline-block; background: #4CAF50; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; }}
-        .company-description {{ color: #666; font-size: 14px; margin-top: 5px; margin-bottom: 8px; line-height: 1.4; }}
-        .company-links {{ margin-top: 8px; font-size: 13px; }}
-        .company-link {{ color: #FB651E; text-decoration: none; font-size: 13px; }}
-        .footer {{ background: #f6f6ef; padding: 20px; text-align: center; font-size: 12px; color: #666; }}
-        .footer a {{ color: #FB651E; text-decoration: none; }}
-    </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExploreYC daily digest</title>
+    <style>{_base_styles()}</style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🎯 YC Explorer Daily Digest</h1>
-            <p>{today}</p>
+<body style="margin:0;padding:0;background-color:{_BG};font-family:{_MONO};">
+    <div class="container" style="max-width:600px;margin:32px auto;background:{_CARD_BG};border:1px solid {_BORDER};border-radius:2px;">
+        <div class="accent" style="height:3px;background:{_ORANGE};"></div>
+        <div class="header" style="padding:28px 28px 20px 28px;border-bottom:1px solid {_BORDER};">
+            <p class="prompt" style="color:{_MUTED};font-size:12px;margin:0 0 10px 0;font-family:{_MONO};">
+                <span style="color:{_ORANGE};">$</span> exploreyc digest --date={today}
+            </p>
+            <h1 class="title" style="margin:0;font-size:22px;font-weight:700;color:{_TEXT};font-family:{_MONO};">
+                <span style="color:{_ORANGE};margin-right:6px;">&gt;</span>Daily digest
+            </h1>
+            <p class="subtitle" style="margin:8px 0 0 0;color:{_MUTED};font-size:13px;font-family:{_MONO};">
+                {total} update{"s" if total != 1 else ""} &middot; {today}
+            </p>
         </div>
-        <div class="content">
+        <div class="content" style="padding:24px 28px;font-family:{_MONO};">
             {"".join(sections)}
-            <p style="text-align: center; margin-top: 30px;">
-                <a href="{self.frontend_url}" style="color: #FB651E; text-decoration: none; font-weight: 600;">
-                    View all companies →
+            <p style="text-align:center;margin:24px 0 4px 0;">
+                <a href="{self.frontend_url}" class="button" style="display:inline-block;background:{_ORANGE};color:#ffffff;padding:12px 22px;text-decoration:none;font-family:{_MONO};font-weight:600;font-size:13px;border-radius:2px;">
+                    Explore all companies &rarr;
                 </a>
             </p>
         </div>
-        <div class="footer">
-            <p>YC Explorer • Made for developers and founders</p>
-            <p><a href="{unsubscribe_link}">Unsubscribe</a></p>
+        <div class="footer" style="padding:20px 28px;border-top:1px solid {_BORDER};text-align:center;font-size:12px;color:{_MUTED};font-family:{_MONO};">
+            ExploreYC &middot; <a href="{self.frontend_url}" style="color:{_ORANGE};text-decoration:none;">exploreyc.com</a><br>
+            <a href="{unsubscribe_link}" style="color:{_MUTED};text-decoration:underline;">unsubscribe</a>
         </div>
     </div>
 </body>
 </html>
 """
+
+    def _render_section(self, label: str, cards_html: str) -> str:
+        """Render a digest section with a terminal-style heading"""
+        return f"""
+            <div class="section" style="margin:0 0 28px 0;">
+                <h2 class="section-heading" style="margin:0 0 14px 0;font-size:15px;font-weight:700;color:{_TEXT};font-family:{_MONO};">
+                    <span style="color:{_ORANGE};margin-right:6px;">&gt;</span>{label}
+                </h2>
+                {cards_html}
+            </div>
+        """
 
     def send_contact_form(self, email: str, message: str, name: str = "") -> bool:
         """Send contact/feature idea form to ideas@exploreyc.com"""
@@ -341,9 +492,11 @@ class EmailService:
         import html
         escaped_msg = html.escape(message).replace('\n', '<br>')
         body = f"""
-        <p><strong>From:</strong> {html.escape(name or '(no name)')} &lt;{html.escape(email)}&gt;</p>
-        <p><strong>Message:</strong></p>
-        <p>{escaped_msg}</p>
+        <p style="font-family:{_MONO};color:{_TEXT};margin:0 0 12px 0;">
+            <strong>From:</strong> {html.escape(name or '(no name)')} &lt;{html.escape(email)}&gt;
+        </p>
+        <p style="font-family:{_MONO};color:{_TEXT};margin:0 0 8px 0;"><strong>Message:</strong></p>
+        <p style="font-family:{_MONO};color:{_TEXT};margin:0;line-height:1.6;">{escaped_msg}</p>
         """
         try:
             params = {
@@ -351,7 +504,7 @@ class EmailService:
                 "to": [to_email],
                 "reply_to": email,
                 "subject": subject,
-                "html": f"<div style='font-family:sans-serif;'>{body}</div>",
+                "html": f"<div style='font-family:{_MONO};background:{_BG};padding:20px;'>{body}</div>",
             }
             resend.Emails.send(params)
             logger.info(f"Contact form sent from {email}")
@@ -360,52 +513,109 @@ class EmailService:
             logger.error(f"Failed to send contact form: {e}")
             return False
 
-    def _render_company_card(self, company: Dict) -> str:
+    def _render_company_card(self, company: Dict, force_hiring: bool = False) -> str:
         """Render a single company card in email"""
         name = company.get("name", "Unknown")
-        batch = company.get("batch", "N/A")
-        one_liner = company.get("one_liner", "")
-        website = company.get("website", "#")
-        slug = company.get("slug", "")
-        company_id = company.get("id")
-        is_hiring = company.get("is_hiring", False)
-        logo = company.get("logo", "")
+        batch = company.get("batch", "")
+        # Accept both legacy "one_liner" and current "description" keys so
+        # callers that flatten change-log rows don't need to mirror the schema.
+        one_liner = company.get("one_liner") or company.get("description") or ""
+        website = company.get("website", "")
+        slug = company.get("slug") or company.get("company_slug") or ""
+        is_hiring = company.get("is_hiring") or force_hiring
+        logo = company.get("logo") or company.get("small_logo_thumb_url") or ""
 
-        hiring_badge = '<span class="company-hiring">Hiring</span>' if is_hiring else ""
+        badges = []
+        if batch:
+            badges.append(
+                f'<span class="badge badge-batch" style="display:inline-block;padding:2px 8px;border-radius:2px;'
+                f'font-size:11px;font-family:{_MONO};margin-right:6px;background:{_ORANGE};color:#fff;">{batch}</span>'
+            )
+        if is_hiring:
+            badges.append(
+                '<span class="badge badge-hiring" style="display:inline-block;padding:2px 8px;border-radius:2px;'
+                f'font-size:11px;font-family:{_MONO};margin-right:6px;background:#10b981;color:#fff;">hiring</span>'
+            )
+        badges_html = "".join(badges)
 
-        # Logo section - show if available
         logo_html = ""
         if logo:
-            logo_html = f'''
-                <img src="{logo}"
-                     alt="{name} logo"
-                     style="width: 48px; height: 48px; border-radius: 8px; object-fit: cover; margin-right: 12px; float: left;"
-                     onerror="this.style.display='none'">
-            '''
+            logo_html = (
+                f'<img src="{logo}" alt="{name} logo" width="40" height="40" '
+                f'style="width:40px;height:40px;border-radius:2px;object-fit:cover;'
+                f'margin-right:12px;float:left;border:1px solid {_BORDER};">'
+            )
 
         links = []
-        # Link to dedicated company page with funding info
         if self.frontend_url and slug:
             company_page_url = f"{self.frontend_url.rstrip('/')}/company/{slug}"
-            links.append(f'<a href="{company_page_url}" class="company-link" style="font-weight: 600; color: #FB651E;">View Full Profile →</a>')
-        if website and website != "#":
-            links.append(f'<a href="{website}" class="company-link">Website →</a>')
+            links.append(
+                f'<a href="{company_page_url}" class="company-link primary" '
+                f'style="color:{_ORANGE};text-decoration:none;margin-right:10px;font-weight:600;">'
+                f'view profile &rarr;</a>'
+            )
+        if website:
+            links.append(
+                f'<a href="{website}" class="company-link" '
+                f'style="color:{_ORANGE};text-decoration:none;margin-right:10px;">website &rarr;</a>'
+            )
         if slug:
             yc_url = f"https://www.ycombinator.com/companies/{slug}"
-            links.append(f'<a href="{yc_url}" class="company-link">YC Page →</a>')
-        links_html = " &nbsp;|&nbsp; ".join(links) if links else ""
+            links.append(
+                f'<a href="{yc_url}" class="company-link" '
+                f'style="color:{_ORANGE};text-decoration:none;margin-right:10px;">yc page &rarr;</a>'
+            )
+        links_html = "".join(links)
+
+        desc_html = (
+            f'<p class="company-desc" style="color:{_MUTED};font-size:13px;'
+            f'margin:6px 0 8px 0;line-height:1.5;font-family:{_MONO};">{one_liner}</p>'
+        ) if one_liner else ""
 
         return f"""
-            <div class="company-card" style="overflow: auto;">
+            <div class="company-card" style="border:1px solid {_BORDER};border-left:2px solid {_ORANGE};
+                padding:14px 16px;margin:0 0 10px 0;border-radius:2px;background:{_CARD_BG};overflow:auto;">
                 {logo_html}
-                <div style="overflow: hidden;">
-                    <div class="company-name">{name}</div>
-                    <div>
-                        <span class="company-batch">{batch}</span>
-                        {hiring_badge}
-                    </div>
-                    {f'<p class="company-description">{one_liner}</p>' if one_liner else ""}
-                    {f'<div class="company-links">{links_html}</div>' if links_html else ""}
+                <div style="overflow:hidden;">
+                    <div class="company-name" style="font-weight:700;color:{_TEXT};font-size:15px;
+                        margin:0 0 4px 0;font-family:{_MONO};">{name}</div>
+                    <div class="company-meta" style="margin:4px 0 8px 0;">{badges_html}</div>
+                    {desc_html}
+                    {f'<div class="company-links" style="font-size:12px;font-family:{_MONO};">{links_html}</div>' if links_html else ""}
                 </div>
+            </div>
+        """
+
+    def _render_batch_change_card(self, change: Dict) -> str:
+        """Render a card for a batch-change event (old_batch -> new_batch)"""
+        name = change.get("name", "Unknown")
+        old_batch = change.get("old_batch") or change.get("old_value") or "?"
+        new_batch = change.get("new_batch") or change.get("new_value") or "?"
+        slug = change.get("slug") or change.get("company_slug") or ""
+
+        link_html = ""
+        if self.frontend_url and slug:
+            company_page_url = f"{self.frontend_url.rstrip('/')}/company/{slug}"
+            link_html = (
+                f'<a href="{company_page_url}" class="company-link primary" '
+                f'style="color:{_ORANGE};text-decoration:none;margin-right:10px;font-weight:600;'
+                f'font-size:12px;font-family:{_MONO};">view profile &rarr;</a>'
+            )
+
+        return f"""
+            <div class="company-card" style="border:1px solid {_BORDER};border-left:2px solid {_ORANGE};
+                padding:14px 16px;margin:0 0 10px 0;border-radius:2px;background:{_CARD_BG};">
+                <div class="company-name" style="font-weight:700;color:{_TEXT};font-size:15px;
+                    margin:0 0 6px 0;font-family:{_MONO};">{name}</div>
+                <div style="margin:4px 0 8px 0;">
+                    <span class="badge badge-arrow" style="display:inline-block;padding:2px 8px;
+                        border-radius:2px;font-size:11px;font-family:{_MONO};margin-right:6px;
+                        background:{_BG};border:1px solid {_BORDER};color:{_TEXT};">{old_batch}</span>
+                    <span style="color:{_MUTED};font-size:12px;font-family:{_MONO};">&rarr;</span>
+                    <span class="badge badge-batch" style="display:inline-block;padding:2px 8px;
+                        border-radius:2px;font-size:11px;font-family:{_MONO};margin:0 6px;
+                        background:{_ORANGE};color:#fff;">{new_batch}</span>
+                </div>
+                {link_html}
             </div>
         """

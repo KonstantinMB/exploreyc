@@ -54,12 +54,16 @@ class DatabasePostgres:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO companies
-                    (id, name, slug, website, one_liner, long_description, team_size,
+                    (id, source, source_id, name, slug, website, one_liner, long_description, team_size,
                      batch, status, industry, subindustry, all_locations, is_hiring,
                      top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
-                     industries, latitude, longitude, country, raw_json, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     industries, latitude, longitude, country,
+                     founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
+                     dedupe_key, raw_json, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (id) DO UPDATE SET
+                        source = EXCLUDED.source,
+                        source_id = EXCLUDED.source_id,
                         name = EXCLUDED.name,
                         slug = EXCLUDED.slug,
                         website = EXCLUDED.website,
@@ -82,10 +86,20 @@ class DatabasePostgres:
                         latitude = EXCLUDED.latitude,
                         longitude = EXCLUDED.longitude,
                         country = EXCLUDED.country,
+                        founders = EXCLUDED.founders,
+                        year_founded = EXCLUDED.year_founded,
+                        exit_type = EXCLUDED.exit_type,
+                        acquirer = EXCLUDED.acquirer,
+                        ticker_symbol = EXCLUDED.ticker_symbol,
+                        funded_date = EXCLUDED.funded_date,
+                        source_url = EXCLUDED.source_url,
+                        dedupe_key = COALESCE(EXCLUDED.dedupe_key, companies.dedupe_key),
                         raw_json = EXCLUDED.raw_json,
                         updated_at = NOW()
                 """, (
                     company.get("id"),
+                    company.get("source", "yc"),
+                    company.get("source_id") if company.get("source_id") is not None else str(company.get("id")),
                     company.get("name"),
                     company.get("slug"),
                     company.get("website"),
@@ -108,6 +122,14 @@ class DatabasePostgres:
                     company.get("latitude"),
                     company.get("longitude"),
                     company.get("country"),
+                    company.get("founders"),
+                    company.get("year_founded"),
+                    company.get("exit_type"),
+                    company.get("acquirer"),
+                    company.get("ticker_symbol"),
+                    company.get("funded_date"),
+                    company.get("source_url"),
+                    company.get("dedupe_key"),
                     json.dumps(company) if company else None,
                 ))
                 return cur.rowcount
@@ -135,6 +157,8 @@ class DatabasePostgres:
             is_hiring = company.get("is_hiring") if company.get("is_hiring") is not None else company.get("isHiring")
             return (
                 company.get("id"),
+                company.get("source", "yc"),
+                company.get("source_id") if company.get("source_id") is not None else str(company.get("id")),
                 company.get("name"),
                 company.get("slug"),
                 company.get("website"),
@@ -157,15 +181,24 @@ class DatabasePostgres:
                 company.get("latitude"),
                 company.get("longitude"),
                 company.get("country"),
+                company.get("founders"),
+                company.get("year_founded"),
+                company.get("exit_type"),
+                company.get("acquirer"),
+                company.get("ticker_symbol"),
+                company.get("funded_date"),
+                company.get("source_url"),
+                company.get("dedupe_key"),
                 json.dumps(company) if company else None,
             )
 
         total = 0
-        cols = "(id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, raw_json)"
+        cols = "(id, source, source_id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url, dedupe_key, raw_json)"
         upsert_sql = f"""
             INSERT INTO companies {cols}
             VALUES %s
             ON CONFLICT (id) DO UPDATE SET
+                source = EXCLUDED.source, source_id = EXCLUDED.source_id,
                 name = EXCLUDED.name, slug = EXCLUDED.slug, website = EXCLUDED.website,
                 one_liner = EXCLUDED.one_liner, long_description = EXCLUDED.long_description,
                 team_size = EXCLUDED.team_size, batch = EXCLUDED.batch, status = EXCLUDED.status,
@@ -175,6 +208,11 @@ class DatabasePostgres:
                 stage = EXCLUDED.stage, small_logo_thumb_url = EXCLUDED.small_logo_thumb_url,
                 tags = EXCLUDED.tags, regions = EXCLUDED.regions, industries = EXCLUDED.industries,
                 latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, country = EXCLUDED.country,
+                founders = EXCLUDED.founders, year_founded = EXCLUDED.year_founded,
+                exit_type = EXCLUDED.exit_type, acquirer = EXCLUDED.acquirer,
+                ticker_symbol = EXCLUDED.ticker_symbol, funded_date = EXCLUDED.funded_date,
+                source_url = EXCLUDED.source_url,
+                dedupe_key = COALESCE(EXCLUDED.dedupe_key, companies.dedupe_key),
                 raw_json = EXCLUDED.raw_json, updated_at = NOW()
         """
         rows = [_row(c) for c in companies]
@@ -183,6 +221,82 @@ class DatabasePostgres:
                 execute_values(cur, upsert_sql, rows, page_size=batch_size)
                 total = cur.rowcount
         return total
+
+    # ========== MULTI-SOURCE SYNC: cursor + dedupe_key ==========
+
+    def get_sync_cursor(self, source: str) -> Optional[str]:
+        """Return the stored incremental cursor for a source (None if never run)."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT last_cursor FROM sync_state WHERE source = %s", (source,))
+                row = cur.fetchone()
+                return row[0] if row else None
+
+    def save_sync_state(self, source: str, cursor_value: Optional[str], status: str,
+                        records_upserted: int, error: Optional[str] = None) -> None:
+        """Upsert the per-source sync bookkeeping row."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sync_state
+                    (source, last_run_at, last_cursor, last_status, records_upserted, error, updated_at)
+                    VALUES (%s, NOW(), %s, %s, %s, %s, NOW())
+                    ON CONFLICT (source) DO UPDATE SET
+                        last_run_at = NOW(), last_cursor = EXCLUDED.last_cursor,
+                        last_status = EXCLUDED.last_status,
+                        records_upserted = EXCLUDED.records_upserted,
+                        error = EXCLUDED.error, updated_at = NOW()
+                    """,
+                    (source, cursor_value, status, records_upserted, error),
+                )
+                conn.commit()
+
+    def set_dedupe_key(self, company_id: int, key: str) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE companies SET dedupe_key = %s WHERE id = %s", (key, company_id)
+                )
+                conn.commit()
+
+    def backfill_dedupe_keys(self) -> int:
+        """Populate dedupe_key for any rows missing one, using the shared normalizer."""
+        from ingestion.normalize import norm_domain, dedupe_key
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, source, slug, website FROM companies WHERE dedupe_key IS NULL"
+                )
+                rows = cur.fetchall()
+            with conn.cursor() as cur:
+                for r in rows:
+                    key = dedupe_key(
+                        norm_domain(r["website"]), r["source"] or "yc",
+                        r["slug"] or str(r["id"]),
+                    )
+                    cur.execute(
+                        "UPDATE companies SET dedupe_key = %s WHERE id = %s", (key, r["id"])
+                    )
+            conn.commit()
+        return len(rows)
+
+    def delete_source_companies_with_batch(self, sources=("hackernews", "producthunt")) -> int:
+        """Delete rows from the given non-YC sources that carry a YC batch (e.g. a
+        Launch HN advertising '(YC W26)'). A batch means the company is a YC company
+        that already exists as the canonical source='yc' row, so the duplicate is
+        removed. Never touches source='yc'. Safe to run repeatedly / on a schedule."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM companies "
+                    "WHERE source = ANY(%s) AND source <> 'yc' "
+                    "AND batch IS NOT NULL AND batch <> ''",
+                    (list(sources),),
+                )
+                n = cur.rowcount
+            conn.commit()
+        return n
 
     def get_companies(
         self,
@@ -720,7 +834,65 @@ class DatabasePostgres:
                 )
                 return cur.fetchone() is not None
 
+    # ========== FEATURE INTEREST METHODS ==========
+
+    def record_feature_interest(self, feature: str, user_identifier: Optional[str] = None,
+                                email: Optional[str] = None) -> Dict:
+        """Record interest in a currently-unavailable feature.
+
+        Deduped per (feature, user_identifier). Returns {"created": bool, "count": int}.
+        The CREATE TABLE is defensive so the endpoint works even if the Supabase
+        migration hasn't been applied yet (idempotent, cheap).
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS feature_requests (
+                        id BIGSERIAL PRIMARY KEY,
+                        feature TEXT NOT NULL,
+                        user_identifier TEXT,
+                        email TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        UNIQUE (feature, user_identifier)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO feature_requests (feature, user_identifier, email)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (feature, user_identifier)
+                    DO UPDATE SET email = COALESCE(EXCLUDED.email, feature_requests.email)
+                    RETURNING (xmax = 0) AS inserted
+                    """,
+                    (feature, user_identifier, email),
+                )
+                row = cur.fetchone()
+                created = bool(row[0]) if row else False
+                cur.execute(
+                    "SELECT COUNT(*) FROM feature_requests WHERE feature = %s", (feature,)
+                )
+                count = cur.fetchone()[0]
+                return {"created": created, "count": count}
+
+    def get_feature_interest_count(self, feature: str) -> int:
+        """Return the number of distinct interest registrations for a feature."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM feature_requests WHERE feature = %s", (feature,)
+                )
+                return cur.fetchone()[0] or 0
+
     # ========== STARTUP IDEA VALIDATOR METHODS ==========
+
+    def get_yc_company_count(self) -> int:
+        """Return total number of source='yc' companies (denominator for market_size_percentage)."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
+                return cur.fetchone()[0]
 
     def count_companies_with_embeddings(self) -> int:
         """Return number of companies that have embeddings (for validator setup check)"""
@@ -753,6 +925,60 @@ class DatabasePostgres:
                 """, (limit,))
                 return [dict(row) for row in cur.fetchall()]
 
+    @staticmethod
+    def build_company_embedding_text(company: dict) -> str:
+        """Assemble the document text that gets embedded for a company.
+
+        Order matters less than coverage: include every field that carries
+        semantic signal about *what the company does*. The result MUST be run
+        through get_search_text_for_embedding() by the caller before embedding,
+        exactly like the user's query, to preserve query/document symmetry.
+        """
+        def _join(v):
+            if isinstance(v, (list, tuple)):
+                return " ".join(str(x) for x in v if x)
+            return str(v) if v else ""
+        parts = [
+            company.get("name") or "",
+            company.get("one_liner") or "",
+            company.get("long_description") or "",
+            company.get("industry") or "",
+            company.get("subindustry") or "",
+            _join(company.get("tags")),
+            _join(company.get("industries")),
+        ]
+        return " ".join(p for p in (s.strip() for s in parts) if p)
+
+    def get_companies_for_embedding(self, only_missing: bool = True, limit: int = 10000) -> List[Dict]:
+        """Return companies for (re-)embedding.
+
+        Args:
+            only_missing: When True, returns only rows where embedding IS NULL.
+                          When False, returns all source='yc' rows.
+            limit: Maximum number of rows to return.
+
+        Returns:
+            List of dicts with id, name, one_liner, long_description,
+            industry, subindustry, tags, industries.
+
+        Covers ALL sources (not just YC) so vector search spans the full corpus.
+        """
+        where = "WHERE embedding IS NULL" if only_missing else "WHERE TRUE"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""
+                    SELECT id, name, one_liner, long_description,
+                           industry, subindustry, tags, industries
+                    FROM companies
+                    {where}
+                    ORDER BY id DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
     def update_company_embedding(self, company_id: int, embedding: List[float]) -> bool:
         """
         Update the embedding vector for a company
@@ -782,43 +1008,81 @@ class DatabasePostgres:
             logger.error(f"Failed to update embedding for company {company_id}: {e}")
             return False
 
+    def update_company_embeddings_batch(self, pairs) -> int:
+        if not pairs:
+            return 0
+        rows = [("[" + ",".join(map(str, emb)) + "]", cid) for cid, emb in pairs]
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "UPDATE companies SET embedding = %s::vector WHERE id = %s", rows
+                )
+            conn.commit()
+        return len(rows)
+
     def find_similar_companies_by_embedding(
         self,
         embedding: List[float],
         limit: int = 10,
-        min_similarity: float = 0.5
+        min_similarity: float = 0.5,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         """
-        Find companies similar to the given embedding vector using cosine similarity
+        Find companies similar to the given embedding vector using cosine similarity.
 
         Args:
             embedding: The embedding vector (1536 dimensions)
             limit: Maximum number of results to return
             min_similarity: Minimum similarity score (0-1, where 1 is identical)
+            source_filter:
+                - a source key (e.g. 'yc') -> restrict to that source. The hero
+                  idea-validator passes 'yc' so its market-size % / "N YC companies
+                  overlap" verdict stays YC-scoped and unchanged.
+                - None -> search ALL sources, deduped by dedupe_key so a company
+                  present in several sources appears once (all-source semantic search).
 
         Returns:
             List of companies with similarity scores, ordered by similarity (highest first)
         """
+        cols = ("id, name, slug, website, one_liner, long_description, "
+                "industry, subindustry, tags, industries, batch, is_hiring, "
+                "team_size, all_locations, country, small_logo_thumb_url, source, dedupe_key")
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Convert Python list to PostgreSQL vector format
                 embedding_str = '[' + ','.join(map(str, embedding)) + ']'
 
-                # Query using cosine similarity
-                # <=> is the cosine distance operator in pgvector
-                # 1 - cosine_distance = cosine_similarity
-                cur.execute("""
-                    SELECT
-                        id, name, slug, website, one_liner, long_description,
-                        industry, subindustry, tags, industries, batch, is_hiring,
-                        team_size, all_locations, country, small_logo_thumb_url,
-                        (1 - (embedding <=> %s::vector)) AS similarity_score
-                    FROM companies
-                    WHERE embedding IS NOT NULL
-                        AND (1 - (embedding <=> %s::vector)) >= %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s
-                """, (embedding_str, embedding_str, min_similarity, embedding_str, limit))
+                # Raise HNSW index recall (no-op for IVFFlat indexes)
+                cur.execute("SET LOCAL hnsw.ef_search = 60")
+
+                # <=> is the cosine distance operator in pgvector; 1 - dist = similarity
+                if source_filter:
+                    cur.execute(f"""
+                        SELECT {cols},
+                            (1 - (embedding <=> %s::vector)) AS similarity_score
+                        FROM companies
+                        WHERE embedding IS NOT NULL
+                            AND source = %s
+                            AND (1 - (embedding <=> %s::vector)) >= %s
+                        ORDER BY embedding <=> %s::vector
+                        LIMIT %s
+                    """, (embedding_str, source_filter, embedding_str, min_similarity,
+                          embedding_str, limit))
+                else:
+                    # All sources: keep one row per company (dedupe by domain), then rank.
+                    cur.execute(f"""
+                        SELECT * FROM (
+                            SELECT DISTINCT ON (COALESCE(dedupe_key, id::text))
+                                {cols},
+                                (1 - (embedding <=> %s::vector)) AS similarity_score
+                            FROM companies
+                            WHERE embedding IS NOT NULL
+                                AND (1 - (embedding <=> %s::vector)) >= %s
+                            ORDER BY COALESCE(dedupe_key, id::text), embedding <=> %s::vector
+                        ) sub
+                        ORDER BY similarity_score DESC
+                        LIMIT %s
+                    """, (embedding_str, embedding_str, min_similarity, embedding_str, limit))
 
                 companies = [dict(row) for row in cur.fetchall()]
 
@@ -832,12 +1096,16 @@ class DatabasePostgres:
     def find_companies_by_text_search(
         self,
         idea: str,
-        limit: int = 10
+        limit: int = 10,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         """
         Fallback: find companies by text match when embedding search returns nothing.
         Useful when user pastes a company description - finds companies whose
         one_liner or long_description overlaps with the pasted text.
+
+        source_filter mirrors find_similar_companies_by_embedding: 'yc' restricts to
+        YC (hero verdict), None searches all sources deduped by dedupe_key.
         """
         if not idea or len(idea.strip()) < 10:
             return []
@@ -848,20 +1116,36 @@ class DatabasePostgres:
         if len(phrase) < 10:
             return []
         search_term = f"%{phrase}%"
+        src_clause = "AND source = %s" if source_filter else ""
+        params = [search_term, search_term]
+        if source_filter:
+            params.append(source_filter)
+        params.extend([search_term, limit])
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT
                         id, name, slug, website, one_liner, long_description,
                         industry, subindustry, tags, industries, batch, is_hiring,
-                        team_size, all_locations, country, small_logo_thumb_url
+                        team_size, all_locations, country, small_logo_thumb_url, source, dedupe_key
                     FROM companies
                     WHERE (one_liner ILIKE %s OR long_description ILIKE %s)
+                        {src_clause}
                         AND (one_liner IS NOT NULL OR long_description IS NOT NULL)
                     ORDER BY CASE WHEN one_liner ILIKE %s THEN 0 ELSE 1 END
                     LIMIT %s
-                """, (search_term, search_term, search_term, limit))
+                """, params)
                 companies = [dict(row) for row in cur.fetchall()]
+                # When searching all sources, keep one row per company (dedupe by domain).
+                if not source_filter:
+                    seen, deduped = set(), []
+                    for c in companies:
+                        key = c.get("dedupe_key") or f'id:{c.get("id")}'
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        deduped.append(c)
+                    companies = deduped
                 for c in companies:
                     c["similarity_score"] = 0.65  # Placeholder for text match
                 return companies
@@ -880,21 +1164,21 @@ class DatabasePostgres:
             with conn.cursor() as cur:
                 # Get total companies in industry
                 cur.execute(
-                    "SELECT COUNT(*) FROM companies WHERE industry = %s",
+                    "SELECT COUNT(*) FROM companies WHERE industry = %s AND source = 'yc'",
                     (industry,)
                 )
                 total_companies = cur.fetchone()[0]
 
                 # Get hiring count
                 cur.execute(
-                    "SELECT COUNT(*) FROM companies WHERE industry = %s AND is_hiring = TRUE",
+                    "SELECT COUNT(*) FROM companies WHERE industry = %s AND is_hiring = TRUE AND source = 'yc'",
                     (industry,)
                 )
                 hiring_count = cur.fetchone()[0]
 
                 # Get average team size
                 cur.execute(
-                    "SELECT AVG(team_size) FROM companies WHERE industry = %s AND team_size IS NOT NULL",
+                    "SELECT AVG(team_size) FROM companies WHERE industry = %s AND team_size IS NOT NULL AND source = 'yc'",
                     (industry,)
                 )
                 avg_team_size_result = cur.fetchone()[0]
@@ -904,7 +1188,7 @@ class DatabasePostgres:
                 cur.execute("""
                     SELECT batch, COUNT(*) as count
                     FROM companies
-                    WHERE industry = %s AND batch IS NOT NULL
+                    WHERE industry = %s AND batch IS NOT NULL AND source = 'yc'
                     GROUP BY batch
                     ORDER BY count DESC
                     LIMIT 5
@@ -976,7 +1260,7 @@ class DatabasePostgres:
         # Market size percentage (compared to total YC portfolio)
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM companies")
+                cur.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
                 total_yc_companies = cur.fetchone()[0]
                 market_size_percentage = round((total_similar / total_yc_companies * 100), 2) if total_yc_companies > 0 else 0
 
@@ -1504,7 +1788,7 @@ class DatabasePostgres:
                             ELSE 50
                         END as success_score
                     FROM companies
-                    WHERE funding_total_usd IS NOT NULL
+                    WHERE funding_total_usd IS NOT NULL AND source = 'yc'
                     ORDER BY funding_total_usd DESC
                 """)
                 scores = [row[0] for row in cur.fetchall()]
@@ -1882,6 +2166,196 @@ class DatabasePostgres:
                     })
                 return results
 
+    # ========================================================================
+    # PUBLIC API: developer accounts, keys, usage, sessions
+    # ========================================================================
+
+    def create_api_user(self, email, password_hash, company_name=None, verification_token=None) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'INSERT INTO api_users (email, password_hash, company_name, verification_token) '
+                    'VALUES (%s, %s, %s, %s) RETURNING id',
+                    (email, password_hash, company_name, verification_token))
+                return cur.fetchone()[0]
+
+    def get_api_user_by_email(self, email) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT * FROM api_users WHERE email = %s', (email,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_api_user_by_id(self, user_id) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT * FROM api_users WHERE id = %s', (user_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def verify_api_user_email(self, token) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'UPDATE api_users SET email_verified = TRUE, verification_token = NULL, updated_at = NOW() '
+                    'WHERE verification_token = %s', (token,))
+                return cur.rowcount > 0
+
+    def set_api_user_plan(self, user_id, plan) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET plan = %s, updated_at = NOW() WHERE id = %s', (plan, user_id))
+                return cur.rowcount > 0
+
+    def set_api_user_status(self, user_id, status) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET status = %s, updated_at = NOW() WHERE id = %s', (status, user_id))
+                return cur.rowcount > 0
+
+    def set_api_user_stripe_customer(self, user_id, customer_id) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET stripe_customer_id = %s, updated_at = NOW() WHERE id = %s',
+                            (customer_id, user_id))
+                return cur.rowcount > 0
+
+    def update_api_user_profile(self, user_id, company_name=None, avatar_url=None) -> bool:
+        sets, params = [], []
+        if company_name is not None:
+            sets.append('company_name = %s'); params.append(company_name)
+        if avatar_url is not None:
+            sets.append('avatar_url = %s'); params.append(avatar_url)
+        if not sets:
+            return False
+        params.append(user_id)
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"UPDATE api_users SET {', '.join(sets)}, updated_at = NOW() WHERE id = %s", params)
+                return cur.rowcount > 0
+
+    def list_api_users(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT u.id, u.email, u.company_name, u.plan, u.status, u.email_verified, u.created_at,
+                           (SELECT COUNT(*) FROM api_keys k WHERE k.user_id = u.id AND k.is_active = TRUE) AS active_keys
+                    FROM api_users u ORDER BY u.created_at DESC''')
+                return [dict(r) for r in cur.fetchall()]
+
+    def create_api_key(self, user_id, key_prefix, key_hash, name=None) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO api_keys (user_id, key_prefix, key_hash, name) '
+                            'VALUES (%s, %s, %s, %s) RETURNING id', (user_id, key_prefix, key_hash, name))
+                return cur.fetchone()[0]
+
+    def get_api_key_by_hash(self, key_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT k.id, k.user_id, k.is_active, u.plan, u.status AS user_status
+                    FROM api_keys k JOIN api_users u ON u.id = k.user_id
+                    WHERE k.key_hash = %s''', (key_hash,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def list_api_keys_for_user(self, user_id) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT k.id, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                           (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                    FROM api_keys k WHERE k.user_id = %s ORDER BY k.created_at DESC''', (user_id,))
+                return [dict(r) for r in cur.fetchall()]
+
+    def revoke_api_key(self, key_id, user_id=None) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                if user_id is not None:
+                    cur.execute('UPDATE api_keys SET is_active = FALSE, revoked_at = NOW() WHERE id = %s AND user_id = %s',
+                                (key_id, user_id))
+                else:
+                    cur.execute('UPDATE api_keys SET is_active = FALSE, revoked_at = NOW() WHERE id = %s', (key_id,))
+                return cur.rowcount > 0
+
+    def list_all_api_keys(self) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT k.id, k.user_id, u.email, k.key_prefix, k.name, k.is_active, k.revoked_at, k.created_at,
+                           (SELECT MAX(created_at) FROM api_usage WHERE api_key_id = k.id) AS last_used_at
+                    FROM api_keys k JOIN api_users u ON u.id = k.user_id ORDER BY k.created_at DESC''')
+                return [dict(r) for r in cur.fetchall()]
+
+    def log_api_usage(self, api_key_id, endpoint, status_code) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO api_usage (api_key_id, endpoint, status_code) VALUES (%s, %s, %s)',
+                            (api_key_id, endpoint, status_code))
+
+    def count_api_usage_since(self, api_key_id, since):
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COUNT(*), MIN(created_at) FROM api_usage WHERE api_key_id = %s AND created_at > %s',
+                            (api_key_id, since))
+                row = cur.fetchone()
+                return (row[0] or 0, row[1])
+
+    def create_api_session(self, user_id, token_hash, expires_at) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('INSERT INTO api_sessions (user_id, token_hash, expires_at) '
+                            'VALUES (%s, %s, %s) RETURNING id', (user_id, token_hash, expires_at))
+                return cur.fetchone()[0]
+
+    def get_api_session(self, token_hash) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT s.user_id, s.expires_at, u.email, u.company_name, u.plan, u.status AS user_status
+                    FROM api_sessions s JOIN api_users u ON u.id = s.user_id
+                    WHERE s.token_hash = %s AND s.expires_at > NOW()''', (token_hash,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def delete_api_session(self, token_hash) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM api_sessions WHERE token_hash = %s', (token_hash,))
+
+    def delete_expired_api_sessions(self) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM api_sessions WHERE expires_at < NOW()')
+                return cur.rowcount
+
+    def cleanup_api_usage(self, older_than) -> int:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM api_usage WHERE created_at < %s', (older_than,))
+                return cur.rowcount
+
+    def get_api_usage_timeseries(self, user_id, since) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*) AS count
+                    FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                    WHERE k.user_id = %s AND u.created_at > %s
+                    GROUP BY 1 ORDER BY 1''', (user_id, since))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_api_usage_by_endpoint(self, user_id, since, limit=10) -> List[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT u.endpoint AS endpoint, COUNT(*) AS count
+                    FROM api_usage u JOIN api_keys k ON k.id = u.api_key_id
+                    WHERE k.user_id = %s AND u.created_at > %s
+                    GROUP BY u.endpoint ORDER BY count DESC LIMIT %s''', (user_id, since, limit))
+                return [dict(r) for r in cur.fetchall()]
+
     def get_research_stats(self) -> Dict:
         """Get research statistics"""
         with self.get_connection() as conn:
@@ -1900,3 +2374,34 @@ class DatabasePostgres:
                     "total_views": total_views,
                     "avg_views_per_search": round(float(avg_views), 2)
                 }
+
+    # ============================================================================
+    # IDEA ANSWER CACHE METHODS
+    # ============================================================================
+
+    def get_idea_answer_cache(self, query_key: str):
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT answer_json FROM idea_answer_cache "
+                    "WHERE query_key = %s AND expires_at > NOW()", (query_key,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                cur.execute("UPDATE idea_answer_cache SET hit_count = hit_count + 1 WHERE query_key = %s", (query_key,))
+                conn.commit()
+                return row["answer_json"]
+
+    def set_idea_answer_cache(self, query_key: str, answer_json: dict, ttl_hours: int = 24, prose: str = None) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO idea_answer_cache (query_key, answer_json, prose, expires_at)
+                    VALUES (%s, %s, %s, NOW() + (%s || ' hours')::interval)
+                    ON CONFLICT (query_key) DO UPDATE
+                      SET answer_json = EXCLUDED.answer_json, prose = EXCLUDED.prose,
+                          expires_at = EXCLUDED.expires_at, created_at = NOW()
+                    """,
+                    (query_key, json.dumps(answer_json), prose, str(ttl_hours)))
+                conn.commit()

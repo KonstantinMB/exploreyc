@@ -22,6 +22,7 @@ import { apiClient, type Company } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { CompanyResearch } from '../components/CompanyResearch';
+import { SourceBadge, MergedSourceBadges, sourceLabel } from '../components/ui/SourceBadge';
 
 function formatLocations(allLocations: string, maxShow = 2): string {
   if (!allLocations?.trim()) return '';
@@ -169,7 +170,19 @@ export function CompanyPage() {
               </p>
 
               {/* Status Badges */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Source (incubator / VC / launch platform) brand — cluster when merged */}
+                {company.merged_sources && company.merged_sources.length > 1 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
+                    <MergedSourceBadges sources={company.merged_sources} />
+                    <span className="text-sm font-medium text-foreground">{company.merged_sources.length} sources</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/40">
+                    <SourceBadge source={company.source} />
+                    <span className="text-sm font-medium text-foreground">{sourceLabel(company.source)}</span>
+                  </span>
+                )}
                 {company.is_hiring && (
                   <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-800 border border-green-200">
                     <Briefcase className="h-4 w-4 mr-1.5" />
@@ -182,9 +195,17 @@ export function CompanyPage() {
                     Top Company
                   </span>
                 )}
-                <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-orange-100 text-orange-800 border border-orange-200">
-                  {company.batch}
-                </span>
+                {company.batch && (
+                  <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-orange-100 text-orange-800 border border-orange-200">
+                    {company.batch}
+                  </span>
+                )}
+                {company.exit_type && (
+                  <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                    {company.exit_type}
+                    {company.ticker_symbol ? `: ${company.ticker_symbol}` : company.acquirer ? ` → ${company.acquirer}` : ''}
+                  </span>
+                )}
                 {company.status && company.status.trim() && (
                   <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
                     {company.status}
@@ -485,11 +506,15 @@ export function CompanyPage() {
               size="lg"
             >
               <a
-                href={`https://www.ycombinator.com/companies/${company.slug}`}
+                href={
+                  company.source === 'a16z' && company.source_url
+                    ? company.source_url
+                    : `https://www.ycombinator.com/companies/${company.slug}`
+                }
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                View on YC
+                View on {company.source === 'a16z' ? 'a16z' : 'YC'}
                 <ExternalLink className="h-4 w-4 ml-2" />
               </a>
             </Button>

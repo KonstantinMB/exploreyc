@@ -1,0 +1,43 @@
+# backend/.dockerignore
+# Excludes files that should not be sent to the Docker build daemon.
+# Keeping the build context small means faster builds and no accidental
+# secrets or host-specific artifacts inside the image.
+
+# Virtual environments — packages are re-installed inside the container
+venv/
+.venv/
+env/
+ENV/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment / secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# OS artefacts
+.DS_Store
+Thumbs.db

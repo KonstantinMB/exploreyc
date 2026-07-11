@@ -8,11 +8,12 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -20,7 +21,7 @@ import os
 import secrets
 import requests
 from urllib.parse import urlparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from time import time
 
@@ -35,11 +36,22 @@ from coresignal_service import coresignal_service
 from hiring_service import get_hiring_service
 from gamification_scoring import GamificationScorer
 from perplexity_service import get_perplexity_service
+from hero_service import build_verdict
+import ratelimit
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="YC Company Scraper API", version="1.0.0")
+# Hide the internal API's docs/OpenAPI in production so admin/cron routes aren't published.
+# The public API keeps its own docs at /api/v1/docs.
+_IS_PROD = os.environ.get("ENV", "").lower() == "production"
+app = FastAPI(
+    title="YC Company Scraper API",
+    version="1.0.0",
+    docs_url=None if _IS_PROD else "/docs",
+    redoc_url=None if _IS_PROD else "/redoc",
+    openapi_url=None if _IS_PROD else "/openapi.json",
+)
 
 
 # Rate Limiter for Research Endpoint
@@ -86,6 +98,7 @@ gamified_predict_limiter = ResearchRateLimiter(max_requests=5, window_seconds=60
 research_query_limiter = ResearchRateLimiter(max_requests=5, window_seconds=60)
 subscribe_limiter = ResearchRateLimiter(max_requests=3, window_seconds=60)
 scrape_limiter = ResearchRateLimiter(max_requests=3, window_seconds=3600)
+dev_auth_limiter = ResearchRateLimiter(max_requests=10, window_seconds=3600)  # signup/login per IP
 
 
 def _enforce_rate_limit(limiter: ResearchRateLimiter, request_obj: Request, label: str) -> None:
@@ -149,6 +162,8 @@ app.add_middleware(
 # Initialize database, scraper service, email service, and company cache
 db = get_database()
 scraper = ScraperService(db)
+from a16z_scraper_service import A16ZScraperService
+a16z_scraper = A16ZScraperService(db)
 email_service = EmailService()
 company_cache = CompanyCache()
 
@@ -254,6 +269,7 @@ class ScrapeRequest(BaseModel):
     nonprofit: Optional[bool] = None
     hits_per_page: int = 1000
     max_pages: int = 10
+    source: str = "yc"  # 'yc' (Algolia) or 'a16z' (portfolio page)
 
 
 class CompanyFilter(BaseModel):
@@ -264,6 +280,9 @@ class CompanyFilter(BaseModel):
     industry: Optional[str] = None
     country: Optional[str] = None
     search: Optional[str] = None
+    top_company: Optional[bool] = None
+    source: Optional[str] = None  # None -> YC only, 'all' -> every source, or a source key
+    merged: bool = False  # collapse same-domain rows across sources into one card
 
 
 # Background task storage
@@ -381,8 +400,8 @@ async def get_enrichment_stats(session: dict = Depends(verify_admin_session)):
         with db.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Total companies
-            cursor.execute("SELECT COUNT(*) FROM companies")
+            # Total companies (YC only — Coresignal enrichment is YC-scoped)
+            cursor.execute("SELECT COUNT(*) FROM companies WHERE source = 'yc'")
             total_companies = cursor.fetchone()[0]
 
             # Companies enriched (have coresignal data)
@@ -451,6 +470,7 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
 
     # Create job in database
     job_id = db.create_scrape_job({
+        'source': request.source,
         'query': request.query,
         'batch': request.batch,
         'industry': request.industry,
@@ -469,19 +489,25 @@ async def start_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks
     # Start scraping in background
     async def run_scrape():
         try:
-            total = await scraper.scrape_companies(
-                job_id=job_id,
-                query=request.query,
-                batch=request.batch,
-                industry=request.industry,
-                region=request.region,
-                is_hiring=request.is_hiring,
-                top_company=request.top_company,
-                nonprofit=request.nonprofit,
-                hits_per_page=request.hits_per_page,
-                max_pages=request.max_pages,
-                progress_callback=progress_callback
-            )
+            if request.source == "a16z":
+                total = await a16z_scraper.scrape_companies(
+                    job_id=job_id,
+                    progress_callback=progress_callback,
+                )
+            else:
+                total = await scraper.scrape_companies(
+                    job_id=job_id,
+                    query=request.query,
+                    batch=request.batch,
+                    industry=request.industry,
+                    region=request.region,
+                    is_hiring=request.is_hiring,
+                    top_company=request.top_company,
+                    nonprofit=request.nonprofit,
+                    hits_per_page=request.hits_per_page,
+                    max_pages=request.max_pages,
+                    progress_callback=progress_callback
+                )
             active_jobs[job_id] = {'status': 'completed', 'total': total}
         except Exception as e:
             active_jobs[job_id] = {'status': 'failed', 'error': str(e)}
@@ -530,7 +556,10 @@ async def get_companies(filters: CompanyFilter):
         is_hiring=filters.is_hiring,
         industry=filters.industry,
         country=filters.country,
-        search=filters.search
+        search=filters.search,
+        top_company=filters.top_company,
+        source=filters.source,
+        merged=filters.merged,
     )
 
     total = company_cache.count_companies(
@@ -538,7 +567,10 @@ async def get_companies(filters: CompanyFilter):
         is_hiring=filters.is_hiring,
         industry=filters.industry,
         country=filters.country,
-        search=filters.search
+        search=filters.search,
+        top_company=filters.top_company,
+        source=filters.source,
+        merged=filters.merged,
     )
 
     return {
@@ -580,6 +612,31 @@ async def get_company_by_slug(slug: str):
         raise HTTPException(status_code=404, detail="Company not found")
 
     return company
+
+
+class SimilarQuery(BaseModel):
+    query: str
+    limit: int = 12
+
+
+@app.post("/api/companies/similar")
+async def companies_similar(body: SimilarQuery):
+    """All-source semantic search: return companies across every source most similar
+    to a free-text query, deduped by domain. Vector search spans the full corpus
+    (YC + Hacker News + a16z + ...), unlike the YC-scoped hero idea-validator."""
+    if not body.query or not body.query.strip():
+        raise HTTPException(status_code=400, detail="query is required")
+    if not hasattr(db, "find_similar_companies_by_embedding"):
+        raise HTTPException(status_code=503, detail="Semantic search unavailable (no vector DB)")
+    if db.count_companies_with_embeddings() == 0:
+        raise HTTPException(status_code=503, detail="Company embeddings not yet generated")
+    search_text = get_search_text_for_embedding(body.query, min_length=3)
+    embedding = get_embedding_service().generate_embedding_for_idea(search_text)
+    # source_filter=None -> all sources, deduped by dedupe_key
+    results = db.find_similar_companies_by_embedding(
+        embedding, limit=min(body.limit, 50), min_similarity=0.3
+    )
+    return {"companies": results, "total": len(results)}
 
 
 # Allowed domains for logo proxy (YC and common CDNs)
@@ -639,6 +696,12 @@ async def get_map_data(
     return {"companies": companies, "total": len(companies)}
 
 
+@app.get("/api/filters/sources")
+async def get_sources():
+    """Get available company sources (incubators/VCs) with counts"""
+    return {"sources": company_cache.get_sources()}
+
+
 @app.get("/api/filters/batches")
 async def get_batches():
     """Get list of unique batches"""
@@ -660,76 +723,22 @@ async def get_countries():
     return {"countries": countries}
 
 
+# Data export (CSV/JSON) is currently disabled. The endpoints are kept so direct
+# callers get a clear 503 instead of a 404. Users can register interest for the
+# feature via POST /api/feature-interest (see below).
+_EXPORT_DISABLED_DETAIL = "Data export is temporarily unavailable."
+
+
 @app.get("/api/export/json")
-async def export_json(
-    batch: Optional[str] = None,
-    is_hiring: Optional[bool] = None,
-    industry: Optional[str] = None,
-    country: Optional[str] = None
-):
-    """Export companies to JSON"""
-    companies = company_cache.get_companies(
-        limit=10000,
-        batch=batch,
-        is_hiring=is_hiring,
-        industry=industry,
-        country=country
-    )
-
-    # Create JSON file
-    json_str = json.dumps(companies, indent=2, default=str)
-
-    return StreamingResponse(
-        io.BytesIO(json_str.encode()),
-        media_type="application/json",
-        headers={
-            "Content-Disposition": f"attachment; filename=yc_companies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        }
-    )
+async def export_json():
+    """Disabled — data export is temporarily unavailable."""
+    raise HTTPException(status_code=503, detail=_EXPORT_DISABLED_DETAIL)
 
 
 @app.get("/api/export/csv")
-async def export_csv(
-    batch: Optional[str] = None,
-    is_hiring: Optional[bool] = None,
-    industry: Optional[str] = None,
-    country: Optional[str] = None
-):
-    """Export companies to CSV"""
-    companies = company_cache.get_companies(
-        limit=10000,
-        batch=batch,
-        is_hiring=is_hiring,
-        industry=industry,
-        country=country
-    )
-
-    if not companies:
-        raise HTTPException(status_code=404, detail="No companies found")
-
-    # Create CSV
-    output = io.StringIO()
-
-    # Get fieldnames from first company (exclude raw_json)
-    fieldnames = [k for k in companies[0].keys() if k != 'raw_json']
-
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
-    writer.writeheader()
-
-    for company in companies:
-        # Remove raw_json field
-        company_data = {k: v for k, v in company.items() if k != 'raw_json'}
-        writer.writerow(company_data)
-
-    csv_str = output.getvalue()
-
-    return StreamingResponse(
-        io.BytesIO(csv_str.encode()),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=yc_companies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        }
-    )
+async def export_csv():
+    """Disabled — data export is temporarily unavailable."""
+    raise HTTPException(status_code=503, detail=_EXPORT_DISABLED_DETAIL)
 
 
 @app.websocket("/ws/scrape")
@@ -983,13 +992,14 @@ async def validate_startup_idea(request: IdeaValidationRequest, request_obj: Req
             similar_companies = db.find_similar_companies_by_embedding(
                 embedding=idea_embedding,
                 limit=max_similar,
-                min_similarity=0.32  # Lower threshold to catch pasted descriptions & near-matches
+                min_similarity=0.32,  # Lower threshold to catch pasted descriptions & near-matches
+                source_filter="yc",   # Hero verdict is YC-framed (market-size % = % of YC companies)
             )
             logger.info(f"Found {len(similar_companies)} similar companies (embedding)")
 
             # Fallback: when embedding returns nothing, try text search (catches pasted company descriptions)
             if len(similar_companies) == 0 and hasattr(db, 'find_companies_by_text_search'):
-                text_matches = db.find_companies_by_text_search(idea_text, limit=max_similar)
+                text_matches = db.find_companies_by_text_search(idea_text, limit=max_similar, source_filter="yc")
                 if text_matches:
                     similar_companies = text_matches
                     logger.info(f"Fallback text search found {len(similar_companies)} companies")
@@ -1036,6 +1046,103 @@ async def validate_startup_idea(request: IdeaValidationRequest, request_obj: Req
             status_code=500,
             detail=f"An unexpected error occurred: {str(e)}"
         )
+
+
+# ============================================================================
+# HERO ANSWER BOX ENDPOINT — instant, deterministic, cached
+# ============================================================================
+
+class HeroAnswerRequest(BaseModel):
+    idea: str
+
+
+@app.post("/api/hero-answer")
+async def hero_answer(req: HeroAnswerRequest, request: Request):
+    """
+    Instant deterministic answer for the homepage hero box.
+
+    Uses pgvector similarity search + build_verdict() — NO LLM chat calls.
+    Results are cached by SHA-1 of the lowercased idea for 24 hours.
+    """
+    idea = (req.idea or "").strip()
+    if len(idea) < 10:
+        raise HTTPException(status_code=400, detail="Describe the idea in a bit more detail.")
+
+    ip = request.client.host if request.client else "unknown"
+    allowed, retry = ratelimit.check_rate_limit(f"hero:{ip}", limit=15, window_seconds=60)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Slow down — try again in {retry}s.")
+
+    key = hashlib.sha1(idea.lower().encode()).hexdigest()
+
+    # Return cached result if available. Cache read is non-fatal: if the
+    # idea_answer_cache table doesn't exist yet (migration not applied), or any
+    # transient DB issue occurs, degrade to computing a fresh answer rather than
+    # 500-ing the search.
+    if hasattr(db, "get_idea_answer_cache"):
+        try:
+            cached = db.get_idea_answer_cache(key)
+            # Self-heal stale entries: a cache row written before the breakdown
+            # enrichment shipped lacks "all_matches". Treat those as a miss so we
+            # recompute and re-cache the full payload (companies + charts).
+            if cached and cached.get("all_matches") is not None:
+                return {**cached, "cached": True}
+        except Exception as e:
+            logger.warning(f"hero cache read failed (non-fatal): {e}")
+
+    # Guard: require embeddings to be present
+    if not hasattr(db, "count_companies_with_embeddings"):
+        raise HTTPException(status_code=503, detail="Semantic search unavailable in this environment.")
+    if db.count_companies_with_embeddings() == 0:
+        raise HTTPException(status_code=503, detail="Company embeddings not yet generated.")
+
+    # Embed → similarity search → verdict (zero LLM chat calls).
+    # Wrap in try/except so an embedding/search failure (e.g. OpenAI quota,
+    # transient DB error) returns a handled 503 — which passes through the CORS
+    # middleware — instead of a raw 500 that arrives at the browser without CORS
+    # headers (surfacing as a confusing cross-origin error).
+    # source_filter="yc": the hero verdict is YC-framed (market-size % = % of YC).
+    try:
+        search_text = get_search_text_for_embedding(idea)
+        embedding = get_embedding_service().generate_embedding_for_idea(search_text)
+        similar = db.find_similar_companies_by_embedding(embedding, limit=12, min_similarity=0.32, source_filter="yc")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"hero-answer search failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Search is temporarily unavailable — please try again shortly.",
+        )
+
+    # Portfolio total: use YC-only count so the denominator matches the YC-only
+    # numerator in market_size_percentage (both must be source='yc').
+    portfolio_total = db.get_yc_company_count() if hasattr(db, "get_yc_company_count") else 6000
+
+    verdict = build_verdict(idea, similar, portfolio_total)
+
+    # Enrich with the full match set + breakdowns so the dedicated /idea page can
+    # render charts and the complete company grid WITHOUT re-embedding (reuses the
+    # `similar` set we already retrieved). Cheap: pure Python + one COUNT query.
+    # Non-fatal — the compact answer card doesn't depend on these.
+    try:
+        if hasattr(db, "get_market_analysis"):
+            analysis = db.get_market_analysis(similar)
+            verdict["all_matches"] = similar
+            verdict["industry_breakdown"] = analysis.get("industry_breakdown", {})
+            verdict["batch_timeline"] = analysis.get("batch_timeline", [])
+            verdict["market_indicator"] = analysis.get("market_indicator")
+    except Exception as e:
+        logger.warning(f"hero breakdown enrichment failed (non-fatal): {e}")
+
+    # Write cache (non-fatal)
+    if hasattr(db, "set_idea_answer_cache"):
+        try:
+            db.set_idea_answer_cache(key, verdict, ttl_hours=24)
+        except Exception as e:
+            logger.error(f"hero cache write failed (non-fatal): {e}")
+
+    return {**verdict, "cached": False, "prose": None}
 
 
 # ============================================================================
@@ -1103,12 +1210,13 @@ async def gamified_startup_prediction(request: GamifiedPredictionRequest, reques
             matched_companies = db.find_similar_companies_by_embedding(
                 embedding=idea_embedding,
                 limit=max_matches,
-                min_similarity=0.32
+                min_similarity=0.32,
+                source_filter="yc",   # gamified predictor scores against YC portfolio
             )
 
             # Fallback to text search if needed
             if len(matched_companies) == 0 and hasattr(db, 'find_companies_by_text_search'):
-                matched_companies = db.find_companies_by_text_search(idea_text, limit=max_matches)
+                matched_companies = db.find_companies_by_text_search(idea_text, limit=max_matches, source_filter="yc")
 
         except Exception as e:
             logger.error(f"Similarity search failed: {e}")
@@ -1584,6 +1692,38 @@ async def get_user_votes(user_identifier: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class FeatureInterestRequest(BaseModel):
+    feature: str = "db-export"          # which paused feature the interest is for
+    email: Optional[str] = None         # optional — for "notify me when it's back"
+    user_identifier: Optional[str] = None  # stable per-browser id to dedupe clicks
+
+
+@app.post("/api/feature-interest")
+async def register_feature_interest(request: FeatureInterestRequest):
+    """Record that a user wants a currently-unavailable feature (e.g. data export).
+
+    Deduplicated per (feature, user_identifier) so one browser counts once.
+    Returns the running interest count so the UI can show demand.
+    """
+    feature = (request.feature or "").strip() or "db-export"
+    email = (request.email or "").strip() or None
+    try:
+        result = db.record_feature_interest(
+            feature=feature,
+            user_identifier=(request.user_identifier or "").strip() or None,
+            email=email,
+        )
+        return {
+            "success": True,
+            "feature": feature,
+            "already_registered": not result["created"],
+            "count": result["count"],
+        }
+    except Exception as e:
+        logger.error(f"Feature interest error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ============================================================================
 # CRON JOB ENDPOINTS (Protected by secret token)
 # ============================================================================
@@ -1616,63 +1756,21 @@ async def _run_daily_scrape():
         if deleted > 0:
             logger.info(f"Cleaned up {deleted} old change log entries (>90 days old)")
 
-        # Generate embeddings for new companies (if OpenAI API key is configured)
+        # Generate embeddings for new companies using batch API
         embeddings_generated = 0
         try:
-            from embedding_service import get_embedding_service
-            from idea_filter import get_search_text_for_embedding
-
-            # Check if OpenAI API key is available
-            if os.getenv('OPENAI_API_KEY'):
-                embedding_service = get_embedding_service()
-
-                # Get companies without embeddings (limit to 50 per scrape to avoid rate limits)
-                companies_without_embeddings = db.get_companies_without_embeddings(limit=50)
-
-                if companies_without_embeddings:
-                    logger.info(f"🤖 Generating embeddings for {len(companies_without_embeddings)} new companies")
-
-                    for company in companies_without_embeddings:
-                        try:
-                            # Create description text from available fields
-                            description_parts = []
-                            if company.get('one_liner'):
-                                description_parts.append(company['one_liner'])
-                            if company.get('long_description'):
-                                description_parts.append(company['long_description'])
-
-                            description = ' '.join(description_parts).strip()
-
-                            if description:
-                                # Filter AI words and generate embedding
-                                search_text = get_search_text_for_embedding(description)
-                                embedding = embedding_service.generate_embedding(search_text)
-
-                                # Store embedding in database
-                                if db.update_company_embedding(company['id'], embedding):
-                                    embeddings_generated += 1
-                                    logger.info(f"✅ Generated embedding for {company['name']} (ID: {company['id']})")
-                                else:
-                                    logger.warning(f"⚠️ Failed to store embedding for {company['name']} (ID: {company['id']})")
-
-                            # Rate limiting: small delay between requests
-                            await asyncio.sleep(0.2)
-
-                        except Exception as e:
-                            logger.error(f"❌ Error generating embedding for {company['name']} (ID: {company['id']}): {e}")
-                            continue
-
-                    logger.info(f"🎉 Generated {embeddings_generated} embeddings successfully")
+            if hasattr(db, "get_companies_for_embedding"):
+                missing = db.get_companies_for_embedding(only_missing=True, limit=2000)
+                if missing:
+                    embedding_service = get_embedding_service()
+                    texts = [get_search_text_for_embedding(db.build_company_embedding_text(c)) for c in missing]
+                    vectors = embedding_service.generate_embeddings_batch(texts)
+                    embeddings_generated = db.update_company_embeddings_batch([(c["id"], v) for c, v in zip(missing, vectors)])
+                    logger.info(f"Daily embedding backfill: embedded {embeddings_generated} new companies")
                 else:
-                    logger.info("✅ All companies already have embeddings")
-            else:
-                logger.info("ℹ️ OPENAI_API_KEY not configured, skipping embedding generation")
-
-        except ImportError:
-            logger.warning("⚠️ Embedding service not available, skipping embedding generation")
+                    logger.info("Daily embedding backfill: all companies already have embeddings")
         except Exception as e:
-            logger.error(f"❌ Error in embedding generation: {e}")
-            # Don't fail the entire scrape if embedding generation fails
+            logger.error(f"Daily embedding backfill failed (non-fatal): {e}")
 
         logger.info(f"Daily scrape completed: {total_scraped} companies, {embeddings_generated} embeddings, {deleted} changes cleaned")
         return {"scraped": total_scraped, "embeddings_generated": embeddings_generated, "cleaned_up": deleted}
@@ -1707,6 +1805,60 @@ async def daily_scrape(request: Request, background_tasks: BackgroundTasks):
         "success": True,
         "status": "started",
         "message": "Daily scrape started in background. Check logs for completion.",
+    }
+
+
+async def _run_source_sync(full: bool = False):
+    """Background task: pull new companies from all registered sources, embed, refresh."""
+    from ingestion import sync_service
+    # Guard: the multi-source migration must be applied first. Probe the sync_state
+    # table so a missing migration surfaces a clear, actionable message rather than a
+    # cryptic 500 mid-sync.
+    try:
+        db.get_sync_cursor("__schema_probe__")
+    except Exception as e:
+        msg = (
+            "Multi-source schema not found — apply migration "
+            "supabase/migrations/20260711130000_multi_source_sync.sql "
+            "(adds companies.dedupe_key + the sync_state table) before syncing. "
+            f"Underlying error: {e}"
+        )
+        logger.error(f"Source sync blocked: {msg}")
+        raise HTTPException(status_code=503, detail=msg)
+    try:
+        db.backfill_dedupe_keys()
+        results = sync_service.run_sync(db, full=full)
+        embedded = sync_service.embed_missing(db)
+        # Drop HN/PH rows that carry a YC batch — they duplicate the canonical YC row.
+        deduped = (
+            db.delete_source_companies_with_batch()
+            if hasattr(db, "delete_source_companies_with_batch") else 0
+        )
+        company_cache.refresh(db)
+        logger.info(f"Source sync completed: {results}, embedded {embedded}, deduped {deduped}")
+        return {"results": results, "embedded": embedded, "deduped": deduped}
+    except Exception as e:
+        logger.error(f"Source sync error: {e}")
+        raise
+
+
+@app.post("/api/cron/sync-sources")
+async def cron_sync_sources(request: Request, background_tasks: BackgroundTasks):
+    """Pull new companies from non-YC sources (Hacker News, ...), backfill dedupe_key
+    + embeddings, and refresh the cache. ?full=1 forces a full backfill; ?sync=1 waits."""
+    _verify_cron_secret(request)
+    full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
+    sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+
+    if sync_mode:
+        result = await _run_source_sync(full=full)
+        return {"success": True, "status": "completed", **result}
+
+    background_tasks.add_task(_run_source_sync, full)
+    return {
+        "success": True,
+        "status": "started",
+        "message": "Source sync started in background. Check logs for completion.",
     }
 
 
@@ -1755,14 +1907,15 @@ async def send_daily_digests(request: Request):
         newly_hiring_raw = db.get_changes_by_type('hiring_started', hours=24)
         batch_changes_raw = db.get_changes_by_type('batch_changed', hours=24)
 
-        # Transform change log data into the format expected by email service
         new_companies = [
             {
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
             }
             for change in new_companies_raw
         ]
@@ -1772,8 +1925,11 @@ async def send_daily_digests(request: Request):
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
+                "is_hiring": True,
             }
             for change in newly_hiring_raw
         ]
@@ -1784,11 +1940,11 @@ async def send_daily_digests(request: Request):
                 "name": change["company_name"],
                 "old_batch": change.get("old_value", ""),
                 "new_batch": change.get("new_value", ""),
+                "slug": change.get("company_slug", ""),
             }
             for change in batch_changes_raw
         ]
 
-        # Get active subscriptions
         subscribers = db.get_active_subscriptions()
 
         sent_count = 0
@@ -1833,22 +1989,27 @@ async def send_daily_digests(request: Request):
 
 
 @app.get("/api/admin/digest-preview")
-async def get_digest_preview():
-    """Preview what would be sent in the daily digest (no emails sent)"""
+async def get_digest_preview(format: str = "html"):
+    """Preview what would be sent in the daily digest (no emails sent).
+
+    Defaults to rendering the actual email HTML so admins can verify the design
+    in a browser tab. Pass ?format=json for raw counts and sample payloads.
+    Falls back to sample data when no real changes exist in the last 24h.
+    """
     try:
-        # Get changes from the last 24 hours using change log
         new_companies_raw = db.get_changes_by_type('created', hours=24)
         newly_hiring_raw = db.get_changes_by_type('hiring_started', hours=24)
         batch_changes_raw = db.get_changes_by_type('batch_changed', hours=24)
 
-        # Transform change log data into the format expected by email service
         new_companies = [
             {
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
             }
             for change in new_companies_raw
         ]
@@ -1858,8 +2019,11 @@ async def get_digest_preview():
                 "id": change["company_id"],
                 "name": change["company_name"],
                 "batch": change.get("batch", ""),
-                "description": change.get("one_liner", ""),
+                "one_liner": change.get("one_liner", ""),
                 "website": change.get("website", ""),
+                "slug": change.get("company_slug", ""),
+                "logo": change.get("logo", ""),
+                "is_hiring": True,
             }
             for change in newly_hiring_raw
         ]
@@ -1870,22 +2034,61 @@ async def get_digest_preview():
                 "name": change["company_name"],
                 "old_batch": change.get("old_value", ""),
                 "new_batch": change.get("new_value", ""),
+                "slug": change.get("company_slug", ""),
             }
             for change in batch_changes_raw
         ]
 
-        sample_size = 5
+        if format == "json":
+            sample_size = 5
+            return {
+                "new_companies": len(new_companies),
+                "newly_hiring": len(newly_hiring),
+                "batch_changes": len(batch_changes),
+                "sample": {
+                    "new_companies": new_companies[:sample_size],
+                    "newly_hiring": newly_hiring[:sample_size],
+                    "batch_changes": batch_changes[:sample_size],
+                },
+            }
 
-        return {
-            "new_companies": len(new_companies),
-            "newly_hiring": len(newly_hiring),
-            "batch_changes": len(batch_changes),
-            "sample": {
-                "new_companies": new_companies[:sample_size],
-                "newly_hiring": newly_hiring[:sample_size],
-                "batch_changes": batch_changes[:sample_size],
-            },
-        }
+        # HTML preview: if nothing changed in the last 24h, show illustrative
+        # samples so the design can still be reviewed end-to-end.
+        if not new_companies and not newly_hiring and not batch_changes:
+            new_companies = [
+                {
+                    "id": 1, "name": "Acme AI", "batch": "S25",
+                    "one_liner": "Self-hosted LLM gateway for regulated industries.",
+                    "website": "https://acme.example", "slug": "acme-ai", "logo": "",
+                },
+                {
+                    "id": 2, "name": "Lumen Robotics", "batch": "S25",
+                    "one_liner": "Warehouse picking arms that retrain themselves overnight.",
+                    "website": "https://lumen.example", "slug": "lumen-robotics", "logo": "",
+                },
+            ]
+            newly_hiring = [
+                {
+                    "id": 3, "name": "Pebble Data", "batch": "W25",
+                    "one_liner": "Postgres-native feature store.",
+                    "website": "https://pebble.example", "slug": "pebble-data", "logo": "",
+                    "is_hiring": True,
+                },
+            ]
+            batch_changes = [
+                {
+                    "id": 4, "name": "Northstar Labs",
+                    "old_batch": "W24", "new_batch": "S25", "slug": "northstar-labs",
+                },
+            ]
+
+        html = email_service._render_daily_digest(
+            new_companies=new_companies,
+            newly_hiring=newly_hiring,
+            batch_changes=batch_changes,
+            unsubscribe_link=f"{email_service.frontend_url}/unsubscribe?token=preview",
+        )
+        return HTMLResponse(content=html)
     except Exception as e:
         logger.error(f"Digest preview error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2972,6 +3175,240 @@ async def search_research_history(request: ResearchSearchRequest):
     except Exception as e:
         logger.error(f"Error searching research history: {e}")
         raise HTTPException(status_code=500, detail="Failed to search research")
+
+
+# ============================================================================
+# PUBLIC API: developer accounts, API keys, admin management, sub-app mount
+# ============================================================================
+import re as _re
+from password_utils import hash_password, verify_password, hash_token
+from plans import plan_limit, is_valid_plan, PLAN_META, PLAN_LIMITS
+from public_api import create_public_api
+
+API_KEY_PREFIX = "eyc_live_"
+DEV_SESSION_TTL = timedelta(days=30)
+_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class DevSignupRequest(BaseModel):
+    email: str
+    password: str
+    company_name: Optional[str] = None
+
+
+class DevLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CreateKeyRequest(BaseModel):
+    name: Optional[str] = None
+
+
+class SetPlanRequest(BaseModel):
+    plan: str
+
+
+class SetStatusRequest(BaseModel):
+    status: str
+
+
+class ProfileUpdate(BaseModel):
+    company_name: Optional[str] = None
+    avatar_url: Optional[str] = None  # small base64 data URL (client-resized)
+
+
+def _dev_user_public(user: dict) -> dict:
+    limit = plan_limit(user.get("plan"))
+    return {
+        "id": user["id"], "email": user["email"], "company_name": user.get("company_name"),
+        "plan": user.get("plan", "free"),
+        "plan_name": PLAN_META.get(user.get("plan", "free"), {}).get("name"),
+        "status": user.get("status", "active"), "email_verified": bool(user.get("email_verified")),
+        "avatar_url": user.get("avatar_url"),
+        "daily_limit": limit,
+    }
+
+
+def verify_dev_session(authorization: Optional[str] = Header(None)) -> dict:
+    """DB-backed developer session (multi-instance safe, unlike admin_sessions)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    session = db.get_api_session(hash_token(authorization[7:].strip()))
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    if session.get("user_status") != "active":
+        raise HTTPException(status_code=403, detail="Account suspended")
+    return session
+
+
+@app.post("/api/dev/signup")
+async def dev_signup(req: DevSignupRequest, request_obj: Request):
+    _enforce_rate_limit(dev_auth_limiter, request_obj, "signup")
+    email = (req.email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if len(req.password or "") < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if db.get_api_user_by_email(email):
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    verification_token = secrets.token_urlsafe(32)
+    user_id = db.create_api_user(email, hash_password(req.password), req.company_name, verification_token)
+    try:
+        if hasattr(email_service, "send_dev_verification_email"):
+            email_service.send_dev_verification_email(email, verification_token)
+    except Exception as e:
+        logger.warning(f"dev verification email failed: {e}")
+    token = secrets.token_urlsafe(32)
+    db.create_api_session(user_id, hash_token(token), datetime.now(timezone.utc) + DEV_SESSION_TTL)
+    return {"token": token, "user": _dev_user_public(db.get_api_user_by_id(user_id))}
+
+
+@app.post("/api/dev/login")
+async def dev_login(req: DevLoginRequest, request_obj: Request):
+    _enforce_rate_limit(dev_auth_limiter, request_obj, "login")
+    email = (req.email or "").strip().lower()
+    user = db.get_api_user_by_email(email)
+    if not user or not verify_password(req.password or "", user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("status") != "active":
+        raise HTTPException(status_code=403, detail="Account suspended")
+    token = secrets.token_urlsafe(32)
+    db.create_api_session(user["id"], hash_token(token), datetime.now(timezone.utc) + DEV_SESSION_TTL)
+    return {"token": token, "user": _dev_user_public(user)}
+
+
+@app.post("/api/dev/logout")
+async def dev_logout(authorization: Optional[str] = Header(None)):
+    if authorization and authorization.startswith("Bearer "):
+        db.delete_api_session(hash_token(authorization[7:].strip()))
+    return {"success": True}
+
+
+@app.get("/api/dev/me")
+async def dev_me(session: dict = Depends(verify_dev_session)):
+    user = db.get_api_user_by_id(session["user_id"])
+    info = _dev_user_public(user)
+    keys = db.list_api_keys_for_user(user["id"])
+    used = 0
+    for k in keys:
+        if k.get("is_active"):
+            count, _ = db.count_api_usage_since(k["id"], datetime.now(timezone.utc) - timedelta(hours=24))
+            used += count
+    info["usage"] = {"used_24h": used, "limit": info["daily_limit"],
+                     "remaining": max(0, info["daily_limit"] - used)}
+    info["keys"] = keys
+    return info
+
+
+@app.get("/api/dev/verify-email/{token}")
+async def dev_verify_email(token: str):
+    if not db.verify_api_user_email(token):
+        raise HTTPException(status_code=404, detail="Invalid or expired verification token")
+    return {"success": True}
+
+
+@app.get("/api/dev/usage")
+async def dev_usage(days: int = 7, session: dict = Depends(verify_dev_session)):
+    """Per-day request counts + top endpoints for the caller's keys (for the dashboard chart)."""
+    days = max(1, min(days, 90))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.get_api_usage_timeseries(session["user_id"], since)
+    by_endpoint = db.get_api_usage_by_endpoint(session["user_id"], since)
+    counts = {str(r["day"]): int(r["count"]) for r in rows}
+    today = datetime.now(timezone.utc).date()
+    series = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        series.append({"date": d, "count": counts.get(d, 0)})
+    return {
+        "days": days,
+        "series": series,
+        "total": sum(s["count"] for s in series),
+        "by_endpoint": [{"endpoint": r["endpoint"], "count": int(r["count"])} for r in by_endpoint],
+    }
+
+
+@app.post("/api/dev/profile")
+async def dev_update_profile(req: ProfileUpdate, session: dict = Depends(verify_dev_session)):
+    avatar = req.avatar_url
+    if avatar:
+        if not avatar.startswith("data:image/"):
+            raise HTTPException(status_code=400, detail="avatar_url must be a data:image/* URL")
+        if len(avatar) > 400_000:
+            raise HTTPException(status_code=400, detail="Image too large (max ~300KB). Please crop or shrink it.")
+    db.update_api_user_profile(session["user_id"], company_name=req.company_name, avatar_url=avatar)
+    return _dev_user_public(db.get_api_user_by_id(session["user_id"]))
+
+
+@app.post("/api/dev/keys")
+async def dev_create_key(req: CreateKeyRequest, session: dict = Depends(verify_dev_session)):
+    raw = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    prefix = raw[:16]
+    key_id = db.create_api_key(session["user_id"], prefix, hash_token(raw), req.name)
+    return {"id": key_id, "api_key": raw, "key_prefix": prefix, "name": req.name,
+            "warning": "Store this key now — it will not be shown again."}
+
+
+@app.get("/api/dev/keys")
+async def dev_list_keys(session: dict = Depends(verify_dev_session)):
+    return {"keys": db.list_api_keys_for_user(session["user_id"])}
+
+
+@app.post("/api/dev/keys/{key_id}/revoke")
+async def dev_revoke_key(key_id: int, session: dict = Depends(verify_dev_session)):
+    if not db.revoke_api_key(key_id, user_id=session["user_id"]):
+        raise HTTPException(status_code=404, detail="Key not found")
+    return {"success": True}
+
+
+# ---- Admin management of API users/keys ----
+@app.get("/api/admin/api-users")
+async def admin_list_api_users(session: dict = Depends(verify_admin_session)):
+    return {"users": db.list_api_users()}
+
+
+@app.get("/api/admin/api-keys")
+async def admin_list_api_keys(session: dict = Depends(verify_admin_session)):
+    return {"keys": db.list_all_api_keys()}
+
+
+@app.post("/api/admin/api-keys/{key_id}/revoke")
+async def admin_revoke_api_key(key_id: int, session: dict = Depends(verify_admin_session)):
+    if not db.revoke_api_key(key_id):
+        raise HTTPException(status_code=404, detail="Key not found")
+    return {"success": True}
+
+
+@app.post("/api/admin/api-users/{user_id}/plan")
+async def admin_set_plan(user_id: int, req: SetPlanRequest, session: dict = Depends(verify_admin_session)):
+    if not is_valid_plan(req.plan):
+        raise HTTPException(status_code=400, detail=f"Invalid plan. Valid: {list(PLAN_LIMITS)}")
+    if not db.set_api_user_plan(user_id, req.plan):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True, "plan": req.plan}
+
+
+@app.post("/api/admin/api-users/{user_id}/status")
+async def admin_set_status(user_id: int, req: SetStatusRequest, session: dict = Depends(verify_admin_session)):
+    if req.status not in ("active", "suspended"):
+        raise HTTPException(status_code=400, detail="status must be 'active' or 'suspended'")
+    if not db.set_api_user_status(user_id, req.status):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True, "status": req.status}
+
+
+# ---- Cron: bound api_usage / api_sessions growth ----
+@app.post("/api/cron/cleanup-api")
+async def cron_cleanup_api(request: Request):
+    _verify_cron_secret(request)
+    usage_deleted = db.cleanup_api_usage(datetime.now(timezone.utc) - timedelta(days=30))
+    sessions_deleted = db.delete_expired_api_sessions()
+    return {"usage_deleted": usage_deleted, "sessions_deleted": sessions_deleted}
+
+
+# ---- Mount the public API sub-app (own docs + CORS at /api/v1) ----
+app.mount("/api/v1", create_public_api(db, company_cache))
 
 
 if __name__ == "__main__":
