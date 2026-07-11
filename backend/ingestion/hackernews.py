@@ -54,12 +54,14 @@ class HackerNewsAdapter:
         # Require a real domain OR a YC-batch marker to count as a company (drops noise).
         if not domain and not parsed["batch"]:
             return None
-        slug = slugify(name)
-        if not slug:
-            return None
+        object_id = str(hit["objectID"])
+        # slugify(name) is NOT unique across posts (two products can share a name, or
+        # the same one is reposted), but the DB enforces UNIQUE(source, slug). Suffix
+        # the unique HN item id so distinct posts never collide on (source, slug).
+        base_slug = slugify(name) or object_id
+        slug = f"{base_slug}-{object_id}"
         is_launch = bool(re.match(r"^\s*launch\s+hn", hit.get("title", ""), re.I))
         tag = "Launch HN" if is_launch else "Show HN"
-        object_id = str(hit["objectID"])
         return {
             "id": to_global_id("hackernews", int(object_id)),
             "source": "hackernews",
@@ -78,7 +80,9 @@ class HackerNewsAdapter:
             "top_company": False,
             "nonprofit": False,
             "country": None,
-            "dedupe_key": dedupe_key(domain, "hackernews", slug),
+            # Merge on domain when present; otherwise keep each post distinct (by id) —
+            # domainless posts can't be reliably merged by name without false positives.
+            "dedupe_key": dedupe_key(domain, "hackernews", object_id),
             "raw_json": hit,
         }
 

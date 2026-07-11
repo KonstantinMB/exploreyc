@@ -26,13 +26,26 @@ def run_sync(db, sources=None, full=False):
         try:
             cursor = db.get_sync_cursor(key)
             result = adapter.fetch(cursor, full=full)
+            # Per-row resilience: a single bad row (e.g. an unexpected constraint
+            # violation) is skipped and logged, never aborting the whole source or
+            # losing the cursor progress.
+            upserted, failed = 0, 0
             for row in result.rows:
-                db.insert_company(row)
+                try:
+                    db.insert_company(row)
+                    upserted += 1
+                except Exception as row_err:  # noqa: BLE001
+                    failed += 1
+                    logger.warning(
+                        "sync %s: skipped row source_id=%s slug=%s: %s",
+                        key, row.get("source_id"), row.get("slug"), row_err,
+                    )
             _soft_remove(db, key, result.removed_source_ids)
-            db.save_sync_state(key, result.cursor, "ok", len(result.rows))
-            results[key] = {"upserted": len(result.rows), "cursor": result.cursor,
-                            "status": "ok"}
-            logger.info("sync %s: upserted %d, cursor %s", key, len(result.rows), result.cursor)
+            db.save_sync_state(key, result.cursor, "ok", upserted)
+            results[key] = {"upserted": upserted, "failed": failed,
+                            "cursor": result.cursor, "status": "ok"}
+            logger.info("sync %s: upserted %d, failed %d, cursor %s",
+                        key, upserted, failed, result.cursor)
         except Exception as e:  # noqa: BLE001 — one bad source must not sink the rest
             db.save_sync_state(key, None, "error", 0, str(e))
             results[key] = {"upserted": 0, "cursor": None, "status": "error", "error": str(e)}
