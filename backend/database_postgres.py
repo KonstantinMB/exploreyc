@@ -59,8 +59,8 @@ class DatabasePostgres:
                      top_company, nonprofit, stage, small_logo_thumb_url, tags, regions,
                      industries, latitude, longitude, country,
                      founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url,
-                     raw_json, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     dedupe_key, raw_json, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         source = EXCLUDED.source,
                         source_id = EXCLUDED.source_id,
@@ -93,6 +93,7 @@ class DatabasePostgres:
                         ticker_symbol = EXCLUDED.ticker_symbol,
                         funded_date = EXCLUDED.funded_date,
                         source_url = EXCLUDED.source_url,
+                        dedupe_key = COALESCE(EXCLUDED.dedupe_key, companies.dedupe_key),
                         raw_json = EXCLUDED.raw_json,
                         updated_at = NOW()
                 """, (
@@ -128,6 +129,7 @@ class DatabasePostgres:
                     company.get("ticker_symbol"),
                     company.get("funded_date"),
                     company.get("source_url"),
+                    company.get("dedupe_key"),
                     json.dumps(company) if company else None,
                 ))
                 return cur.rowcount
@@ -186,11 +188,12 @@ class DatabasePostgres:
                 company.get("ticker_symbol"),
                 company.get("funded_date"),
                 company.get("source_url"),
+                company.get("dedupe_key"),
                 json.dumps(company) if company else None,
             )
 
         total = 0
-        cols = "(id, source, source_id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url, raw_json)"
+        cols = "(id, source, source_id, name, slug, website, one_liner, long_description, team_size, batch, status, industry, subindustry, all_locations, is_hiring, top_company, nonprofit, stage, small_logo_thumb_url, tags, regions, industries, latitude, longitude, country, founders, year_founded, exit_type, acquirer, ticker_symbol, funded_date, source_url, dedupe_key, raw_json)"
         upsert_sql = f"""
             INSERT INTO companies {cols}
             VALUES %s
@@ -209,6 +212,7 @@ class DatabasePostgres:
                 exit_type = EXCLUDED.exit_type, acquirer = EXCLUDED.acquirer,
                 ticker_symbol = EXCLUDED.ticker_symbol, funded_date = EXCLUDED.funded_date,
                 source_url = EXCLUDED.source_url,
+                dedupe_key = COALESCE(EXCLUDED.dedupe_key, companies.dedupe_key),
                 raw_json = EXCLUDED.raw_json, updated_at = NOW()
         """
         rows = [_row(c) for c in companies]
@@ -217,6 +221,65 @@ class DatabasePostgres:
                 execute_values(cur, upsert_sql, rows, page_size=batch_size)
                 total = cur.rowcount
         return total
+
+    # ========== MULTI-SOURCE SYNC: cursor + dedupe_key ==========
+
+    def get_sync_cursor(self, source: str) -> Optional[str]:
+        """Return the stored incremental cursor for a source (None if never run)."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT last_cursor FROM sync_state WHERE source = %s", (source,))
+                row = cur.fetchone()
+                return row[0] if row else None
+
+    def save_sync_state(self, source: str, cursor_value: Optional[str], status: str,
+                        records_upserted: int, error: Optional[str] = None) -> None:
+        """Upsert the per-source sync bookkeeping row."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sync_state
+                    (source, last_run_at, last_cursor, last_status, records_upserted, error, updated_at)
+                    VALUES (%s, NOW(), %s, %s, %s, %s, NOW())
+                    ON CONFLICT (source) DO UPDATE SET
+                        last_run_at = NOW(), last_cursor = EXCLUDED.last_cursor,
+                        last_status = EXCLUDED.last_status,
+                        records_upserted = EXCLUDED.records_upserted,
+                        error = EXCLUDED.error, updated_at = NOW()
+                    """,
+                    (source, cursor_value, status, records_upserted, error),
+                )
+                conn.commit()
+
+    def set_dedupe_key(self, company_id: int, key: str) -> None:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE companies SET dedupe_key = %s WHERE id = %s", (key, company_id)
+                )
+                conn.commit()
+
+    def backfill_dedupe_keys(self) -> int:
+        """Populate dedupe_key for any rows missing one, using the shared normalizer."""
+        from ingestion.normalize import norm_domain, dedupe_key
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, source, slug, website FROM companies WHERE dedupe_key IS NULL"
+                )
+                rows = cur.fetchall()
+            with conn.cursor() as cur:
+                for r in rows:
+                    key = dedupe_key(
+                        norm_domain(r["website"]), r["source"] or "yc",
+                        r["slug"] or str(r["id"]),
+                    )
+                    cur.execute(
+                        "UPDATE companies SET dedupe_key = %s WHERE id = %s", (key, r["id"])
+                    )
+            conn.commit()
+        return len(rows)
 
     def get_companies(
         self,
