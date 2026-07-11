@@ -92,7 +92,7 @@ export function HomePage() {
             >
               <span className="text-[#FB651E]">&gt;</span>{' '}
               <span className="bg-gradient-to-br from-foreground via-foreground to-foreground/60 bg-clip-text text-transparent">
-                Explore YC &amp; a16z startups
+                Explore YC, a16z &amp; top startups
               </span>
             </motion.h1>
 
