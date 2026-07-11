@@ -25,6 +25,9 @@ from typing import Dict
 SOURCES: Dict[str, Dict[str, str]] = {
     "yc": {"key": "yc", "display_name": "Y Combinator"},
     "a16z": {"key": "a16z", "display_name": "Andreessen Horowitz (a16z)"},
+    "hackernews": {"key": "hackernews", "display_name": "Hacker News"},
+    "producthunt": {"key": "producthunt", "display_name": "Product Hunt"},
+    "techstars": {"key": "techstars", "display_name": "Techstars"},
 }
 
 # Default source for existing/unspecified rows (backward compatibility).
@@ -35,6 +38,9 @@ DEFAULT_SOURCE = "yc"
 SOURCE_ID_OFFSETS: Dict[str, int] = {
     "yc": 0,
     "a16z": 2_000_000_000,
+    "hackernews": 3_000_000_000,
+    "producthunt": 4_000_000_000,
+    "techstars": 5_000_000_000,
 }
 
 # Width of each source's reserved id block. The precondition for correctness is
