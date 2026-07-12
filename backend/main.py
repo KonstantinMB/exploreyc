@@ -298,8 +298,29 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint"""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    """
+    Uptime / load-balancer health check.
+    Not rate-limited — monitoring tools poll frequently.
+    """
+    version = getattr(app, "version", None) or "1.0.0"
+    database = "disconnected"
+    try:
+        with db.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+            database = "connected"
+    except Exception:
+        database = "disconnected"
+
+    body = {
+        "status": "ok",
+        "version": version,
+        "database": database,
+    }
+    if database != "connected":
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 # Admin Authentication Endpoints
