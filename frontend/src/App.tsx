@@ -32,6 +32,7 @@ import { CompanyCardPage } from './pages/CompanyCardPage';
 import { HiringBoardPagePaginated } from './pages/HiringBoardPagePaginated';
 import { HiringAnalyticsPage } from './pages/HiringAnalyticsPage';
 import { DatabasePage } from './pages/DatabasePage';
+import { MapPage } from './pages/MapPage';
 import { PageTitleManager } from './components/PageTitleManager';
 import { DevAuthProvider } from './contexts/DevAuthContext';
 import { SignupPage } from './pages/SignupPage';
@@ -197,6 +198,7 @@ function AnimatedRoutes() {
         <Route path="hiring" element={<HiringBoardPagePaginated />} />
         <Route path="hiring/analytics" element={<HiringAnalyticsPage />} />
         <Route path="database" element={<DatabasePage />} />
+        <Route path="map" element={<MapPage />} />
         <Route path="founders" element={<FoundersPage />} />
         <Route path="roadmap" element={<RoadmapPage />} />
         <Route path="share" element={<ShareHub />} />

@@ -129,6 +129,32 @@ function quantize(v: number): number {
   return Math.round(v * 20) / 20;
 }
 
+const TILE_SIZE = 512;
+
+function latToMercY(lat: number): number {
+  const s = Math.sin((lat * Math.PI) / 180);
+  return 0.5 - (0.25 * Math.log((1 + s) / (1 - s))) / Math.PI;
+}
+function mercYToLat(y: number): number {
+  const n = Math.PI - 2 * Math.PI * y;
+  return (Math.atan(Math.sinh(n)) * 180) / Math.PI;
+}
+
+// Keep the Web Mercator world covering the whole viewport so no background gap
+// (the "blue band") can ever show. Enforces a minimum zoom where the world spans
+// the larger viewport dimension, then clamps the center latitude so the poles
+// can't be panned into view. 2D only — GlobeView has no such gap.
+function clampToWorld(vs: MapViewState, width: number, height: number): MapViewState {
+  if (!width || !height) return vs;
+  const minZoom = Math.log2(Math.max(width, height) / TILE_SIZE);
+  const zoom = Math.max(typeof vs.zoom === 'number' ? vs.zoom : 0, minZoom);
+  const worldPx = TILE_SIZE * Math.pow(2, zoom);
+  const halfFrac = Math.min(0.5, height / 2 / worldPx);
+  let y = latToMercY(typeof vs.latitude === 'number' ? vs.latitude : 0);
+  y = Math.min(1 - halfFrac, Math.max(halfFrac, y));
+  return { ...vs, zoom, latitude: mercYToLat(y) };
+}
+
 interface LogoMarker {
   company: Company;
   x: number;
@@ -408,10 +434,13 @@ export function DeckMap({
     <div ref={wrapRef} className="absolute inset-0">
       <DeckGL
         views={view}
-        viewState={viewState}
+        viewState={is3D ? viewState : clampToWorld(viewState, size.w, size.h)}
         pickingRadius={8}
         onViewStateChange={({ viewState: vs, interactionState }) => {
-          onViewStateChange(vs as MapViewState);
+          const next = is3D
+            ? (vs as MapViewState)
+            : clampToWorld(vs as MapViewState, size.w, size.h);
+          onViewStateChange(next);
           if (
             interactionState &&
             (interactionState.isDragging || interactionState.isPanning || interactionState.isZooming)
