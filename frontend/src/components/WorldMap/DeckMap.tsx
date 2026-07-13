@@ -65,9 +65,10 @@ function getFillColor(c: Company): [number, number, number] {
   return COLOR_STANDARD;
 }
 
-function getRadiusMeters(c: Company): number {
+// Pixel radii keep dense hubs readable at every zoom (meters blow up at city zoom).
+function getRadiusPx(c: Company): number {
   const teamSize = Math.min(c.team_size || 1, 1000);
-  return 2000 + Math.sqrt(teamSize) * 800;
+  return Math.min(2.5 + Math.sqrt(teamSize) * 0.35, 12);
 }
 
 function escapeHtml(s: string): string {
@@ -203,24 +204,27 @@ export function DeckMap({
       );
     }
 
-    // Soft "constellation" halo under every dot — gives the world view depth.
-    result.push(
-      new ScatterplotLayer<Company>({
-        id: 'company-halo',
-        data: companies,
-        getPosition: (c) => [c.longitude!, c.latitude!],
-        getRadius: getRadiusMeters,
-        radiusMinPixels: 8,
-        radiusMaxPixels: 30,
-        getFillColor: (c) => {
-          const [r, g, b] = getFillColor(c);
-          return [r, g, b, 45] as [number, number, number, number];
-        },
-        stroked: false,
-        opacity: scatterOpacity,
-        pickable: false,
-      })
-    );
+    // Soft "constellation" halo — world-view depth; fades away past city zoom
+    // so dense hubs don't melt into one glow.
+    const haloOpacity = scatterOpacity * Math.max(0, Math.min(1, (5.5 - zoom) / 1.5));
+    if (haloOpacity > 0.02) {
+      result.push(
+        new ScatterplotLayer<Company>({
+          id: 'company-halo',
+          data: companies,
+          getPosition: (c) => [c.longitude!, c.latitude!],
+          getRadius: (c) => getRadiusPx(c) * 2.4,
+          radiusUnits: 'pixels',
+          getFillColor: (c) => {
+            const [r, g, b] = getFillColor(c);
+            return [r, g, b, 40] as [number, number, number, number];
+          },
+          stroked: false,
+          opacity: haloOpacity,
+          pickable: false,
+        })
+      );
+    }
 
     // Static gold under-glow for top companies.
     result.push(
@@ -228,10 +232,9 @@ export function DeckMap({
         id: 'top-company-glow',
         data: topCompanies,
         getPosition: (c) => [c.longitude!, c.latitude!],
-        getRadius: (c) => getRadiusMeters(c) * 2.2,
-        radiusMinPixels: 8,
-        radiusMaxPixels: 34,
-        getFillColor: [255, 193, 7, 45],
+        getRadius: (c) => getRadiusPx(c) * 2,
+        radiusUnits: 'pixels',
+        getFillColor: [255, 193, 7, 50],
         stroked: false,
         opacity: scatterOpacity,
         pickable: false,
@@ -244,9 +247,8 @@ export function DeckMap({
         id: 'company-dots',
         data: companies,
         getPosition: (c) => [c.longitude!, c.latitude!],
-        getRadius: getRadiusMeters,
-        radiusMinPixels: 3,
-        radiusMaxPixels: 18,
+        getRadius: getRadiusPx,
+        radiusUnits: 'pixels',
         getFillColor,
         getLineColor: darkMode ? [255, 255, 255, 90] : [0, 0, 0, 60],
         lineWidthMinPixels: 0.5,
@@ -269,13 +271,12 @@ export function DeckMap({
           id: 'hiring-pulse',
           data: hiringCompanies,
           getPosition: (c) => [c.longitude!, c.latitude!],
-          getRadius: (c) => getRadiusMeters(c) * (1 + pulsePhase * 2.5),
-          radiusMinPixels: 4,
-          radiusMaxPixels: 40,
+          getRadius: (c) => getRadiusPx(c) * (1 + pulsePhase * 1.8),
+          radiusUnits: 'pixels',
           filled: false,
           stroked: true,
-          getLineColor: [76, 175, 80, Math.round(200 * (1 - pulsePhase))],
-          lineWidthMinPixels: 1.5,
+          getLineColor: [76, 175, 80, Math.round(150 * (1 - pulsePhase))],
+          lineWidthMinPixels: 1,
           opacity: scatterOpacity,
           pickable: false,
           updateTriggers: {
@@ -313,6 +314,7 @@ export function DeckMap({
     <DeckGL
       views={view}
       viewState={viewState}
+      pickingRadius={8}
       onViewStateChange={({ viewState: vs, interactionState }) => {
         onViewStateChange(vs as MapViewState);
         if (

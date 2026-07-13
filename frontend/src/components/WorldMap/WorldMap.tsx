@@ -77,8 +77,25 @@ export function WorldMap() {
   // Pulse clock (seconds). Stays 0 under reduced motion → rings never render.
   const [pulseTime, setPulseTime] = useState(0);
 
+  // Half of YC is literally "San Francisco, CA, USA" — identical centroid coords
+  // stack into one blob. Deterministic per-id jitter (~2km disk) spreads them
+  // stably across renders; invisible at world zoom, constellation at city zoom.
   const geoCompanies = useMemo(
-    () => companies.filter((c) => c.latitude != null && c.longitude != null),
+    () =>
+      companies
+        .filter((c) => c.latitude != null && c.longitude != null)
+        .map((c) => {
+          const h = (c.id * 2654435761) >>> 0;
+          const angle = ((h % 3600) / 3600) * 2 * Math.PI;
+          const dist = Math.sqrt(((h >>> 12) % 1000) / 1000);
+          const r = 0.02 * dist;
+          const latRad = (c.latitude! * Math.PI) / 180;
+          return {
+            ...c,
+            latitude: c.latitude! + r * Math.cos(angle),
+            longitude: c.longitude! + (r * Math.sin(angle)) / Math.max(Math.cos(latRad), 0.2),
+          };
+        }),
     [companies]
   );
 
@@ -519,9 +536,12 @@ export function WorldMap() {
                     <span className="text-[#4CAF50] font-bold">{currentHub.hiringCount}</span>{' '}
                     hiring
                   </p>
-                  <p>
-                    Top industry: <span className="text-foreground">{currentHub.topIndustry}</span>
-                  </p>
+                  {currentHub.topIndustry !== '—' && (
+                    <p>
+                      Top industry:{' '}
+                      <span className="text-foreground">{currentHub.topIndustry}</span>
+                    </p>
+                  )}
                 </div>
               </motion.div>
             )}
