@@ -548,7 +548,7 @@ export function DatabasePage() {
   const [country, setCountry] = useState('');
   const [isHiring, setIsHiring] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
-  const [source, setSource] = useState('all'); // 'all' (default) | 'yc' | 'a16z' | 'hackernews' | ...
+  const [source, setSource] = useState('yc'); // 'yc' (default) | 'all' | 'a16z' | 'hackernews' | ...
   const [logoOnly, setLogoOnly] = useState(true); // showcase only companies with a real logo
   const [currentPage, setCurrentPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
