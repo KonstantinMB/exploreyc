@@ -541,8 +541,10 @@ export function DatabasePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Seed from ?search= so the WebSite SearchAction (and shared links) actually search.
+  const initialSearch = searchParams.get('search') ?? '';
+  const [search, setSearch] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [batch, setBatch] = useState('');
   const [industry, setIndustry] = useState('');
   const [country, setCountry] = useState('');
@@ -665,8 +667,27 @@ export function DatabasePage() {
   return (
     <div className="relative min-h-screen bg-background overflow-x-hidden">
       <Helmet>
-        <title>{sourceHeading} | ExploreYC</title>
-        <meta name="description" content="Browse and export startup companies from Y Combinator, a16z, and more in a sortable, filterable table." />
+        <title>Startup database — Y Combinator, a16z &amp; Product Hunt companies | ExploreYC</title>
+        <meta name="description" content="Searchable database of 8,600+ startups from Y Combinator, a16z, Product Hunt & Hacker News — filter by batch, industry, country, funding & hiring. Free API available." />
+        <link rel="canonical" href="https://exploreyc.com/database" />
+        <script type="application/ld+json">
+          {JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'Dataset',
+            name: 'ExploreYC startup company database',
+            description:
+              'A database of 8,600+ startups from Y Combinator, a16z (Andreessen Horowitz), Product Hunt and Hacker News, with company name, batch, industry, country, team size, hiring status, founders and funding. Available via a free, open-source REST API.',
+            url: 'https://exploreyc.com/database',
+            keywords: ['Y Combinator', 'a16z', 'Product Hunt', 'Hacker News', 'startups', 'venture capital', 'company data', 'API'],
+            creator: { '@type': 'Organization', name: 'ExploreYC', url: 'https://exploreyc.com/' },
+            isAccessibleForFree: true,
+            distribution: {
+              '@type': 'DataDownload',
+              encodingFormat: 'application/json',
+              contentUrl: 'https://api.exploreyc.com/api/v1/companies',
+            },
+          })}
+        </script>
       </Helmet>
 
       <DotPattern color="hsl(var(--primary) / 0.12)" size={24} radius={0.5} />

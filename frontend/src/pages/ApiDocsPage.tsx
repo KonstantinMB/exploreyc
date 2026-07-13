@@ -306,7 +306,37 @@ export function ApiDocsPage() {
 
   return (
     <>
-      <Helmet><title>API Reference | ExploreYC</title></Helmet>
+      <Helmet>
+        <title>Y Combinator, a16z &amp; Product Hunt data API — Free REST API | ExploreYC</title>
+        <meta
+          name="description"
+          content="Free, open-source REST API for Y Combinator, a16z and Product Hunt company data. Endpoints for companies, search, stats, batches and maps — JSON over HTTPS with API-key auth. Docs, auth and rate limits."
+        />
+        <link rel="canonical" href="https://exploreyc.com/api-docs" />
+        <meta property="og:title" content="Free API for Y Combinator, a16z & Product Hunt data — ExploreYC" />
+        <meta property="og:description" content="Public REST API over YC, a16z, Product Hunt & Hacker News company data. JSON, API-key auth, free tier." />
+        <meta property="og:url" content="https://exploreyc.com/api-docs" />
+        <script type="application/ld+json">
+          {JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'SoftwareApplication',
+            name: 'ExploreYC API',
+            applicationCategory: 'DeveloperApplication',
+            operatingSystem: 'Any',
+            url: 'https://exploreyc.com/api-docs',
+            description:
+              'Free, open-source REST API for startup data across Y Combinator, a16z, Product Hunt and Hacker News. Companies, search, stats, batches, industries, countries and maps — JSON over HTTPS with API-key authentication.',
+            offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+            featureList: [
+              'GET /companies — list & filter companies',
+              'GET /search — full-text company search',
+              'GET /stats — portfolio statistics',
+              'GET /map — geo-located companies',
+              'Sources: Y Combinator, a16z, Product Hunt, Hacker News',
+            ],
+          })}
+        </script>
+      </Helmet>
       <div className="relative min-h-screen bg-background overflow-x-hidden">
         <DotPattern color="hsl(var(--primary) / 0.10)" size={26} radius={0.5} />
         <div className="relative mx-auto max-w-[1400px] px-4 lg:px-8 py-8">

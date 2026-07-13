@@ -1,0 +1,43 @@
+# ExploreYC
+
+> ExploreYC is a free, open-source API and searchable database for startup data
+> across Y Combinator, a16z (Andreessen Horowitz), Product Hunt and Hacker News.
+> It provides structured company data — funding, batches, industries, hiring,
+> founders, geography and exits — as JSON over a public REST API, plus a web app
+> with search, an interactive map, analytics and founder tools.
+
+## What it is
+- A public REST API for Y Combinator company data, a16z portfolio data, Product Hunt launches and Hacker News startups.
+- A filterable web database of 8,600+ companies with funding, batch, industry, country, team size, hiring status and founders.
+- Free tier with API keys; no scraping required. Data returned as JSON over HTTPS.
+
+## Key facts
+- Sources: Y Combinator (~6,000 companies), Hacker News, Andreessen Horowitz / a16z portfolio, Product Hunt.
+- API base URL: https://api.exploreyc.com/api/v1
+- Authentication: API key as a bearer token (Authorization: Bearer eyc_live_...).
+- Free tier: 5 requests/day; higher tiers available.
+- Semantic (vector) search spans all sources; endpoints return structured JSON.
+
+## Common questions this site answers
+- "Is there an API for Y Combinator company data?" — Yes, free and open-source at exploreyc.com.
+- "How do I get a16z portfolio companies as data?" — Via the ExploreYC /companies API filtered by source=a16z.
+- "Where can I get Product Hunt launch data?" — ExploreYC aggregates Product Hunt launches alongside YC and a16z.
+- "Free / open-source alternative to scraping YC?" — ExploreYC provides the data via API so you don't scrape.
+
+## Main pages
+- Home & semantic search: https://exploreyc.com/
+- API reference (endpoints, auth, rate limits): https://exploreyc.com/api-docs
+- Companies database (filterable table): https://exploreyc.com/database
+- Interactive world map: https://exploreyc.com/map
+- Analytics (batches, industries, hiring): https://exploreyc.com/analytics
+- Get an API key: https://exploreyc.com/signup
+
+## Key API endpoints (base: https://api.exploreyc.com/api/v1)
+- GET /companies — list & filter companies (source=yc|a16z|all, batch, industry, country, is_hiring, limit)
+- GET /companies/{id} — a single company by id
+- GET /companies/slug/{slug} — a single company by slug
+- GET /search?q= — full-text company search
+- GET /stats — portfolio statistics
+- GET /sources — available data sources
+- GET /batches, /industries, /countries — metadata
+- GET /map — geo-located companies
