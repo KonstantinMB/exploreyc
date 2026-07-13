@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { HackerCard } from '../components/ui/hacker-card'
+import { ApiProCta } from '../components/ApiProCta'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog'
@@ -206,6 +207,9 @@ export function DeveloperDashboard() {
               <p className="text-xs text-muted-foreground font-mono mt-2">{usage?.remaining ?? '—'} remaining</p>
             </HackerCard>
           </div>
+
+          {/* API Pro demand-validation CTA */}
+          <ApiProCta className="mb-6" defaultEmail={user.email} />
 
           {/* Usage — last 7 days */}
           <HackerCard glowColor="blue" className="p-6 mb-6">

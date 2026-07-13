@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { Copy, Check, KeyRound, Gauge, ExternalLink, BookOpen, ChevronRight } from 'lucide-react'
 import { DotPattern } from '../components/ui/dot-pattern'
+import { ApiProCta } from '../components/ApiProCta'
 import { useDevAuth } from '../contexts/DevAuthContext'
 
 const API_BASE = 'https://api.exploreyc.com/api/v1'
@@ -409,6 +410,7 @@ X-RateLimit-Remaining: 0
   your plan. Upgrade for a higher limit." }`}</code></pre>
                   </Terminal>
                 </div>
+                <ApiProCta className="mt-6" defaultEmail={user?.email ?? ''} />
               </section>
 
               {/* Errors */}
