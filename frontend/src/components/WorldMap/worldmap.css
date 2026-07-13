@@ -1,0 +1,83 @@
+/* DOM logo markers shown at city zoom */
+.wm-logo-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  border: 2px solid #fb651e;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  animation: wm-pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: scale 0.15s ease;
+}
+
+.wm-logo-marker:hover {
+  scale: 1.3;
+  z-index: 10;
+}
+
+.wm-logo-marker img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 9999px;
+  background: #fff;
+}
+
+.wm-logo-fallback {
+  display: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  font-family: ui-monospace, monospace;
+  align-items: center;
+  justify-content: center;
+}
+
+.wm-logo-pulse {
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  border: 2px solid rgba(76, 175, 80, 0.9);
+  animation: wm-ring 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes wm-pop-in {
+  from {
+    scale: 0;
+  }
+  to {
+    scale: 1;
+  }
+}
+
+@keyframes wm-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-logo-marker {
+    animation: none;
+  }
+  .wm-logo-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
