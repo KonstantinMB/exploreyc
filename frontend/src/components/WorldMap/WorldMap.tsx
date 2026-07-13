@@ -433,8 +433,9 @@ export function WorldMap() {
         <CardContent className="p-0">
           <div className="h-[350px] sm:h-[500px] md:h-[600px] lg:h-[700px] min-h-[300px] relative rounded-b-lg overflow-hidden border-t"
             style={{
-              // 3D globe floats in dark space regardless of theme.
-              background: is3D ? '#04070e' : darkMode ? '#0a0f1a' : '#aad3df',
+              // 3D globe floats in dark space; 2D falls back to the basemap water
+              // color so any sub-pixel edge blends (the view is clamped to fill).
+              background: is3D ? '#04070e' : darkMode ? '#0b0e13' : '#d4d8db',
             }}
           >
             <DeckMap

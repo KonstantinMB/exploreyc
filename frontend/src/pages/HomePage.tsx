@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useApp } from '../contexts/AppContext';
@@ -7,7 +7,7 @@ import { SourceBadge } from '../components/ui/SourceBadge';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
 import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
 import { HeroAnswerBox } from '../components/HeroAnswerBox';
-const WorldMap = lazy(() => import('../components/WorldMap'));
+import { DatabasePreview } from '../components/DatabasePreview';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { CompaniesBrowser } from '../components/CompaniesBrowser';
 import { CompanyDetailModal } from '../components/CompanyDetailModal';
@@ -160,7 +160,7 @@ export function HomePage() {
               className="mt-8 flex flex-wrap items-center justify-center gap-3"
             >
               <a
-                href="#map"
+                href="#database-preview"
                 className="group inline-flex items-center gap-2 px-5 py-2.5 bg-[#FB651E] hover:bg-[#E65C00] text-white font-mono text-sm border border-[#FB651E]/50 transition-all duration-200 hover:shadow-[0_0_20px_rgba(251,101,30,0.3)]"
               >
                 Start Exploring
@@ -264,29 +264,32 @@ export function HomePage() {
           </motion.div>
         )}
 
-        {/* Map Section */}
+        {/* Database Preview Section */}
         <motion.section
-          id="map"
+          id="database-preview"
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-50px' }}
           transition={{ duration: 0.5 }}
           className="border-t border-border py-12"
         >
-          <div className="flex items-center gap-2 mb-6 font-mono">
-            <Map className="h-5 w-5 text-[#FB651E]" />
-            <span className="text-muted-foreground">$</span>
-            <h2 className="text-xl font-bold">Interactive World Map</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-2 font-mono">
+              <Terminal className="h-5 w-5 text-[#FB651E]" />
+              <span className="text-muted-foreground">$</span>
+              <h2 className="text-xl font-bold">Companies Database</h2>
+            </div>
+            {/* The interactive map now lives on its own page */}
+            <Link
+              to="/map"
+              className="group inline-flex items-center gap-2 px-4 py-2 border border-border hover:border-[#FB651E]/50 font-mono text-xs bg-background/50 transition-all duration-200 rounded-sm"
+            >
+              <Globe2 className="h-4 w-4 text-[#FB651E]" />
+              Explore the interactive world map
+              <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
           </div>
-          <Suspense
-            fallback={
-              <div className="h-[350px] sm:h-[500px] md:h-[600px] lg:h-[700px] rounded-lg border bg-muted/40 animate-pulse flex items-center justify-center font-mono text-sm text-muted-foreground">
-                Loading world map…
-              </div>
-            }
-          >
-            <WorldMap />
-          </Suspense>
+          <DatabasePreview />
         </motion.section>
 
         {/* Daily YC Updates */}
@@ -332,7 +335,7 @@ export function HomePage() {
           viewport={{ once: true, margin: '-80px' }}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto"
         >
-          <Link to="#map" className="group">
+          <Link to="/map" className="group">
             <HackerCard glowColor="orange" delay={0} className="p-5 h-full">
               <Map className="h-8 w-8 text-[#FB651E] mb-3 group-hover:scale-110 transition-transform" />
               <h3 className="font-bold font-mono mb-1">Interactive Map</h3>
@@ -427,9 +430,9 @@ export function HomePage() {
               <span className="text-muted-foreground">Ready to explore?</span>
             </div>
             <div className="flex flex-wrap gap-4">
-              <a href="#map" className="text-[#FB651E] hover:underline font-mono">
+              <Link to="/map" className="text-[#FB651E] hover:underline font-mono">
                 $ view map
-              </a>
+              </Link>
               <Link to="/analytics" className="text-[#FB651E] hover:underline font-mono">
                 $ see charts
               </Link>
