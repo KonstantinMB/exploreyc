@@ -10,6 +10,7 @@ import { HeroAnswerBox } from '../components/HeroAnswerBox';
 import { DatabasePreview } from '../components/DatabasePreview';
 import { PlatformCapabilities } from '../components/PlatformCapabilities';
 import { ApiShowcase } from '../components/ApiShowcase';
+import { HomeFaq } from '../components/HomeFaq';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { CompanyDetailModal } from '../components/CompanyDetailModal';
 import { HackerCard } from '../components/ui/hacker-card';
@@ -288,6 +289,17 @@ export function HomePage() {
           className="border-t border-border py-14"
         >
           <PlatformCapabilities />
+        </motion.section>
+
+        {/* FAQ — GEO answer content + FAQPage structured data */}
+        <motion.section
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-50px' }}
+          transition={{ duration: 0.5 }}
+          className="border-t border-border py-14"
+        >
+          <HomeFaq />
         </motion.section>
 
         {/* Latest batch wrapped — footer */}

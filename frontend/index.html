@@ -4,23 +4,97 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/yc-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>ExploreYC — explore the Y Combinator portfolio</title>
+
+    <title>ExploreYC — Free API &amp; database for Y Combinator, a16z &amp; Product Hunt data</title>
+    <meta
+      name="description"
+      content="Free, open-source API and searchable database for 8,600+ startups from Y Combinator, a16z, Product Hunt & Hacker News — funding, batches, industries, hiring, founders and more. Get structured startup data as JSON, no scraping."
+    />
+    <meta
+      name="keywords"
+      content="Y Combinator API, YC company data, YC startup database, a16z portfolio data, Product Hunt data API, Hacker News startups, open source startup data, free startup data API, YC companies list, startup dataset"
+    />
+    <link rel="canonical" href="https://exploreyc.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="author" content="ExploreYC" />
+    <meta name="theme-color" content="#FB651E" />
 
     <!-- Open Graph / Social Media Meta Tags -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ExploreYC" />
     <meta property="og:url" content="https://exploreyc.com/" />
-    <meta property="og:title" content="ExploreYC — explore the Y Combinator portfolio" />
-    <meta property="og:description" content="Search, analyze, and discover insights from Y Combinator's portfolio. 5,801+ companies, 10+ countries, 10+ industries." />
+    <meta property="og:title" content="ExploreYC — Free API & database for Y Combinator, a16z & Product Hunt data" />
+    <meta
+      property="og:description"
+      content="Search 8,600+ startups from Y Combinator, a16z, Product Hunt & Hacker News. Free, open-source REST API and a filterable company database — funding, batches, hiring, founders & more."
+    />
     <meta property="og:image" content="https://exploreyc.com/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="ExploreYC — free open-source API for Y Combinator, a16z and Product Hunt startup data" />
 
     <!-- Twitter Card Meta Tags -->
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:url" content="https://exploreyc.com/" />
-    <meta property="twitter:title" content="ExploreYC — explore the Y Combinator portfolio" />
-    <meta property="twitter:description" content="Search, analyze, and discover insights from Y Combinator's portfolio. 5,801+ companies, 10+ countries, 10+ industries." />
-    <meta property="twitter:image" content="https://exploreyc.com/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://exploreyc.com/" />
+    <meta name="twitter:title" content="ExploreYC — Free API for YC, a16z & Product Hunt startup data" />
+    <meta
+      name="twitter:description"
+      content="Free, open-source API + database for 8,600+ startups from Y Combinator, a16z, Product Hunt & Hacker News. Structured JSON — funding, batches, hiring & more."
+    />
+    <meta name="twitter:image" content="https://exploreyc.com/og-image.png" />
+
+    <!-- Structured data — inlined so every crawler (incl. non-JS AI bots) gets it -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://exploreyc.com/#organization",
+            "name": "ExploreYC",
+            "url": "https://exploreyc.com/",
+            "logo": "https://exploreyc.com/yc-logo.png",
+            "description": "Free, open-source API and database for startup data from Y Combinator, a16z, Product Hunt and Hacker News.",
+            "sameAs": ["https://www.producthunt.com/products/yc-company-explorer"]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://exploreyc.com/#website",
+            "url": "https://exploreyc.com/",
+            "name": "ExploreYC",
+            "publisher": { "@id": "https://exploreyc.com/#organization" },
+            "description": "Search and explore 8,600+ startups from Y Combinator, a16z, Product Hunt and Hacker News via a free, open-source API and database.",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://exploreyc.com/database?search={search_term_string}"
+              },
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://exploreyc.com/#app",
+            "name": "ExploreYC API & Database",
+            "url": "https://exploreyc.com/",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "Any",
+            "description": "A free, open-source REST API and searchable database of startup data across Y Combinator, a16z, Product Hunt and Hacker News — companies, funding, batches, industries, hiring, founders and geography.",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "featureList": [
+              "Y Combinator company data API",
+              "a16z portfolio data",
+              "Product Hunt launch data",
+              "Hacker News startups",
+              "Semantic search across all sources",
+              "Interactive world map",
+              "Analytics and batch statistics"
+            ]
+          }
+        ]
+      }
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
