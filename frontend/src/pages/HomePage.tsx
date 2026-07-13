@@ -5,11 +5,12 @@ import { useApp } from '../contexts/AppContext';
 import { apiClient, type Source } from '../lib/api';
 import { SourceBadge } from '../components/ui/SourceBadge';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
-import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
+import { Globe2, Sparkles, ArrowRight, Terminal, ChevronUp } from 'lucide-react';
 import { HeroAnswerBox } from '../components/HeroAnswerBox';
 import { DatabasePreview } from '../components/DatabasePreview';
+import { PlatformCapabilities } from '../components/PlatformCapabilities';
+import { ApiShowcase } from '../components/ApiShowcase';
 import { EmailSubscription } from '../components/EmailSubscription';
-import { CompaniesBrowser } from '../components/CompaniesBrowser';
 import { CompanyDetailModal } from '../components/CompanyDetailModal';
 import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
@@ -303,20 +304,15 @@ export function HomePage() {
           <EmailSubscription />
         </motion.section>
 
-        {/* Companies List */}
+        {/* Platform capabilities — anchors into every data surface */}
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-50px' }}
           transition={{ duration: 0.5 }}
-          className="py-12"
+          className="border-t border-border py-14"
         >
-          <div className="flex items-center gap-2 mb-6 font-mono">
-            <span className="text-muted-foreground">$</span>
-            <h2 className="text-xl font-bold">Browse All Companies</h2>
-            <span className="text-muted-foreground text-sm">({(stats?.total_companies ?? 0).toLocaleString()} startups)</span>
-          </div>
-          <CompaniesBrowser refreshTrigger={stats?.total_companies || 0} />
+          <PlatformCapabilities />
         </motion.section>
 
         {selectedCompany && (
@@ -327,121 +323,16 @@ export function HomePage() {
           />
         )}
 
-        {/* Bento-style feature grid */}
-        <motion.div
-          variants={container}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: '-80px' }}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto"
+        {/* API access showcase */}
+        <motion.section
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-50px' }}
+          transition={{ duration: 0.5 }}
+          className="border-t border-border py-14"
         >
-          <Link to="/map" className="group">
-            <HackerCard glowColor="orange" delay={0} className="p-5 h-full">
-              <Map className="h-8 w-8 text-[#FB651E] mb-3 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold font-mono mb-1">Interactive Map</h3>
-              <p className="text-sm text-muted-foreground">
-                Explore companies by location on a global map
-              </p>
-              <span className="inline-flex items-center gap-1 mt-3 text-xs text-[#FB651E] font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                view <ArrowRight className="h-3 w-3" />
-              </span>
-            </HackerCard>
-          </Link>
-
-          <Link to="/analytics" className="group">
-            <HackerCard glowColor="blue" delay={0.05} className="p-5 h-full">
-              <BarChart3 className="h-8 w-8 text-blue-500 mb-3 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold font-mono mb-1">Analytics</h3>
-              <p className="text-sm text-muted-foreground">
-                Batches, industries, hiring trends
-              </p>
-              <span className="inline-flex items-center gap-1 mt-3 text-xs text-blue-500 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                open <ArrowRight className="h-3 w-3" />
-              </span>
-            </HackerCard>
-          </Link>
-
-          <Link to="/founders" className="group">
-            <HackerCard glowColor="green" delay={0.1} className="p-5 h-full">
-              <BookOpen className="h-8 w-8 text-emerald-500 mb-3 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold font-mono mb-1">For Founders</h3>
-              <p className="text-sm text-muted-foreground">
-                PG essays, daily YC updates
-              </p>
-              <span className="inline-flex items-center gap-1 mt-3 text-xs text-emerald-500 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                read <ArrowRight className="h-3 w-3" />
-              </span>
-            </HackerCard>
-          </Link>
-
-          <Link to="/tools" className="group">
-            <HackerCard glowColor="purple" delay={0.15} className="p-5 h-full">
-              <Wrench className="h-8 w-8 text-violet-500 mb-3 group-hover:scale-110 transition-transform" />
-              <h3 className="font-bold font-mono mb-1">Founder Tools</h3>
-              <p className="text-sm text-muted-foreground">
-                Idea validator, batch wrapped, fundraising tracker
-              </p>
-              <span className="inline-flex items-center gap-1 mt-3 text-xs text-violet-500 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                launch <ArrowRight className="h-3 w-3" />
-              </span>
-            </HackerCard>
-          </Link>
-
-          {/* Stats cards - compact */}
-          {stats?.by_status && (
-            <HackerCard glowColor="green" delay={0.2} className="p-5 col-span-1">
-              <TrendingUp className="h-6 w-6 text-emerald-500 mb-2" />
-              <div className="text-2xl font-bold font-mono text-emerald-500">
-                {stats.by_status['Active']?.toLocaleString() || 0}
-              </div>
-              <div className="text-xs text-muted-foreground font-mono">Active</div>
-            </HackerCard>
-          )}
-          {stats?.by_industry && (
-            <HackerCard glowColor="orange" delay={0.25} className="p-5 col-span-1">
-              <Building2 className="h-6 w-6 text-[#FB651E] mb-2" />
-              <div className="text-xl font-bold font-mono text-[#FB651E] truncate">
-                {Object.entries(stats.by_industry).sort(([, a], [, b]) => b - a)[0]?.[0] || 'N/A'}
-              </div>
-              <div className="text-xs text-muted-foreground font-mono">Top Industry</div>
-            </HackerCard>
-          )}
-          {stats?.by_country && (
-            <HackerCard glowColor="purple" delay={0.3} className="p-5 col-span-1">
-              <Globe2 className="h-6 w-6 text-violet-500 mb-2" />
-              <div className="text-lg font-bold font-mono text-violet-500 truncate">
-                {Object.entries(stats.by_country).sort(([, a], [, b]) => b - a)[0]?.[0] || 'N/A'}
-              </div>
-              <div className="text-xs text-muted-foreground font-mono">Top Country</div>
-            </HackerCard>
-          )}
-        </motion.div>
-
-        {/* Terminal footer */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          className="mt-16 max-w-4xl mx-auto border border-border p-6 bg-card/30"
-        >
-          <div className="font-mono text-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[#FB651E]">&gt;</span>
-              <span className="text-muted-foreground">Ready to explore?</span>
-            </div>
-            <div className="flex flex-wrap gap-4">
-              <Link to="/map" className="text-[#FB651E] hover:underline font-mono">
-                $ view map
-              </Link>
-              <Link to="/analytics" className="text-[#FB651E] hover:underline font-mono">
-                $ see charts
-              </Link>
-              <Link to="/validator" className="text-[#FB651E] hover:underline font-mono">
-                $ validate idea
-              </Link>
-            </div>
-          </div>
-        </motion.div>
+          <ApiShowcase />
+        </motion.section>
       </div>
     </div>
   );
