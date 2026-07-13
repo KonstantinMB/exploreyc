@@ -17,9 +17,12 @@ const COLOR_TOP: [number, number, number] = [255, 193, 7];
 const COLOR_HIRING: [number, number, number] = [76, 175, 80];
 const COLOR_STANDARD: [number, number, number] = [251, 101, 30];
 
-// Hexagon bars fade out and individual companies fade in across this zoom band.
-const HEX_FADE_START = 3.5;
-const HEX_FADE_END = 4.5;
+// Hexagon bars appear at continent zoom and fade to individual companies:
+// invisible below IN_START, fully visible IN_END..OUT_START, gone past OUT_END.
+const HEX_IN_START = 1.9;
+const HEX_IN_END = 2.8;
+const HEX_OUT_START = 3.6;
+const HEX_OUT_END = 4.6;
 
 export interface DeckMapProps {
   companies: Company[]; // pre-filtered: latitude/longitude present
@@ -31,6 +34,17 @@ export interface DeckMapProps {
   onCompanyClick: (c: Company) => void;
   onUserInteraction: () => void;
 }
+
+// Dense perimeter (every 10°) so the sphere-covering sea polygon tessellates
+// cleanly on the globe; flat [x,y,...] pairs consumed with positionFormat XY.
+const GLOBE_SEA_POLYGON: number[] = (() => {
+  const pts: number[] = [];
+  for (let lng = -180; lng <= 180; lng += 10) pts.push(lng, 90);
+  for (let lat = 90; lat >= -90; lat -= 10) pts.push(180, lat);
+  for (let lng = 180; lng >= -180; lng -= 10) pts.push(lng, -90);
+  for (let lat = -90; lat <= 90; lat += 10) pts.push(-180, lat);
+  return pts;
+})();
 
 let webglSupport: boolean | null = null;
 function supportsWebGL(): boolean {
@@ -123,9 +137,9 @@ export function DeckMap({
   const topCompanies = useMemo(() => companies.filter((c) => c.top_company), [companies]);
 
   const zoom = typeof viewState.zoom === 'number' ? viewState.zoom : 2;
-  const hexOpacity = is3D
-    ? 0
-    : Math.max(0, Math.min(1, (HEX_FADE_END - zoom) / (HEX_FADE_END - HEX_FADE_START)));
+  const rampIn = Math.max(0, Math.min(1, (zoom - HEX_IN_START) / (HEX_IN_END - HEX_IN_START)));
+  const rampOut = Math.max(0, Math.min(1, (HEX_OUT_END - zoom) / (HEX_OUT_END - HEX_OUT_START)));
+  const hexOpacity = is3D ? 0 : Math.min(rampIn, rampOut);
   const scatterOpacity = 1 - hexOpacity * 0.85;
 
   // Pulse phase: 0→1 loop every 1.6s. pulseTime === 0 keeps rings at rest.
@@ -136,14 +150,14 @@ export function DeckMap({
 
     if (is3D) {
       // Sphere backdrop (oceans) — GlobeView renders no basemap tiles.
+      // Globe floats in dark space in both themes; only land colors follow the theme.
       result.push(
-        new SolidPolygonLayer<{ polygon: number[][] }>({
+        new SolidPolygonLayer<{ polygon: number[]; }>({
           id: 'globe-sea',
-          data: [
-            { polygon: [[-180, 90], [0, 90], [180, 90], [180, -90], [0, -90], [-180, -90]] },
-          ],
-          getPolygon: (d) => d.polygon.flat(),
-          getFillColor: darkMode ? [8, 14, 26] : [170, 211, 223],
+          data: [{ polygon: GLOBE_SEA_POLYGON }],
+          getPolygon: (d) => d.polygon,
+          positionFormat: 'XY',
+          getFillColor: darkMode ? [10, 17, 32] : [22, 38, 66],
           filled: true,
         })
       );
@@ -154,8 +168,8 @@ export function DeckMap({
             data: countries,
             stroked: true,
             filled: true,
-            getFillColor: darkMode ? [30, 36, 48] : [235, 235, 230],
-            getLineColor: darkMode ? [70, 80, 100, 180] : [150, 150, 150, 180],
+            getFillColor: darkMode ? [34, 42, 58] : [228, 228, 220],
+            getLineColor: darkMode ? [80, 95, 120, 200] : [120, 130, 150, 160],
             getLineWidth: 1,
             lineWidthUnits: 'pixels',
           })
@@ -169,24 +183,44 @@ export function DeckMap({
           id: 'company-hexagons',
           data: companies,
           getPosition: (c) => [c.longitude!, c.latitude!],
-          radius: 100_000,
+          radius: 55_000,
           extruded: true,
-          elevationScale: 60,
-          elevationRange: [0, 40_000],
-          coverage: 0.85,
-          opacity: hexOpacity * 0.75,
+          // Height = normalized count → elevationRange meters × elevationScale.
+          elevationScale: 40,
+          elevationRange: [200, 4_000],
+          coverage: 0.82,
+          opacity: hexOpacity * 0.9,
           pickable: hexOpacity > 0.4,
           colorRange: [
-            [255, 224, 178],
             [255, 183, 77],
             [255, 152, 0],
             [251, 101, 30],
-            [230, 74, 25],
-            [191, 54, 12],
+            [240, 78, 20],
+            [216, 58, 10],
+            [183, 40, 5],
           ],
         })
       );
     }
+
+    // Soft "constellation" halo under every dot — gives the world view depth.
+    result.push(
+      new ScatterplotLayer<Company>({
+        id: 'company-halo',
+        data: companies,
+        getPosition: (c) => [c.longitude!, c.latitude!],
+        getRadius: getRadiusMeters,
+        radiusMinPixels: 8,
+        radiusMaxPixels: 30,
+        getFillColor: (c) => {
+          const [r, g, b] = getFillColor(c);
+          return [r, g, b, 45] as [number, number, number, number];
+        },
+        stroked: false,
+        opacity: scatterOpacity,
+        pickable: false,
+      })
+    );
 
     // Static gold under-glow for top companies.
     result.push(
@@ -296,7 +330,8 @@ export function DeckMap({
           return companyTooltip(object as Company, darkMode);
         }
         if (layer.id === 'company-hexagons') {
-          const count = (object as { points?: unknown[] }).points?.length ?? 0;
+          const hex = object as { count?: number; points?: unknown[]; elevationValue?: number };
+          const count = hex.count ?? hex.elevationValue ?? hex.points?.length ?? 0;
           return {
             html: `<b>${count}</b> companies`,
             style: {
