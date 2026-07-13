@@ -50,7 +50,7 @@ class CompanyCache:
         # Map subset: companies with geo coordinates (a16z has none, so naturally excluded)
         map_cols = {
             "id", "name", "slug", "website", "one_liner", "batch", "is_hiring",
-            "top_company", "small_logo_thumb_url",
+            "top_company", "small_logo_thumb_url", "industry", "team_size",
             "latitude", "longitude", "country", "all_locations"
         }
         self._map_companies = [

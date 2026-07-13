@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useApp } from '../contexts/AppContext';
@@ -7,7 +7,7 @@ import { SourceBadge } from '../components/ui/SourceBadge';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
 import { Map, BarChart3, Wrench, TrendingUp, Building2, Globe2, Sparkles, ArrowRight, BookOpen, Terminal, ChevronUp } from 'lucide-react';
 import { HeroAnswerBox } from '../components/HeroAnswerBox';
-import { OptimizedMap } from '../components/OptimizedMap';
+const WorldMap = lazy(() => import('../components/WorldMap'));
 import { EmailSubscription } from '../components/EmailSubscription';
 import { CompaniesBrowser } from '../components/CompaniesBrowser';
 import { CompanyDetailModal } from '../components/CompanyDetailModal';
@@ -278,7 +278,15 @@ export function HomePage() {
             <span className="text-muted-foreground">$</span>
             <h2 className="text-xl font-bold">Interactive World Map</h2>
           </div>
-          <OptimizedMap />
+          <Suspense
+            fallback={
+              <div className="h-[350px] sm:h-[500px] md:h-[600px] lg:h-[700px] rounded-lg border bg-muted/40 animate-pulse flex items-center justify-center font-mono text-sm text-muted-foreground">
+                Loading world map…
+              </div>
+            }
+          >
+            <WorldMap />
+          </Suspense>
         </motion.section>
 
         {/* Daily YC Updates */}
