@@ -242,8 +242,10 @@ export function WorldMap() {
       const next = !prev;
       setViewState((vs) => ({
         longitude: vs.longitude,
-        latitude: vs.latitude,
-        zoom: Math.min(vs.zoom, next ? 4 : 18),
+        latitude: next ? Math.max(-60, Math.min(60, vs.latitude)) : vs.latitude,
+        // Globe always enters framed as a full sphere; 2D re-enters at a sane
+        // world zoom (GlobeView and MapView zoom scales differ).
+        zoom: next ? 0.8 : Math.max(vs.zoom, 1.5),
         pitch: next ? 0 : 30,
         bearing: 0,
         transitionDuration: 0,
