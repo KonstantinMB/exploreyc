@@ -229,41 +229,16 @@ export function HomePage() {
           </motion.div>
         </div>
 
-        {/* Batch Wrapped Banner - hacker card */}
-        {wrappedBatch && (
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.4 }}
-            className="mb-8"
-          >
-            <Link
-              to={`/batch/${batchToShort(wrappedBatch.name)}/wrapped`}
-              className="group block"
-            >
-              <HackerCard glowColor="orange" className="p-6 border-[#FB651E]/30 hover:border-[#FB651E]/60">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-[#FB651E] flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold font-mono">{wrappedBatch.name} Wrapped</h3>
-                      <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-mono border border-emerald-500/30">
-                        NEW
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground font-mono">
-                      Spotify-style stats for {wrappedBatch.count.toLocaleString()} companies
-                    </p>
-                  </div>
-                  <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-[#FB651E] group-hover:translate-x-1 transition-all" />
-                </div>
-              </HackerCard>
-            </Link>
-          </motion.div>
-        )}
+        {/* API access showcase — lead with the API right under the hero */}
+        <motion.section
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-50px' }}
+          transition={{ duration: 0.5 }}
+          className="border-t border-border py-14"
+        >
+          <ApiShowcase />
+        </motion.section>
 
         {/* Database Preview Section */}
         <motion.section
@@ -293,13 +268,13 @@ export function HomePage() {
           <DatabasePreview />
         </motion.section>
 
-        {/* Daily YC Updates */}
+        {/* Daily YC Updates — right below the database */}
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-50px' }}
           transition={{ duration: 0.5 }}
-          className="py-12"
+          className="border-t border-border py-12"
         >
           <EmailSubscription />
         </motion.section>
@@ -315,6 +290,46 @@ export function HomePage() {
           <PlatformCapabilities />
         </motion.section>
 
+        {/* Latest batch wrapped — footer */}
+        {wrappedBatch && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.4 }}
+            className="border-t border-border pt-10 mt-4 pb-4"
+          >
+            <div className="flex items-center gap-2 mb-4 font-mono text-sm text-muted-foreground">
+              <Sparkles className="h-4 w-4 text-[#FB651E]" />
+              <span>$ batch --latest --wrapped</span>
+            </div>
+            <Link
+              to={`/batch/${batchToShort(wrappedBatch.name)}/wrapped`}
+              className="group block"
+            >
+              <HackerCard glowColor="orange" className="p-6 border-[#FB651E]/30 hover:border-[#FB651E]/60">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-[#FB651E] flex items-center justify-center flex-shrink-0">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-bold font-mono">{wrappedBatch.name} Wrapped</h3>
+                      <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-mono border border-emerald-500/30">
+                        NEW
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground font-mono">
+                      Spotify-style stats for {wrappedBatch.count.toLocaleString()} companies
+                    </p>
+                  </div>
+                  <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-[#FB651E] group-hover:translate-x-1 transition-all" />
+                </div>
+              </HackerCard>
+            </Link>
+          </motion.div>
+        )}
+
         {selectedCompany && (
           <CompanyDetailModal
             company={selectedCompany}
@@ -322,17 +337,6 @@ export function HomePage() {
             onClose={() => setSelectedCompany(null)}
           />
         )}
-
-        {/* API access showcase */}
-        <motion.section
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-50px' }}
-          transition={{ duration: 0.5 }}
-          className="border-t border-border py-14"
-        >
-          <ApiShowcase />
-        </motion.section>
       </div>
     </div>
   );
