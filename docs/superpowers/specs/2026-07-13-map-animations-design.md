@@ -1,88 +1,103 @@
-# Map Animations & Polish — Design
+# World Map Rebuild — deck.gl + MapLibre with 2D/3D Globe
 
 **Date:** 2026-07-13
 **Status:** Approved
-**Scope:** Frontend only — `frontend/src/components/OptimizedMap.tsx` (+ small CSS additions). No backend or schema changes.
+**Scope:** Frontend only. No backend or schema changes — coordinates already exist (`latitude`/`longitude` columns, `/api/map` endpoint, `company_cache.py`).
 
 ## Context
 
-The interactive map (`OptimizedMap.tsx`, React Leaflet + marker clustering) is rendered on the Explore page and the Enhanced Dashboard. Company coordinates already exist in the database (`latitude`/`longitude` columns, populated at sync time) and are served by `/api/map` via `company_cache.py`, so this work is purely a rendering/experience upgrade. The decision was to polish the existing Leaflet map rather than rebuild on deck.gl/MapLibre.
+The live interactive map is `OptimizedMap.tsx` (React Leaflet + raster OSM tiles + marker clustering), rendered only on the HomePage `#map` section. `ExplorePage`, `Dashboard`, and `EnhancedDashboard` are unrouted dead pages; `CompanyMap`, `EnhancedMap`, and `ImprovedMap` are dead components. The decision: fully replace the Leaflet map with deck.gl + MapLibre, including a 2D/3D globe toggle, and delete the dead code so Leaflet can be uninstalled.
 
 ## Goals
 
-Make the map feel alive and shareable with four features:
-
-1. Theme-aware basemap
-2. Animated markers
-3. Batch timeline animation
-4. Fly-to city tour
+1. GPU-rendered map with a **2D map ⇔ 3D globe toggle**.
+2. **Zoom-based layers**: extruded hexagon density bars at world zoom, per-company scatterplot at closer zoom.
+3. Carry over the four approved experience features: theme-aware basemap, animated/pulsing markers, batch timeline animation, fly-to city tour.
+4. Remove Leaflet entirely (deps + dead pages/components).
 
 ## Non-goals
 
-- No 3D globe, deck.gl, or MapLibre migration.
-- No changes to geocoding, the `/api/map` endpoint, or the database.
-- No new route/page — the upgrade lands wherever `OptimizedMap` is already used.
+- No backend, geocoding, or database changes.
+- No new route — the map stays in the HomePage `#map` section.
+- No embed route (possible follow-up).
+
+## Architecture
+
+New module `frontend/src/components/WorldMap/`:
+
+- `WorldMap.tsx` — container: card UI, legend, banner/stats, timeline bar, tour controls, 2D/3D toggle. Owns view state and feature state.
+- `DeckMap.tsx` — rendering: `<DeckGL>` canvas with `MapView` or `GlobeView`, MapLibre basemap in 2D, layer construction.
+- `batchOrder.ts` — chronological batch parsing (season + year, e.g. "Winter 2009" → "Fall 2025"); unparseable names sort to the start lexically so no company is dropped.
+- `hubs.ts` — top-hub computation for the tour.
+
+Dependencies added: `@deck.gl/core`, `@deck.gl/react`, `@deck.gl/layers`, `@deck.gl/aggregation-layers`, `maplibre-gl`, `react-map-gl`. Removed: `leaflet`, `react-leaflet`, `react-leaflet-cluster`.
+
+The map is lazy-loaded (`React.lazy` + `Suspense` skeleton) on the HomePage so deck.gl (~300 KB gz) does not block the landing paint.
+
+Data flow is unchanged: companies (with `latitude`/`longitude`) come from `useApp()`; "show all" triggers the existing `loadAllMapCompanies()`; clicking a company calls the existing `setSelectedCompany()` modal.
 
 ## Design
 
-### 1. Theme-aware basemap
+### 1. 2D map ⇔ 3D globe toggle
 
-Replace the OpenStreetMap raster tiles with CARTO's free raster basemaps (no API key, attribution required):
+- **2D:** `MapView` over a MapLibre basemap using CARTO vector styles (free, no key), theme-aware via `darkMode` from `AppContext`: `dark-matter-gl-style` in dark mode, `positron-gl-style` in light mode.
+- **3D:** `GlobeView` (deck.gl). No tile basemap on the globe: render a bundled Natural Earth 110m countries GeoJSON (~100 KB static asset) as a `GeoJsonLayer` over a dark sphere backdrop; companies render as glowing additive-blended dots. Slow idle auto-rotation until the first user interaction.
+- Toggle button in the map controls; view state (center/zoom) carries across the switch where meaningful.
 
-- Dark mode (`darkMode` from `AppContext`): **Dark Matter** — `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png`
-- Light mode: **Positron** — `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png`
+### 2. Zoom-based layers (2D)
 
-The `MapContainer` background color (currently a fixed ocean blue) switches with the theme (dark navy vs. light gray-blue) so map edges/poles blend in. The `TileLayer` is keyed on the theme so Leaflet swaps tiles cleanly when the user toggles dark mode.
-
-Note: CARTO's *vector* style.json files require MapLibre; the raster tile endpoints above render the same visual design and drop directly into Leaflet's `TileLayer`.
-
-### 2. Animated markers
-
-A stylesheet (injected once, or a small imported CSS file) with keyframe animations applied via the existing `divIcon` HTML:
-
-- **Hiring pulse:** companies with `is_hiring` get an expanding green ring (`box-shadow`/`transform: scale` keyframes) radiating from the marker circle.
-- **Top-company glow:** companies with `top_company` get a soft gold halo (animated `box-shadow`).
-- **Drop-in:** markers animate in with a translateY drop + ease-out bounce when added to the map. Most visible during timeline playback.
-- **Cluster breathing:** cluster icons get a subtle scale oscillation so density hotspots feel alive.
-
-Animations are CSS-only (GPU-friendly, no per-frame JS). Respect `prefers-reduced-motion: reduce` by disabling the looping animations.
+- **Zoom < ~4:** extruded `HexagonLayer` — height = company count, YC-orange color ramp. Hovering a column shows a count tooltip.
+- **Zoom ≥ ~4:** `ScatterplotLayer` — radius ∝ `team_size` (clamped), color by status: gold = top company, green = hiring, orange = standard. Hover shows a tooltip card (logo, name, one-liner, batch, location); click calls `setSelectedCompany`.
+- Layers cross-fade over a zoom band rather than hard-switching.
+- Globe mode uses the scatterplot (plus hexagons only if they render correctly on `GlobeView`; otherwise scatter-only is acceptable).
 
 ### 3. Batch timeline animation
 
-A control bar above the map:
+- Control bar above the map: play/pause + scrubber over chronologically sorted batches (`batchOrder.ts`).
+- Playback ~700 ms per batch, cumulative: each batch's companies animate in via deck.gl radius transitions (grow from 0). Live label, e.g. "Summer 2016 — 1,204 companies".
+- Scrubbing jumps to any point (all companies from batches ≤ selected).
+- Starting the timeline triggers `loadAllMapCompanies()`; the play button shows a loading state meanwhile. Works in both 2D and globe modes.
+- Cumulative sets are computed once (bucket by batch index, slice by position) and memoized.
 
-- **Play/pause button** and a **scrubber slider** whose stops are the chronologically sorted batches.
-- Batch names are parsed for true chronological order — season + year (Winter 2009 → Fall 2025), handling both long forms ("Winter 2025") and any short forms present in the data; unparseable batch names sort to the start of the timeline in lexical order so no company is dropped. The existing lexical `sort().reverse()` is not used for the timeline.
-- **Playback:** ~700 ms per batch, cumulatively adding each batch's companies (markers drop-bounce in), with a live label such as "Summer 2016 — 1,204 companies".
-- **Scrubbing** jumps to any point; the map shows all companies from batches up to and including the selected one.
-- Opening/starting the timeline triggers `loadAllMapCompanies()` so every batch is available. While loading, the play button shows a loading state.
-- The timeline's cumulative company sets are memoized (one pass to bucket companies by batch index, then a slice by scrubber position).
+### 4. Animated / pulsing markers
 
-### 4. Fly-to city tour
+- Hiring companies get an animated pulse-ring layer (time-driven via rAF updating a shared time value; additive blending).
+- Top companies get a static gold glow (larger soft-edged dot underneath).
+- `prefers-reduced-motion: reduce` disables the pulse loop and the globe auto-rotation.
 
-- A **"Tour"** button in the map controls.
-- Hubs are computed from the loaded data: group companies by rounded coordinates (~1 decimal degree, city-scale), rank by company count, take the top ~8. The hub label uses the most common city string from `all_locations` within the group.
-- The tour uses Leaflet's built-in `map.flyTo(center, zoom)` to glide between hubs, ~4 s per stop.
+### 5. Fly-to city tour
+
+- "Tour" button in the map controls.
+- Hubs computed from loaded data: group by rounded coordinates (~1 decimal degree), rank by company count, take top ~8; label = most common city string from `all_locations` in the group.
+- 2D: `FlyToInterpolator` glides between hubs, ~4 s per stop. Globe: rotates/zooms to each hub.
 - Each stop shows a floating stats card: hub name, company count, number hiring, top industry.
-- Any manual map interaction (drag/zoom) or a ✕ button ends the tour and dismisses the card.
+- Any manual interaction or the ✕ button ends the tour.
+
+### 6. Cleanup
+
+- HomePage swaps `OptimizedMap` → lazy `WorldMap`.
+- Delete dead unrouted pages: `ExplorePage.tsx`, `Dashboard.tsx`, `EnhancedDashboard.tsx`.
+- Delete dead map components: `OptimizedMap.tsx`, `CompanyMap.tsx`, `EnhancedMap.tsx`, `ImprovedMap.tsx`.
+- Verify no remaining imports, then uninstall `leaflet`, `react-leaflet`, `react-leaflet-cluster` and remove Leaflet CSS imports.
 
 ## Error handling
 
-- If `loadAllMapCompanies()` fails, the timeline still runs over the batches already in memory; a non-blocking notice indicates partial data.
-- Tour hub computation runs on whatever companies are loaded; it never blocks on the full dataset.
-- Tile-server failure degrades exactly as today (Leaflet shows the background color).
+- **No WebGL:** render a fallback card ("map requires WebGL") instead of crashing.
+- **`loadAllMapCompanies()` failure:** timeline runs over already-loaded batches with a non-blocking notice.
+- **Basemap style fetch failure:** deck.gl layers still render over the plain background color.
+- Companies without coordinates are filtered out (existing behavior).
 
 ## Performance
 
-- All marker animation is CSS; no per-frame React re-renders.
-- Timeline playback changes only the filtered company array passed to the existing `MarkerClusterGroup` (which already uses `chunkedLoading`).
-- Memoized: batch buckets, hub list, marker icons per company id.
+- ~6k points is trivial for deck.gl; keep accessor functions referentially stable and memoize layer data arrays to avoid re-tessellation.
+- Pulse animation updates a single time prop, not per-point React state.
+- Lazy chunk keeps landing-page bundle unchanged until the map scrolls into use.
 
 ## Testing
 
-No frontend test suite exists in this repo. Verification is manual:
+No frontend test suite exists. Manual verification:
 
-1. Run backend + frontend dev servers with seeded data.
-2. Exercise all four features in the browser.
-3. Check both light and dark themes, and a mobile-width viewport.
-4. Confirm `prefers-reduced-motion` disables looping animations.
+1. Dev servers with seeded data; exercise toggle, hexagons↔scatter zoom transition, timeline, tour, hover/click.
+2. Both themes; both views; mobile-width viewport.
+3. `prefers-reduced-motion` disables pulse + auto-rotate.
+4. `npm run build` passes after dead-code deletion and dep removal.
