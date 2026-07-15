@@ -2656,25 +2656,29 @@ class DatabasePostgres:
                 elif metric == "unicorns":
                     filters.append("fs.has_unicorn = TRUE")
 
-                join = ""
+                # Batch/industry filter via EXISTS (not a JOIN): a join to
+                # company_founders multiplies rows per founder, which would force a
+                # GROUP BY — and Postgres rejects bare fs.* stat columns under GROUP BY
+                # because founder_stats is a matview with no PRIMARY KEY (no functional
+                # dependency). EXISTS keeps one row per founder, so no GROUP BY needed.
                 if batch or industry:
-                    join = ("JOIN company_founders cf ON cf.founder_id = fs.founder_id "
-                            "JOIN companies c ON c.id = cf.company_id")
+                    exists_conds = []
                     if batch:
-                        filters.append("c.batch = %s")
+                        exists_conds.append("c.batch = %s")
                         params.append(batch)
                     if industry:
-                        filters.append("c.industry = %s")
+                        exists_conds.append("c.industry = %s")
                         params.append(industry)
+                    filters.append(
+                        "EXISTS (SELECT 1 FROM company_founders cf "
+                        "JOIN companies c ON c.id = cf.company_id "
+                        "WHERE cf.founder_id = fs.founder_id AND "
+                        + " AND ".join(exists_conds) + ")"
+                    )
 
                 where = ("WHERE " + " AND ".join(filters)) if filters else ""
 
-                cur.execute(f"""
-                    SELECT COUNT(*) AS n FROM (
-                        SELECT fs.founder_id FROM founder_stats fs {join} {where}
-                        GROUP BY fs.founder_id
-                    ) t
-                """, params)
+                cur.execute(f"SELECT COUNT(*) AS n FROM founder_stats fs {where}", params)
                 total = cur.fetchone()["n"]
 
                 cur.execute(f"""
@@ -2690,10 +2694,7 @@ class DatabasePostgres:
                               ORDER BY COALESCE(c2.funding_total_usd, 0) DESC LIMIT 1) AS title
                     FROM founder_stats fs
                     JOIN founders f ON f.id = fs.founder_id
-                    {join}
                     {where}
-                    GROUP BY fs.founder_id, f.slug, f.full_name, f.avatar_url,
-                             f.linkedin_url, f.twitter_url
                     ORDER BY {column} DESC, fs.founder_id ASC
                     LIMIT %s OFFSET %s
                 """, params + [limit, offset])
