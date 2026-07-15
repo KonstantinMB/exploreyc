@@ -15,6 +15,7 @@ import {
   Twitter,
   Users,
   ArrowRight,
+  Crown,
 } from 'lucide-react';
 import { apiClient, resolveMediaUrl } from '../lib/api';
 import { useApp } from '../contexts/AppContext';
@@ -26,6 +27,9 @@ import type { FounderMetric, FounderLeaderboardEntry } from '../types/founders';
 import { METRIC_LABELS } from '../types/founders';
 
 const PAGE_SIZE = 25;
+
+const MEDALS = ['#FFC93C', '#C7CCD1', '#E08A4B']; // gold · silver · bronze
+const PODIUM_ORDER = [1, 0, 2]; // render 2nd, 1st, 3rd (classic podium)
 
 const METRICS: {
   key: FounderMetric;
@@ -68,13 +72,19 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-function LeaderboardRow({ entry }: { entry: FounderLeaderboardEntry }) {
+function LeaderboardRow({ entry, index }: { entry: FounderLeaderboardEntry; index: number }) {
   const { founder, stats, headline_stat, rank } = entry;
   return (
+    <motion.div
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: Math.min(index * 0.035, 0.45), duration: 0.3 }}
+    >
     <Link
       to={`/founder/${founder.slug}`}
-      className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 border-b border-border/50 hover:bg-muted/20 transition-colors group"
+      className="relative flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 border-b border-border/50 hover:bg-[#FB651E]/[0.04] transition-colors group"
     >
+      <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#FB651E] origin-center scale-y-0 group-hover:scale-y-100 transition-transform duration-200" />
       <RankBadge rank={rank} />
       <Avatar src={resolveMediaUrl(founder.avatar_url)} name={founder.full_name} size={40} className="shrink-0" />
       <div className="min-w-0 flex-1">
@@ -107,6 +117,80 @@ function LeaderboardRow({ entry }: { entry: FounderLeaderboardEntry }) {
       </div>
       <ArrowRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-[#FB651E] transition-colors shrink-0 hidden sm:inline-block" />
     </Link>
+    </motion.div>
+  );
+}
+
+/** Top-3 podium — crowned #1, medal-ringed avatars, metric-aware headline stat. */
+function FounderPodium({ top3 }: { top3: FounderLeaderboardEntry[] }) {
+  return (
+    <div className="border-b border-border/60 bg-gradient-to-b from-[#FB651E]/[0.05] to-transparent px-4 pt-9 pb-5">
+      <div className="mx-auto grid max-w-2xl grid-cols-3 items-end gap-2 sm:gap-4">
+        {PODIUM_ORDER.map((idx, i) => {
+          const entry = top3[idx];
+          if (!entry) return <div key={i} />;
+          const rank = entry.rank;
+          const isFirst = rank === 1;
+          const medal = MEDALS[rank - 1];
+          return (
+            <motion.div
+              key={entry.founder.slug}
+              initial={{ opacity: 0, y: 26, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ delay: 0.1 + i * 0.1, type: 'spring', stiffness: 220, damping: 20 }}
+              className={`relative flex flex-col items-center ${isFirst ? 'sm:-mt-6' : ''}`}
+            >
+              <Link
+                to={`/founder/${entry.founder.slug}`}
+                className="group flex w-full flex-col items-center rounded-md border bg-background/70 px-2 pb-3 pt-5 text-center transition-all duration-300 hover:-translate-y-1"
+                style={{
+                  borderColor: isFirst ? medal : 'hsl(var(--border))',
+                  boxShadow: isFirst ? `0 0 0 1px ${medal}55, 0 14px 44px -14px ${medal}88` : undefined,
+                }}
+              >
+                {isFirst && (
+                  <Crown className="absolute -top-3.5 h-6 w-6 drop-shadow" style={{ color: medal, fill: `${medal}33` }} />
+                )}
+                <div className="relative">
+                  {isFirst && (
+                    <span className="absolute inset-0 -m-1 rounded-full animate-ping" style={{ backgroundColor: `${medal}22` }} />
+                  )}
+                  <div className="rounded-full p-[2px]" style={{ background: `linear-gradient(135deg, ${medal}, transparent)` }}>
+                    <Avatar
+                      src={resolveMediaUrl(entry.founder.avatar_url)}
+                      name={entry.founder.full_name}
+                      size={isFirst ? 66 : 50}
+                    />
+                  </div>
+                  <span
+                    className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black text-black shadow"
+                    style={{ backgroundColor: medal }}
+                  >
+                    {rank}
+                  </span>
+                </div>
+                <div className="mt-2.5 line-clamp-1 text-sm font-bold group-hover:text-[#FB651E]">
+                  {entry.founder.full_name}
+                </div>
+                <div className="mb-1 line-clamp-1 text-[10px] font-mono text-muted-foreground">
+                  {entry.founder.title || 'Founder'}
+                </div>
+                <div className={`text-base font-black font-mono tabular-nums ${isFirst ? 'text-[#FB651E]' : 'text-foreground'}`}>
+                  {entry.headline_stat.value}
+                </div>
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
+                  {entry.headline_stat.label}
+                </div>
+              </Link>
+              <div
+                className="mt-1.5 w-full rounded-b-sm"
+                style={{ height: isFirst ? 24 : 14, background: `linear-gradient(${medal}, ${medal}99)` }}
+              />
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -184,14 +268,22 @@ export function FounderLeaderboardPage() {
                 <button
                   key={key}
                   onClick={() => switchMetric(key)}
-                  className={`flex items-center justify-center gap-2 h-10 px-3 text-xs sm:text-sm font-mono border rounded-sm transition-colors ${
+                  className={`relative overflow-hidden flex items-center justify-center gap-2 h-10 px-3 text-xs sm:text-sm font-mono border rounded-sm transition-colors ${
                     active
-                      ? 'bg-[#FB651E]/10 border-[#FB651E]/50 text-[#FB651E] font-semibold'
+                      ? 'border-[#FB651E]/50 text-[#FB651E] font-semibold'
                       : 'border-border text-muted-foreground hover:text-foreground hover:border-border/80'
                   }`}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{METRIC_LABELS[key]}</span>
+                  {active && (
+                    <motion.span
+                      layoutId="metric-active-pill"
+                      className="absolute inset-0 bg-[#FB651E]/12"
+                      style={{ backgroundColor: 'rgba(251,101,30,0.12)' }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                    />
+                  )}
+                  <Icon className="w-4 h-4 shrink-0 relative z-10" />
+                  <span className="truncate relative z-10">{METRIC_LABELS[key]}</span>
                 </button>
               );
             })}
@@ -273,9 +365,17 @@ export function FounderLeaderboardPage() {
                   )}
                 </div>
               ) : (
-                results.map((entry) => (
-                  <LeaderboardRow key={entry.founder.id} entry={entry} />
-                ))
+                <>
+                  {page === 1 && !batch && results.length >= 3 && (
+                    <FounderPodium top3={results.slice(0, 3)} />
+                  )}
+                  {(page === 1 && !batch && results.length >= 3
+                    ? results.slice(3)
+                    : results
+                  ).map((entry, i) => (
+                    <LeaderboardRow key={entry.founder.id} entry={entry} index={i} />
+                  ))}
+                </>
               )}
             </div>
 

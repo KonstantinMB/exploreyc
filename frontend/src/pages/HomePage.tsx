@@ -5,9 +5,10 @@ import { useApp } from '../contexts/AppContext';
 import { apiClient, type Source } from '../lib/api';
 import { SourceBadge } from '../components/ui/SourceBadge';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
-import { Globe2, Sparkles, ArrowRight, Terminal, ChevronUp } from 'lucide-react';
+import { Globe2, Sparkles, ArrowRight, Terminal, ChevronUp, Trophy } from 'lucide-react';
 import { HeroAnswerBox } from '../components/HeroAnswerBox';
 import { DatabasePreview } from '../components/DatabasePreview';
+import { FoundersPreview } from '../components/FoundersPreview';
 import { PlatformCapabilities } from '../components/PlatformCapabilities';
 import { ApiShowcase } from '../components/ApiShowcase';
 import { HomeFaq } from '../components/HomeFaq';
@@ -267,6 +268,34 @@ export function HomePage() {
             </Link>
           </div>
           <DatabasePreview />
+        </motion.section>
+
+        {/* Founder Leaderboards — the people behind the companies, right beside the DB */}
+        <motion.section
+          id="founder-leaderboards"
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-50px' }}
+          transition={{ duration: 0.5 }}
+          className="border-t border-border py-12"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-2 font-mono">
+              <Trophy className="h-5 w-5 text-[#FB651E]" />
+              <span className="text-muted-foreground">$</span>
+              <h2 className="text-xl font-bold">Founder Leaderboards</h2>
+              <span className="hidden sm:inline text-xs text-muted-foreground">— the people behind the companies</span>
+            </div>
+            <Link
+              to="/founders/leaderboard"
+              className="group inline-flex items-center gap-2 px-4 py-2 border border-border hover:border-[#FB651E]/50 font-mono text-xs bg-background/50 transition-all duration-200 rounded-sm"
+            >
+              <Sparkles className="h-4 w-4 text-[#FB651E]" />
+              Who's raised the most? Grab a rank card
+              <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
+          </div>
+          <FoundersPreview />
         </motion.section>
 
         {/* Daily YC Updates — right below the database */}
