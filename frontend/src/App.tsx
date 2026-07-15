@@ -33,6 +33,8 @@ import { HiringBoardPagePaginated } from './pages/HiringBoardPagePaginated';
 import { HiringAnalyticsPage } from './pages/HiringAnalyticsPage';
 import { DatabasePage } from './pages/DatabasePage';
 import { MapPage } from './pages/MapPage';
+import { FounderLeaderboardPage } from './pages/FounderLeaderboardPage';
+import { FounderProfilePage } from './pages/FounderProfilePage';
 import { PageTitleManager } from './components/PageTitleManager';
 import { DevAuthProvider } from './contexts/DevAuthContext';
 import { SignupPage } from './pages/SignupPage';
@@ -200,6 +202,8 @@ function AnimatedRoutes() {
         <Route path="database" element={<DatabasePage />} />
         <Route path="map" element={<MapPage />} />
         <Route path="founders" element={<FoundersPage />} />
+        <Route path="founders/leaderboard" element={<FounderLeaderboardPage />} />
+        <Route path="founder/:slug" element={<FounderProfilePage />} />
         <Route path="roadmap" element={<RoadmapPage />} />
         <Route path="share" element={<ShareHub />} />
         {/* Public API developer portal — in-platform (navbar, burger, ⌘K) */}
