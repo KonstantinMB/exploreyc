@@ -53,6 +53,12 @@ app = FastAPI(
     openapi_url=None if _IS_PROD else "/openapi.json",
 )
 
+# Static mount for re-hosted founder avatars (spec §5.4, dev path).
+from fastapi.staticfiles import StaticFiles
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+os.makedirs(os.path.join(_STATIC_DIR, "avatars"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
 
 # Rate Limiter for Research Endpoint
 class ResearchRateLimiter:
@@ -615,6 +621,104 @@ async def get_company_by_slug(slug: str):
         raise HTTPException(status_code=404, detail="Company not found")
 
     return company
+
+
+# ============================================================================
+# FOUNDER LEADERBOARDS (authoritative dataset — spec §7.1)
+# ============================================================================
+
+_FOUNDER_METRICS = {"serial", "funded", "exits", "unicorns"}
+
+
+def _founder_headline_stat(metric: str, stats: dict) -> dict:
+    """The single stat that headlines a founder's rank card for a given board."""
+    if metric == "serial":
+        n = stats.get("companies_count", 0)
+        return {"label": "Companies founded", "value": str(n)}
+    if metric == "funded":
+        total = stats.get("total_funding_usd", 0) or 0
+        return {"label": "Total funding raised", "value": _fmt_usd(total)}
+    if metric == "exits":
+        val = stats.get("max_valuation_usd", 0) or 0
+        return {"label": "Biggest exit / valuation", "value": _fmt_usd(val)}
+    if metric == "unicorns":
+        return {"label": "Unicorn founder", "value": "Yes" if stats.get("has_unicorn") else "No"}
+    return {"label": "", "value": ""}
+
+
+def _fmt_usd(amount) -> str:
+    """Compact USD formatting, e.g. $1.2B / $340M / $12M / $500K."""
+    try:
+        n = float(amount or 0)
+    except (TypeError, ValueError):
+        return "$0"
+    if n >= 1_000_000_000:
+        return f"${n / 1_000_000_000:.1f}B".replace(".0B", "B")
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:.0f}M"
+    if n >= 1_000:
+        return f"${n / 1_000:.0f}K"
+    return f"${n:.0f}"
+
+
+@app.get("/api/founders/leaderboard")
+async def get_founder_leaderboard(
+    metric: str = "serial",
+    batch: Optional[str] = None,
+    industry: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Ranked founders for an authoritative metric (serial/funded/exits/unicorns).
+
+    Rankings run on authoritative derived data only — enrichment never drives them.
+    """
+    metric = (metric or "serial").lower()
+    if metric not in _FOUNDER_METRICS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"metric must be one of {sorted(_FOUNDER_METRICS)}",
+        )
+    if not hasattr(db, "get_founder_leaderboard"):
+        raise HTTPException(status_code=503, detail="Founder dataset unavailable")
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    try:
+        data = db.get_founder_leaderboard(
+            metric=metric, batch=batch, industry=industry, limit=limit, offset=offset
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    results = []
+    for i, row in enumerate(data.get("results", [])):
+        stats = row["stats"]
+        results.append({
+            "rank": offset + i + 1,
+            "founder": row["founder"],
+            "stats": stats,
+            "headline_stat": _founder_headline_stat(metric, stats),
+        })
+
+    return {
+        "metric": metric,
+        "total": data.get("total", 0),
+        "results": results,
+    }
+
+
+@app.get("/api/founders/{slug}")
+async def get_founder_profile(slug: str):
+    """Founder profile: authoritative stats, their companies, every leaderboard rank
+    they hold, and supplementary enrichment (labeled/cited) or null."""
+    if not hasattr(db, "get_founder_by_slug"):
+        raise HTTPException(status_code=503, detail="Founder dataset unavailable")
+    profile = db.get_founder_by_slug(slug)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Founder not found")
+    return profile
 
 
 class SimilarQuery(BaseModel):
@@ -1876,6 +1980,122 @@ async def cron_sync_sources(request: Request, background_tasks: BackgroundTasks)
         "success": True,
         "status": "started",
         "message": "Source sync started in background. Check logs for completion.",
+    }
+
+
+async def _run_founder_sync(full: bool = False):
+    """Background task: scrape YC founders, upsert founders + edges, refresh stats."""
+    import founder_scraper_service
+    try:
+        summary = founder_scraper_service.sync_founders(db, slugs=None, full=full)
+        logger.info(f"Founder sync completed: {summary}")
+        return summary
+    except Exception as e:
+        logger.error(f"Founder sync error: {e}")
+        raise
+
+
+@app.post("/api/cron/sync-founders")
+async def cron_sync_founders(request: Request, background_tasks: BackgroundTasks):
+    """Scrape YC company pages for founders, upsert the deduplicated founder dataset +
+    founder<->company edges, and refresh founder_stats. ?full=1 forces a rebuild;
+    ?sync=1 waits for completion (manual testing)."""
+    _verify_cron_secret(request)
+    full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
+    sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+
+    if sync_mode:
+        result = await _run_founder_sync(full=full)
+        return {"success": True, "status": "completed", **result}
+
+    background_tasks.add_task(_run_founder_sync, full)
+    return {
+        "success": True,
+        "status": "started",
+        "message": "Founder sync started in background. Check logs for completion.",
+    }
+
+
+async def _run_founder_enrichment(limit: int = 25, include_all: bool = False):
+    """Background task: enrich a prioritized batch of founders (supplementary)."""
+    from founder_enrichment_service import get_founder_enrichment_service
+    try:
+        svc = get_founder_enrichment_service()
+        summary = svc.enrich_batch(db, limit=limit, include_all=include_all)
+        logger.info(f"Founder enrichment completed: {summary}")
+        return summary
+    except Exception as e:
+        logger.error(f"Founder enrichment error: {e}")
+        raise
+
+
+@app.post("/api/cron/enrich-founders")
+async def cron_enrich_founders(request: Request, background_tasks: BackgroundTasks):
+    """Drain the founder-enrichment backlog with Perplexity (supplementary, cited).
+    No-ops gracefully if PERPLEXITY_API_KEY is unset. ?all=1 backfills the whole
+    table; ?limit=N bounds the batch; ?sync=1 waits for completion."""
+    _verify_cron_secret(request)
+    include_all = request.query_params.get("all", "").lower() in ("1", "true", "yes")
+    sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+    try:
+        limit = int(request.query_params.get("limit", "25"))
+    except ValueError:
+        limit = 25
+    limit = max(1, min(limit, 200))
+
+    if sync_mode:
+        result = await _run_founder_enrichment(limit=limit, include_all=include_all)
+        return {"success": True, "status": "completed", **result}
+
+    background_tasks.add_task(_run_founder_enrichment, limit, include_all)
+    return {
+        "success": True,
+        "status": "started",
+        "message": "Founder enrichment started in background. Check logs for completion.",
+    }
+
+
+async def _run_company_enrichment(limit: int = 50, include_all: bool = False):
+    """Background task: enrich a prioritized batch of companies' funding.
+
+    Funding is Perplexity-sourced (web, cited) — this replaces CoreSignal as the
+    funding source feeding the Founder Leaderboards. Refreshes founder_stats after.
+    """
+    from company_enrichment_service import get_company_enrichment_service
+    try:
+        svc = get_company_enrichment_service()
+        summary = svc.enrich_companies(db, limit=limit, include_all=include_all)
+        logger.info(f"Company funding enrichment completed: {summary}")
+        return summary
+    except Exception as e:
+        logger.error(f"Company funding enrichment error: {e}")
+        raise
+
+
+@app.post("/api/cron/enrich-companies")
+async def cron_enrich_companies(request: Request, background_tasks: BackgroundTasks):
+    """Drain the company funding-enrichment backlog with Perplexity (web-sourced, cited).
+    Replaces CoreSignal as the funding source for the Founder Leaderboards. No-ops
+    gracefully if PERPLEXITY_API_KEY is unset. ?all=1 backfills every company;
+    ?limit=N bounds the batch; ?sync=1 waits for completion."""
+    _verify_cron_secret(request)
+    include_all = request.query_params.get("all", "").lower() in ("1", "true", "yes")
+    sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+    try:
+        limit = int(request.query_params.get("limit", "50"))
+    except ValueError:
+        limit = 50
+    limit = max(1, min(limit, 200))
+
+    if sync_mode:
+        result = await _run_company_enrichment(limit=limit, include_all=include_all)
+        return {"success": True, "status": "completed", **result}
+
+    background_tasks.add_task(_run_company_enrichment, limit, include_all)
+    return {
+        "success": True,
+        "status": "started",
+        "message": "Company funding enrichment started in background. Check logs for completion.",
     }
 
 

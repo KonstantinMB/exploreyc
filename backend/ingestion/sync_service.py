@@ -63,6 +63,23 @@ def _soft_remove(db, source, source_ids):
         logger.warning("soft-remove for %s skipped: %s", source, e)
 
 
+def refresh_founder_stats(db):
+    """Recompute derived founder_stats (matview in PG, table in SQLite).
+
+    Called at the end of a company sync so founder leaderboards reflect the latest
+    funding/valuation/exit fields. The founder sync (founder_scraper_service.sync_founders)
+    also refreshes this itself after upserting founders + edges. No-op if the founder
+    tables aren't present yet (migration not applied).
+    """
+    if not hasattr(db, "refresh_founder_stats"):
+        return 0
+    try:
+        return db.refresh_founder_stats()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("refresh_founder_stats skipped: %s", e)
+        return 0
+
+
 def embed_missing(db, limit=2000):
     """Embed any rows (all sources) missing an embedding. No-op on SQLite."""
     if not hasattr(db, "get_companies_for_embedding"):

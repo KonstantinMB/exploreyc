@@ -304,6 +304,74 @@ class Database:
                 )
             ''')
 
+            # Founder leaderboards — parity with 20260715000000_founder_leaderboards.sql.
+            # founders (authoritative), company_founders (graph), founder_enrichment
+            # (supplementary, cited), founder_stats (recomputed table since SQLite has
+            # no materialized views — refreshed via refresh_founder_stats()).
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS founders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    yc_user_id INTEGER UNIQUE,
+                    full_name TEXT NOT NULL,
+                    slug TEXT UNIQUE,
+                    bio TEXT,
+                    avatar_url TEXT,
+                    linkedin_url TEXT,
+                    twitter_url TEXT,
+                    is_active BOOLEAN,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS company_founders (
+                    company_id INTEGER NOT NULL,
+                    founder_id INTEGER NOT NULL,
+                    title TEXT,
+                    source TEXT NOT NULL DEFAULT 'yc',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (company_id, founder_id),
+                    FOREIGN KEY (company_id) REFERENCES companies(id),
+                    FOREIGN KEY (founder_id) REFERENCES founders(id)
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS founder_enrichment (
+                    founder_id INTEGER PRIMARY KEY,
+                    twitter_followers INTEGER,
+                    linkedin_followers INTEGER,
+                    education TEXT,
+                    awards TEXT,
+                    notable_exits TEXT,
+                    angel_investments_count INTEGER,
+                    notable_prior_roles TEXT,
+                    bio_long TEXT,
+                    citations TEXT,
+                    confidence TEXT,
+                    model TEXT,
+                    raw_response TEXT,
+                    enriched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (founder_id) REFERENCES founders(id)
+                )
+            ''')
+            # SQLite equivalent of the Postgres materialized view (recomputed table).
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS founder_stats (
+                    founder_id INTEGER PRIMARY KEY,
+                    companies_count INTEGER DEFAULT 0,
+                    batches TEXT,
+                    latest_batch TEXT,
+                    total_funding_usd REAL DEFAULT 0,
+                    max_valuation_usd REAL DEFAULT 0,
+                    has_unicorn BOOLEAN DEFAULT 0,
+                    best_exit_type TEXT,
+                    best_exit_acquirer TEXT,
+                    total_employee_count INTEGER DEFAULT 0,
+                    is_repeat_founder BOOLEAN DEFAULT 0,
+                    FOREIGN KEY (founder_id) REFERENCES founders(id)
+                )
+            ''')
+
             # Bring existing databases up to the multi-source schema before indexing
             self._migrate_schema(cursor)
 
@@ -328,6 +396,14 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_sessions_token ON api_sessions(token_hash)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_sessions_expires ON api_sessions(expires_at)')
 
+            # Founder leaderboards
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_founders_slug ON founders(slug)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_founders_founder ON company_founders(founder_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_company_founders_company ON company_founders(company_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_founder_stats_companies ON founder_stats(companies_count DESC)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_founder_stats_funding ON founder_stats(total_funding_usd DESC)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_founder_stats_valuation ON founder_stats(max_valuation_usd DESC)')
+
     def _migrate_schema(self, cursor):
         """Bring an existing SQLite DB up to the multi-source schema.
 
@@ -348,6 +424,12 @@ class Database:
             "funded_date": "TEXT",
             "source_url": "TEXT",
             "dedupe_key": "TEXT",
+            # Funding provenance (Perplexity-sourced funding; see
+            # supabase/migrations/20260716000000_company_funding_provenance.sql).
+            "funding_source": "TEXT",
+            "funding_enriched_at": "TEXT",
+            "funding_citations": "TEXT",
+            "funding_confidence": "TEXT",
         }
         for col, ddl in additions.items():
             if col not in existing:
@@ -618,6 +700,44 @@ class Database:
                 json.dumps(company)
             ))
             return cursor.lastrowid
+
+    def update_company_funding(self, company_id: int, data: Dict[str, Any]) -> None:
+        """Write Perplexity-sourced funding onto a company + its provenance.
+
+        Funding is now web-sourced (Perplexity sonar-pro), so we stamp funding_source,
+        funding_enriched_at, the cited source URLs, and a confidence signal. COALESCE
+        keeps any existing value when `data` supplies a NULL for that field, so a
+        partial enrichment never wipes a previously known number.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE companies SET
+                    funding_total_usd       = COALESCE(?, funding_total_usd),
+                    valuation_usd           = COALESCE(?, valuation_usd),
+                    employee_count          = COALESCE(?, employee_count),
+                    funding_last_round_usd  = COALESCE(?, funding_last_round_usd),
+                    funding_last_round_name = COALESCE(?, funding_last_round_name),
+                    exit_type               = COALESCE(?, exit_type),
+                    acquirer                = COALESCE(?, acquirer),
+                    funding_source          = 'perplexity',
+                    funding_enriched_at     = CURRENT_TIMESTAMP,
+                    funding_citations       = ?,
+                    funding_confidence      = COALESCE(?, funding_confidence),
+                    updated_at              = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (
+                data.get("funding_total_usd"),
+                data.get("valuation_usd"),
+                data.get("employee_count"),
+                data.get("funding_last_round_usd"),
+                data.get("funding_last_round_name"),
+                data.get("exit_type"),
+                data.get("acquirer"),
+                json.dumps(data.get("funding_citations")) if data.get("funding_citations") is not None else None,
+                data.get("funding_confidence"),
+                company_id,
+            ))
 
     # ========== MULTI-SOURCE SYNC: cursor + dedupe_key ==========
 
@@ -1643,6 +1763,464 @@ class Database:
                 "total_views": total_views,
                 "avg_views_per_search": round(avg_views, 2)
             }
+
+    # ============================================================================
+    # FOUNDER LEADERBOARDS (authoritative dataset + derived stats)
+    # ============================================================================
+
+    # Metric -> founder_stats sort column for the leaderboards.
+    _FOUNDER_METRIC_COLUMNS = {
+        "serial": "companies_count",
+        "funded": "total_funding_usd",
+        "exits": "max_valuation_usd",   # biggest-exit proxy (valuation of largest company)
+        "unicorns": "max_valuation_usd",
+    }
+
+    def upsert_founder(self, founder: Dict[str, Any]) -> int:
+        """Insert or update a founder, deduped on yc_user_id. Returns founder_id."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            yc_user_id = founder.get("yc_user_id")
+            existing = None
+            if yc_user_id is not None:
+                cursor.execute("SELECT id FROM founders WHERE yc_user_id = ?", (yc_user_id,))
+                existing = cursor.fetchone()
+            if existing:
+                founder_id = existing[0]
+                cursor.execute('''
+                    UPDATE founders SET
+                        full_name = ?, slug = COALESCE(?, slug), bio = ?, avatar_url = ?,
+                        linkedin_url = ?, twitter_url = ?, is_active = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (
+                    founder.get("full_name") or "Unknown",
+                    founder.get("slug"),
+                    founder.get("bio"),
+                    founder.get("avatar_url"),
+                    founder.get("linkedin_url"),
+                    founder.get("twitter_url"),
+                    founder.get("is_active"),
+                    founder_id,
+                ))
+                return founder_id
+            cursor.execute('''
+                INSERT INTO founders
+                    (yc_user_id, full_name, slug, bio, avatar_url, linkedin_url,
+                     twitter_url, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                yc_user_id,
+                founder.get("full_name") or "Unknown",
+                founder.get("slug"),
+                founder.get("bio"),
+                founder.get("avatar_url"),
+                founder.get("linkedin_url"),
+                founder.get("twitter_url"),
+                founder.get("is_active"),
+            ))
+            return cursor.lastrowid
+
+    def link_company_founder(self, company_id: int, founder_id: int,
+                             title: Optional[str] = None, source: str = "yc") -> None:
+        """Insert (or update the title of) a founder <-> company edge."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO company_founders (company_id, founder_id, title, source)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (company_id, founder_id) DO UPDATE SET
+                    title = COALESCE(excluded.title, company_founders.title),
+                    source = excluded.source
+            ''', (company_id, founder_id, title, source))
+
+    def refresh_founder_stats(self) -> int:
+        """Recompute the derived founder_stats table (SQLite has no matviews).
+
+        Aggregates company_founders ⋈ companies. Returns the number of founder rows.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM founder_stats")
+            cursor.execute('''
+                INSERT INTO founder_stats (
+                    founder_id, companies_count, batches, latest_batch,
+                    total_funding_usd, max_valuation_usd, has_unicorn,
+                    best_exit_type, best_exit_acquirer, total_employee_count,
+                    is_repeat_founder
+                )
+                SELECT
+                    cf.founder_id,
+                    COUNT(DISTINCT c.id),
+                    GROUP_CONCAT(DISTINCT c.batch),
+                    MAX(c.batch),
+                    COALESCE(SUM(c.funding_total_usd), 0),
+                    COALESCE(MAX(c.valuation_usd), 0),
+                    CASE WHEN COALESCE(MAX(c.valuation_usd), 0) >= 1000000000 THEN 1 ELSE 0 END,
+                    NULL,
+                    NULL,
+                    COALESCE(SUM(c.employee_count), 0),
+                    CASE WHEN COUNT(DISTINCT c.id) > 1 THEN 1 ELSE 0 END
+                FROM company_founders cf
+                JOIN companies c ON c.id = cf.company_id
+                GROUP BY cf.founder_id
+            ''')
+            # best exit type/acquirer: the exit of the founder's highest-valued company.
+            cursor.execute('''
+                SELECT cf.founder_id, c.exit_type, c.acquirer,
+                       COALESCE(c.valuation_usd, 0) AS val
+                FROM company_founders cf
+                JOIN companies c ON c.id = cf.company_id
+                WHERE c.exit_type IS NOT NULL OR c.acquirer IS NOT NULL
+            ''')
+            best: Dict[int, tuple] = {}
+            for fid, exit_type, acquirer, val in cursor.fetchall():
+                cur_best = best.get(fid)
+                if cur_best is None or val > cur_best[0]:
+                    best[fid] = (val, exit_type, acquirer)
+            for fid, (_val, exit_type, acquirer) in best.items():
+                cursor.execute(
+                    "UPDATE founder_stats SET best_exit_type = ?, best_exit_acquirer = ? WHERE founder_id = ?",
+                    (exit_type, acquirer, fid),
+                )
+            cursor.execute("SELECT COUNT(*) FROM founder_stats")
+            return cursor.fetchone()[0]
+
+    @staticmethod
+    def _founder_batches_list(raw) -> List[str]:
+        """Normalize the stored batches value (GROUP_CONCAT string) into a list."""
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [b for b in raw if b]
+        return [b for b in str(raw).split(",") if b]
+
+    def get_founder_by_slug(self, slug: str) -> Optional[Dict]:
+        """Return a founder profile: founder fields, derived stats, their companies,
+        every leaderboard rank they hold, and enrichment (or None). See spec §7.1."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM founders WHERE slug = ?", (slug,))
+            frow = cursor.fetchone()
+            if not frow:
+                return None
+            founder = dict(frow)
+            founder_id = founder["id"]
+
+            cursor.execute("SELECT * FROM founder_stats WHERE founder_id = ?", (founder_id,))
+            srow = cursor.fetchone()
+            stats = self._normalize_founder_stats(dict(srow) if srow else {})
+
+            cursor.execute('''
+                SELECT c.slug, c.name, c.batch, cf.title, c.one_liner, c.status,
+                       c.funding_total_usd, c.team_size, c.all_locations
+                FROM company_founders cf
+                JOIN companies c ON c.id = cf.company_id
+                WHERE cf.founder_id = ?
+                ORDER BY COALESCE(c.funding_total_usd, 0) DESC
+            ''', (founder_id,))
+            companies = [
+                {
+                    "slug": r[0], "name": r[1], "batch": r[2], "title": r[3],
+                    "one_liner": r[4], "status": r[5],
+                    "funding_total_usd": r[6], "team_size": r[7], "location": r[8],
+                }
+                for r in cursor.fetchall()
+            ]
+
+            ranks = self._get_founder_ranks(cursor, founder_id)
+            enrichment = self._get_founder_enrichment(cursor, founder_id)
+
+            return {
+                "founder": {
+                    "id": founder_id,
+                    "slug": founder.get("slug"),
+                    "full_name": founder.get("full_name"),
+                    "title": companies[0]["title"] if companies else None,
+                    "avatar_url": founder.get("avatar_url"),
+                    "linkedin_url": founder.get("linkedin_url"),
+                    "twitter_url": founder.get("twitter_url"),
+                    "bio": founder.get("bio"),
+                },
+                "stats": stats,
+                "companies": companies,
+                "ranks": ranks,
+                "enrichment": enrichment,
+            }
+
+    def _normalize_founder_stats(self, s: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "companies_count": s.get("companies_count") or 0,
+            "batches": self._founder_batches_list(s.get("batches")),
+            "latest_batch": s.get("latest_batch"),
+            "total_funding_usd": s.get("total_funding_usd") or 0,
+            "max_valuation_usd": s.get("max_valuation_usd") or 0,
+            "has_unicorn": bool(s.get("has_unicorn")),
+            "best_exit_type": s.get("best_exit_type"),
+            "best_exit_acquirer": s.get("best_exit_acquirer"),
+            "total_employee_count": s.get("total_employee_count") or 0,
+            "is_repeat_founder": bool(s.get("is_repeat_founder")),
+        }
+
+    def _get_founder_ranks(self, cursor, founder_id: int) -> List[Dict]:
+        """Rank position for this founder in each authoritative metric board."""
+        ranks = []
+        for metric, column in self._FOUNDER_METRIC_COLUMNS.items():
+            where = ""
+            if metric == "serial":
+                where = "WHERE companies_count > 1"
+            elif metric == "unicorns":
+                where = "WHERE has_unicorn = 1"
+            cursor.execute(f'''
+                SELECT founder_id FROM founder_stats
+                {where}
+                ORDER BY {column} DESC, founder_id ASC
+            ''')
+            for idx, row in enumerate(cursor.fetchall(), start=1):
+                if row[0] == founder_id:
+                    ranks.append({"metric": metric, "rank": idx})
+                    break
+        return ranks
+
+    def _get_founder_enrichment(self, cursor, founder_id: int) -> Optional[Dict]:
+        cursor.execute("SELECT * FROM founder_enrichment WHERE founder_id = ?", (founder_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        e = dict(row)
+        for k in ("education", "awards", "notable_exits", "notable_prior_roles",
+                  "citations", "confidence", "raw_response"):
+            v = e.get(k)
+            if isinstance(v, str):
+                try:
+                    e[k] = json.loads(v)
+                except (json.JSONDecodeError, TypeError):
+                    e[k] = None
+        return e
+
+    def get_founder_leaderboard(self, metric: str, batch: Optional[str] = None,
+                                industry: Optional[str] = None, limit: int = 50,
+                                offset: int = 0) -> Dict[str, Any]:
+        """Ranked founders for an authoritative metric. Returns {total, results}
+        where each result is {founder, stats}; rank/headline are added by the caller."""
+        column = self._FOUNDER_METRIC_COLUMNS.get(metric)
+        if column is None:
+            raise ValueError(f"unknown metric: {metric}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            filters = []
+            params: List[Any] = []
+            if metric == "serial":
+                filters.append("fs.companies_count > 1")
+            elif metric == "unicorns":
+                filters.append("fs.has_unicorn = 1")
+
+            # batch/industry filters require joining back to the founder's companies.
+            join = ""
+            if batch or industry:
+                join = ("JOIN company_founders cf ON cf.founder_id = fs.founder_id "
+                        "JOIN companies c ON c.id = cf.company_id")
+                if batch:
+                    filters.append("c.batch = ?")
+                    params.append(batch)
+                if industry:
+                    filters.append("c.industry = ?")
+                    params.append(industry)
+
+            where = ("WHERE " + " AND ".join(filters)) if filters else ""
+
+            count_sql = f'''
+                SELECT COUNT(*) FROM (
+                    SELECT fs.founder_id FROM founder_stats fs {join} {where}
+                    GROUP BY fs.founder_id
+                )
+            '''
+            cursor.execute(count_sql, params)
+            total = cursor.fetchone()[0]
+
+            list_sql = f'''
+                SELECT fs.founder_id,
+                       fs.companies_count, fs.batches, fs.latest_batch,
+                       fs.total_funding_usd, fs.max_valuation_usd, fs.has_unicorn,
+                       fs.best_exit_type, fs.best_exit_acquirer,
+                       fs.total_employee_count, fs.is_repeat_founder,
+                       f.slug, f.full_name, f.avatar_url, f.linkedin_url, f.twitter_url
+                FROM founder_stats fs
+                JOIN founders f ON f.id = fs.founder_id
+                {join}
+                {where}
+                GROUP BY fs.founder_id
+                ORDER BY {column} DESC, fs.founder_id ASC
+                LIMIT ? OFFSET ?
+            '''
+            cursor.execute(list_sql, params + [limit, offset])
+            rows = cursor.fetchall()
+
+            results = []
+            for r in rows:
+                d = dict(r)
+                # per-founder title: pull from their highest-funded company edge.
+                cursor.execute('''
+                    SELECT cf.title FROM company_founders cf
+                    JOIN companies c ON c.id = cf.company_id
+                    WHERE cf.founder_id = ?
+                    ORDER BY COALESCE(c.funding_total_usd, 0) DESC LIMIT 1
+                ''', (d["founder_id"],))
+                trow = cursor.fetchone()
+                results.append({
+                    "founder": {
+                        "id": d["founder_id"],
+                        "slug": d["slug"],
+                        "full_name": d["full_name"],
+                        "title": trow[0] if trow else None,
+                        "avatar_url": d["avatar_url"],
+                        "linkedin_url": d["linkedin_url"],
+                        "twitter_url": d["twitter_url"],
+                    },
+                    "stats": self._normalize_founder_stats(d),
+                })
+
+            return {"total": total, "results": results}
+
+    def get_founders_for_enrichment(self, limit: int = 25, stale_days: int = 30,
+                                    include_all: bool = False) -> List[Dict]:
+        """Prioritized founders to enrich (spec §6.2). Skips rows enriched within
+        stale_days unless include_all. Prioritizes highest derived stats first."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            ttl_clause = "" if include_all else (
+                "AND (e.enriched_at IS NULL OR "
+                "e.enriched_at < datetime('now', ?))"
+            )
+            params: List[Any] = []
+            if not include_all:
+                params.append(f"-{stale_days} days")
+            params.append(limit)
+            cursor.execute(f'''
+                SELECT f.id, f.yc_user_id, f.full_name, f.slug,
+                       fs.latest_batch, fs.total_funding_usd, fs.max_valuation_usd,
+                       fs.companies_count
+                FROM founders f
+                LEFT JOIN founder_stats fs ON fs.founder_id = f.id
+                LEFT JOIN founder_enrichment e ON e.founder_id = f.id
+                WHERE 1=1 {ttl_clause}
+                ORDER BY COALESCE(fs.total_funding_usd, 0) DESC,
+                         COALESCE(fs.max_valuation_usd, 0) DESC,
+                         COALESCE(fs.companies_count, 0) DESC
+                LIMIT ?
+            ''', params)
+            cols = [c[0] for c in cursor.description]
+            out = [dict(zip(cols, row)) for row in cursor.fetchall()]
+            # attach a representative company name for the enrichment prompt.
+            for f in out:
+                cursor.execute('''
+                    SELECT c.name FROM company_founders cf
+                    JOIN companies c ON c.id = cf.company_id
+                    WHERE cf.founder_id = ?
+                    ORDER BY COALESCE(c.funding_total_usd, 0) DESC LIMIT 1
+                ''', (f["id"],))
+                crow = cursor.fetchone()
+                f["company_name"] = crow[0] if crow else None
+            return out
+
+    def get_companies_for_funding_enrichment(self, limit: int = 50, stale_days: int = 30,
+                                              include_all: bool = False) -> List[Dict]:
+        """Prioritized YC companies to enrich funding for (Perplexity-sourced).
+
+        Founder-linked companies come first (they feed the Founder Leaderboards),
+        then by known funding size. Rows enriched within stale_days are skipped
+        unless include_all (a deliberate full backfill).
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            ttl_clause = "" if include_all else (
+                "AND (c.funding_enriched_at IS NULL OR "
+                "c.funding_enriched_at < datetime('now', ?))"
+            )
+            params: List[Any] = []
+            if not include_all:
+                params.append(f"-{stale_days} days")
+            params.append(limit)
+            cursor.execute(f'''
+                SELECT c.id, c.name, c.slug, c.batch, c.one_liner,
+                       (SELECT COUNT(*) FROM company_founders cf WHERE cf.company_id = c.id) AS founder_count
+                FROM companies c
+                WHERE LOWER(COALESCE(c.source, 'yc')) = 'yc'
+                  AND c.slug IS NOT NULL AND c.slug <> ''
+                  {ttl_clause}
+                ORDER BY founder_count DESC,
+                         COALESCE(c.funding_total_usd, 0) DESC,
+                         c.id DESC
+                LIMIT ?
+            ''', params)
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+    def upsert_founder_enrichment(self, founder_id: int, data: Dict[str, Any]) -> None:
+        """Upsert supplementary enrichment for a founder (doubles as the TTL cache)."""
+        def _j(v):
+            return json.dumps(v) if v is not None else None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO founder_enrichment (
+                    founder_id, twitter_followers, linkedin_followers, education,
+                    awards, notable_exits, angel_investments_count, notable_prior_roles,
+                    bio_long, citations, confidence, model, raw_response, enriched_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (founder_id) DO UPDATE SET
+                    twitter_followers = excluded.twitter_followers,
+                    linkedin_followers = excluded.linkedin_followers,
+                    education = excluded.education,
+                    awards = excluded.awards,
+                    notable_exits = excluded.notable_exits,
+                    angel_investments_count = excluded.angel_investments_count,
+                    notable_prior_roles = excluded.notable_prior_roles,
+                    bio_long = excluded.bio_long,
+                    citations = excluded.citations,
+                    confidence = excluded.confidence,
+                    model = excluded.model,
+                    raw_response = excluded.raw_response,
+                    enriched_at = CURRENT_TIMESTAMP
+            ''', (
+                founder_id,
+                data.get("twitter_followers"),
+                data.get("linkedin_followers"),
+                _j(data.get("education")),
+                _j(data.get("awards")),
+                _j(data.get("notable_exits")),
+                data.get("angel_investments_count"),
+                _j(data.get("notable_prior_roles")),
+                data.get("bio_long"),
+                _j(data.get("citations")),
+                _j(data.get("confidence")),
+                data.get("model"),
+                _j(data.get("raw_response")),
+            ))
+
+    def get_yc_company_slugs(self) -> List[Dict]:
+        """source='yc' companies with a slug — the founder scraper's input set."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, slug FROM companies
+                WHERE LOWER(COALESCE(source, 'yc')) = 'yc'
+                  AND slug IS NOT NULL AND slug <> ''
+            ''')
+            return [{"id": r[0], "slug": r[1]} for r in cursor.fetchall()]
+
+    def get_company_id_by_slug(self, slug: str) -> Optional[int]:
+        """Resolve a YC company slug to its internal id (for edge insertion)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM companies WHERE slug = ? AND LOWER(COALESCE(source,'yc')) = 'yc' LIMIT 1",
+                (slug,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
 
     # ============================================================================
     # IDEA ANSWER CACHE METHODS (no-op stubs — caching is Postgres-only)

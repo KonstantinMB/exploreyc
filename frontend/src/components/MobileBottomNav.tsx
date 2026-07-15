@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, BarChart3, Wrench, BookOpen, Map as MapIcon, Globe2, DollarSign, Share2, Briefcase,
-  Mail, Database, Terminal, Menu, X, Moon, Sun, Command, LogOut, LayoutDashboard,
+  Mail, Database, Terminal, Menu, X, Moon, Sun, Command, LogOut, LayoutDashboard, Trophy,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useDevAuth } from '../contexts/DevAuthContext';
@@ -28,6 +28,7 @@ const groups: { title: string; items: Item[] }[] = [
   {
     title: 'More',
     items: [
+      { label: 'Leaderboards', icon: Trophy, path: '/founders/leaderboard' },
       { label: 'World Map', icon: Globe2, path: '/map' },
       { label: 'Tools', icon: Wrench, path: '/tools' },
       { label: 'Founders', icon: BookOpen, path: '/founders' },

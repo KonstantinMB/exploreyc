@@ -71,3 +71,6 @@ path/
 
 # Claude Code local state (worktrees, plans, settings)
 .claude/
+
+# Founder avatars re-hosted locally in dev (do not commit binaries)
+backend/static/avatars/

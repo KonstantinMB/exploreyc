@@ -1,10 +1,26 @@
 import axios from 'axios'
+import type {
+  FounderMetric,
+  FounderLeaderboardResponse,
+  FounderProfileResponse,
+} from '../types/founders'
 
 const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 // Ensure full URL with protocol (Vercel env may omit https://)
 const API_BASE_URL = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
   ? rawUrl
   : `https://${rawUrl.replace(/^\/+/, '')}`
+
+/**
+ * Resolve a media URL for the browser. Absolute URLs (Supabase CDN, data:) pass
+ * through; root-relative paths (e.g. dev-hosted "/static/avatars/x.jpg") are
+ * prefixed with the API host so they don't resolve against the frontend origin.
+ */
+export function resolveMediaUrl(url?: string | null): string {
+  if (!url) return ''
+  if (/^(https?:)?\/\//i.test(url) || url.startsWith('data:')) return url
+  return `${API_BASE_URL.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -280,6 +296,23 @@ export const apiClient = {
   // Hiring Board Data
   getHiringBoard: () => api.get<any>('/api/hiring/board'),
   getHiringStats: () => api.get<any>('/api/hiring/stats'),
+
+  // Founder Leaderboards
+  getFounderLeaderboard: (
+    metric: FounderMetric,
+    opts: { batch?: string; industry?: string; limit?: number; offset?: number } = {},
+  ) =>
+    api.get<FounderLeaderboardResponse>('/api/founders/leaderboard', {
+      params: {
+        metric,
+        ...(opts.batch && { batch: opts.batch }),
+        ...(opts.industry && { industry: opts.industry }),
+        ...(opts.limit != null && { limit: opts.limit }),
+        ...(opts.offset != null && { offset: opts.offset }),
+      },
+    }),
+  getFounder: (slug: string) =>
+    api.get<FounderProfileResponse>(`/api/founders/${encodeURIComponent(slug)}`),
 }
 
 // ============================================================================
