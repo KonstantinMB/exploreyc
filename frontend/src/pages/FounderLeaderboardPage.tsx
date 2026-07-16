@@ -196,7 +196,7 @@ function FounderPodium({ top3 }: { top3: FounderLeaderboardEntry[] }) {
 
 export function FounderLeaderboardPage() {
   const { stats } = useApp();
-  const [metric, setMetric] = useState<FounderMetric>('serial');
+  const [metric, setMetric] = useState<FounderMetric>('funded');
   const [batch, setBatch] = useState('');
   const [page, setPage] = useState(1);
 
@@ -250,9 +250,34 @@ export function FounderLeaderboardPage() {
           <PageHeader
             command="$ founders --leaderboard"
             title="Founder Leaderboards"
-            subtitle="The most prolific Y Combinator founders, ranked. Grab your shareable rank card."
+            subtitle="Y Combinator founders, ranked by what their companies raised. Grab your shareable rank card."
           />
         </motion.div>
+
+        {/* YC provenance + Fall 2026 application anchor */}
+        <motion.a
+          href="https://www.ycombinator.com/apply"
+          target="_blank"
+          rel="noopener noreferrer"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+          className="group mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-[#FB651E]/30 bg-[#FB651E]/[0.05] px-4 py-3 transition-colors hover:border-[#FB651E]/60"
+        >
+          <img src="/yc-logo.svg" alt="Y Combinator" className="h-8 w-8 shrink-0 rounded-sm" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold">
+              Every founder here came through <span className="text-[#FB651E]">Y&nbsp;Combinator</span> — ranked by what their companies raised.
+            </div>
+            <div className="font-mono text-xs text-muted-foreground">
+              Building something? Applications are open for the YC&nbsp;Fall&nbsp;2026 batch.
+            </div>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm bg-[#FB651E] px-3 py-2 font-mono text-xs font-semibold text-white transition-colors group-hover:bg-[#E65C00]">
+            Apply — Fall 2026
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </motion.a>
 
         {/* Metric segmented control */}
         <motion.div

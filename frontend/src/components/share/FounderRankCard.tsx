@@ -54,6 +54,18 @@ export const FounderRankCard = forwardRef<HTMLDivElement, FounderRankCardProps>(
     const badgeLabel = `#${rank} ${METRIC_BADGE_LABELS[metric]}`;
     const initial = founder.full_name.trim().charAt(0).toUpperCase() || '?';
 
+    // Medal treatment: top-3 cards go gold / silver / bronze; everyone else stays
+    // brand orange. Explicit hex/rgba only (html2canvas can't read CSS vars).
+    const MEDAL_THEME: Record<number, { text: string; ring: string; soft: string; emoji: string }> = {
+      1: { text: '#C99700', ring: '#FFC93C', soft: 'rgba(201,151,0,0.15)', emoji: '🥇' },
+      2: { text: '#6B7280', ring: '#C7CCD1', soft: 'rgba(107,114,128,0.15)', emoji: '🥈' },
+      3: { text: '#B4703A', ring: '#E08A4B', soft: 'rgba(180,112,58,0.15)', emoji: '🥉' },
+    };
+    const theme = MEDAL_THEME[rank] ?? {
+      text: '#FB651E', ring: '#FB651E', soft: 'rgba(251,101,30,0.1)', emoji: '🏆',
+    };
+    const isPodium = rank <= 3;
+
     return (
       <div
         ref={ref}
@@ -94,36 +106,56 @@ export const FounderRankCard = forwardRef<HTMLDivElement, FounderRankCardProps>(
             <span
               className="inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold"
               style={{
-                backgroundColor: 'rgba(251, 101, 30, 0.1)',
-                color: '#FB651E',
-                border: '1px solid rgba(251, 101, 30, 0.3)',
+                backgroundColor: theme.soft,
+                color: theme.text,
+                border: `1px solid ${theme.ring}`,
                 fontSize: 22,
               }}
             >
-              🏆 {badgeLabel}
+              {theme.emoji} {badgeLabel}
             </span>
           </div>
 
-          {/* Hero: avatar + name + title */}
-          <div className="flex items-start gap-8 mb-8" style={{ flexShrink: 0, minHeight: 144 }}>
-            <div
-              className="rounded-full bg-white flex items-center justify-center shrink-0 overflow-hidden"
-              style={{ width: 144, height: 144, border: '1px solid #e4e4e7' }}
-            >
-              {avatarUrl && !avatarError ? (
-                <img
-                  src={avatarUrl}
-                  alt={founder.full_name}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  referrerPolicy="no-referrer"
-                  loading="eager"
-                  onError={() => setAvatarError(true)}
-                />
-              ) : (
-                <span className="font-bold text-[#FB651E]" style={{ fontSize: 56 }}>
-                  {initial}
-                </span>
+          {/* Hero: avatar (medal ring, crown for #1) + name + title */}
+          <div className="flex items-start gap-8 mb-8" style={{ flexShrink: 0, minHeight: 152 }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              {rank === 1 && (
+                <div
+                  style={{ position: 'absolute', top: -38, left: 76, transform: 'translateX(-50%)', fontSize: 44, lineHeight: 1 }}
+                >
+                  👑
+                </div>
               )}
+              <div
+                style={{
+                  width: 152,
+                  height: 152,
+                  borderRadius: 9999,
+                  padding: isPodium ? 5 : 1,
+                  boxSizing: 'border-box',
+                  background: isPodium ? `linear-gradient(135deg, ${theme.ring}, ${theme.soft})` : '#e4e4e7',
+                }}
+              >
+                <div
+                  className="rounded-full bg-white flex items-center justify-center overflow-hidden"
+                  style={{ width: '100%', height: '100%' }}
+                >
+                  {avatarUrl && !avatarError ? (
+                    <img
+                      src={avatarUrl}
+                      alt={founder.full_name}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      referrerPolicy="no-referrer"
+                      loading="eager"
+                      onError={() => setAvatarError(true)}
+                    />
+                  ) : (
+                    <span className="font-bold" style={{ fontSize: 56, color: theme.text }}>
+                      {initial}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="flex-1 min-w-0" style={{ paddingTop: 8 }}>
               <h1
@@ -151,7 +183,7 @@ export const FounderRankCard = forwardRef<HTMLDivElement, FounderRankCardProps>(
             >
               {headline.label}
             </div>
-            <div className="font-bold text-[#FB651E]" style={{ fontSize: 64, lineHeight: 1.1 }}>
+            <div className="font-bold" style={{ fontSize: 64, lineHeight: 1.1, color: theme.text }}>
               {headline.value}
             </div>
           </div>
