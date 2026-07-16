@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { Trophy, Crown, ArrowRight, Medal, Sparkles } from 'lucide-react';
+import { Crown, ArrowRight, Medal, Sparkles } from 'lucide-react';
 import { apiClient, resolveMediaUrl } from '../lib/api';
 import { formatFunding } from '../lib/shareUtils';
 import { Avatar } from './ui/Avatar';
@@ -145,8 +145,8 @@ export function FoundersPreview() {
       {/* header */}
       <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/20 px-4 py-3">
         <div className="flex items-center gap-2 font-mono text-sm">
-          <Trophy className="h-4 w-4 text-[#FB651E]" />
-          <span className="font-semibold">Founder leaderboards</span>
+          <img src="/yc-logo.svg" alt="Y Combinator" className="h-4 w-4 rounded-sm" />
+          <span className="font-semibold">YC founder leaderboards</span>
           <span className="flex items-center gap-1 text-[10px] text-emerald-500">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
