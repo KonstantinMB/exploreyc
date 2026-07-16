@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { Copy, Check, KeyRound, Gauge, ExternalLink, BookOpen, ChevronRight } from 'lucide-react'
+import { Copy, Check, KeyRound, Gauge, ExternalLink, BookOpen, ChevronRight, Trophy } from 'lucide-react'
 import { DotPattern } from '../components/ui/dot-pattern'
 import { ApiProCta } from '../components/ApiProCta'
 import { useDevAuth } from '../contexts/DevAuthContext'
@@ -113,6 +113,54 @@ const ENDPOINTS: Endpoint[] = [
   "limit": 10,
   "offset": 0,
   "has_more": true
+}`,
+  },
+  {
+    id: 'founders',
+    method: 'GET',
+    path: '/founders',
+    summary: 'Ranked Y Combinator founder leaderboards — the people behind the companies.',
+    params: [
+      { name: 'metric', type: 'string', def: 'funded', desc: "'funded', 'serial', 'exits', or 'unicorns'." },
+      { name: 'batch', type: 'string', desc: 'Filter to a YC batch, e.g. "Winter 2012".' },
+      { name: 'limit', type: 'integer', def: '50', desc: 'Page size, 1–100.' },
+      { name: 'offset', type: 'integer', def: '0', desc: 'Pagination offset.' },
+    ],
+    request: `curl -H "Authorization: Bearer YOUR_API_KEY" \\
+  "${API_BASE}/founders?metric=funded&limit=3"`,
+    response: `{
+  "founders": [
+    { "rank": 1,
+      "founder": { "slug": "patrick-collison-16587", "full_name": "Patrick Collison",
+        "title": "Founder/CEO", "avatar_url": "https://…/founder-avatars/16587.jpg",
+        "linkedin_url": "https://linkedin.com/in/patrickcollison" },
+      "stats": { "companies_count": 1, "batches": ["Summer 2009"],
+        "total_funding_usd": 9400000000, "max_valuation_usd": 159000000000,
+        "has_unicorn": true, "is_repeat_founder": false } }
+  ],
+  "metric": "funded",
+  "total": 968,
+  "limit": 3,
+  "offset": 0,
+  "has_more": true
+}`,
+  },
+  {
+    id: 'founder-slug',
+    method: 'GET',
+    path: '/founders/{slug}',
+    summary: 'One founder: derived stats, the YC companies they built, every leaderboard rank, and enrichment.',
+    params: [{ name: 'slug', type: 'string (path)', required: true, desc: 'e.g. "patrick-collison-16587".' }],
+    request: `curl -H "Authorization: Bearer YOUR_API_KEY" \\
+  "${API_BASE}/founders/patrick-collison-16587"`,
+    response: `{
+  "founder": { "slug": "patrick-collison-16587", "full_name": "Patrick Collison", "title": "Founder/CEO" },
+  "stats": { "companies_count": 1, "total_funding_usd": 9400000000, "has_unicorn": true },
+  "companies": [ { "slug": "stripe", "name": "Stripe", "batch": "Summer 2009",
+    "funding_total_usd": 9400000000 } ],
+  "ranks": [ { "metric": "funded", "rank": 1 }, { "metric": "unicorns", "rank": 4 } ],
+  "enrichment": { "education": [ { "school": "MIT", "degree": null } ],
+    "notable_exits": [], "citations": ["https://…"] }
 }`,
   },
   {
@@ -330,6 +378,7 @@ export function ApiDocsPage() {
             featureList: [
               'GET /companies — list & filter companies',
               'GET /search — full-text company search',
+              'GET /founders — YC founder leaderboards (funding, exits, unicorns)',
               'GET /stats — portfolio statistics',
               'GET /map — geo-located companies',
               'Sources: Y Combinator, a16z, Product Hunt, Hacker News',
@@ -396,6 +445,26 @@ export function ApiDocsPage() {
                     </div>
                   </Terminal>
                 </div>
+
+                {/* New: founder leaderboards anchor */}
+                <Link
+                  to="/founders/leaderboard"
+                  className="mt-4 group flex flex-wrap items-center gap-3 rounded-md border border-[#FB651E]/30 bg-[#FB651E]/[0.05] px-4 py-3 transition-colors hover:border-[#FB651E]/60"
+                >
+                  <img src="/yc-logo.png" alt="Y Combinator" className="h-9 w-9 shrink-0 rounded-md" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold">
+                      New: <span className="text-[#FB651E]">Founder Leaderboards</span> — 968 YC founders ranked by funding, exits &amp; more.
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      Pull them with <code className="text-[#FB651E]">GET /founders</code>, or see the interactive board live.
+                    </div>
+                  </div>
+                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm bg-[#FB651E] px-3 py-2 font-mono text-xs font-semibold text-white transition-colors group-hover:bg-[#E65C00]">
+                    <Trophy className="h-3.5 w-3.5" /> See the leaderboard
+                    <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                </Link>
               </section>
 
               {/* Auth */}
