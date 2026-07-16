@@ -133,6 +133,28 @@ _CITEABLE_FIELDS = (
 )
 
 
+def _parse_json_lenient(text: str) -> Optional[dict[str, Any]]:
+    """Parse JSON that Perplexity may wrap in ```json fences or trailing prose."""
+    import re as _re
+    txt = (text or "").strip()
+    if txt.startswith("```"):
+        txt = txt.strip("`")
+        brace = txt.find("{")
+        if brace != -1:
+            txt = txt[brace:]
+    try:
+        return json.loads(txt)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    m = _re.search(r"\{.*\}", txt, _re.S)  # last resort: outermost object
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
 class FounderEnrichmentService:
     """Perplexity-backed supplementary enrichment for founders."""
 
@@ -181,7 +203,7 @@ class FounderEnrichmentService:
                     "model": self.model,
                     "messages": [{"role": "user", "content": query}],
                     "temperature": 0.1,
-                    "max_tokens": 1200,
+                    "max_tokens": 1600,
                     "response_format": {
                         "type": "json_schema",
                         "json_schema": {"schema": _RESPONSE_JSON_SCHEMA},
@@ -202,9 +224,8 @@ class FounderEnrichmentService:
         if not choices:
             return None
         content = choices[0].get("message", {}).get("content", "")
-        try:
-            parsed = json.loads(content)
-        except (json.JSONDecodeError, TypeError):
+        parsed = _parse_json_lenient(content)
+        if parsed is None:
             logger.warning("Perplexity JSON parse failed; dropping response")
             return None
 

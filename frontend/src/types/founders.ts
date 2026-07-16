@@ -85,27 +85,39 @@ export interface FounderRank {
 
 /** Supplementary, web-sourced enrichment — always UI-labeled "estimated · web-sourced". */
 export interface FounderEducation {
-  school: string;
+  institution?: string | null;
+  school?: string | null; // legacy fallback
   degree?: string | null;
+  field?: string | null;
+  year?: number | null;
 }
 
 export interface FounderNotableExit {
-  company: string;
-  type?: string | null;
-  detail?: string | null;
+  company?: string | null;
+  outcome?: string | null;
+  type?: string | null; // legacy fallback
+  detail?: string | null; // legacy fallback
+  year?: number | null;
+}
+
+export interface FounderPriorRole {
+  organization?: string | null;
+  role?: string | null;
 }
 
 export interface FounderEnrichment {
   twitter_followers: number | null;
+  linkedin_followers: number | null;
   // Enrichment is LLM/web-sourced, so list items may arrive as structured objects
   // or (occasionally) plain strings — the UI handles both.
-  linkedin_followers: number | null;
   education: (FounderEducation | string)[] | null;
   awards: string[] | null;
   notable_exits: (FounderNotableExit | string)[] | null;
+  notable_prior_roles: (FounderPriorRole | string)[] | null;
   angel_investments_count: number | null;
+  bio_long: string | null;
   citations: string[] | null;
-  confidence: string | null;
+  confidence: unknown; // per-field object; never rendered directly
   enriched_at: string | null;
 }
 
