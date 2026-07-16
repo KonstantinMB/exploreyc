@@ -1983,11 +1983,15 @@ async def cron_sync_sources(request: Request, background_tasks: BackgroundTasks)
     }
 
 
-async def _run_founder_sync(full: bool = False):
-    """Background task: scrape YC founders, upsert founders + edges, refresh stats."""
+async def _run_founder_sync(full: bool = False, limit: Optional[int] = None):
+    """Background task: scrape YC founders, upsert founders + edges, refresh stats.
+
+    ``limit`` (when set) bounds the run to that many not-yet-sourced YC companies so
+    the nightly cron drains the backlog over time instead of re-scraping everything.
+    """
     import founder_scraper_service
     try:
-        summary = founder_scraper_service.sync_founders(db, slugs=None, full=full)
+        summary = founder_scraper_service.sync_founders(db, slugs=None, full=full, limit=limit)
         logger.info(f"Founder sync completed: {summary}")
         return summary
     except Exception as e:
@@ -1999,16 +2003,24 @@ async def _run_founder_sync(full: bool = False):
 async def cron_sync_founders(request: Request, background_tasks: BackgroundTasks):
     """Scrape YC company pages for founders, upsert the deduplicated founder dataset +
     founder<->company edges, and refresh founder_stats. ?full=1 forces a rebuild;
-    ?sync=1 waits for completion (manual testing)."""
+    ?limit=N bounds the run to N not-yet-sourced companies (incremental nightly batch;
+    omit for the full set); ?sync=1 waits for completion (manual testing)."""
     _verify_cron_secret(request)
     full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
     sync_mode = request.query_params.get("sync", "").lower() in ("1", "true", "yes")
+    limit_param = request.query_params.get("limit")
+    limit: Optional[int] = None
+    if limit_param is not None:
+        try:
+            limit = max(1, int(limit_param))
+        except ValueError:
+            limit = None
 
     if sync_mode:
-        result = await _run_founder_sync(full=full)
+        result = await _run_founder_sync(full=full, limit=limit)
         return {"success": True, "status": "completed", **result}
 
-    background_tasks.add_task(_run_founder_sync, full)
+    background_tasks.add_task(_run_founder_sync, full, limit)
     return {
         "success": True,
         "status": "started",

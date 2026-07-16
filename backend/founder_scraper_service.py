@@ -266,21 +266,33 @@ def _rehost_avatar(avatar_url: Optional[str], yc_user_id: int) -> Optional[str]:
         return avatar_url
 
 
-def sync_founders(db, slugs: Optional[list[str]] = None, full: bool = False) -> dict[str, Any]:
+def sync_founders(db, slugs: Optional[list[str]] = None, full: bool = False,
+                  limit: Optional[int] = None) -> dict[str, Any]:
     """Scrape YC founders and persist them into the DB (spec §5.1).
 
     Args:
         db: the database instance (SQLite or Postgres) from database_factory.
-        slugs: explicit company slugs to scrape; when None, selects every
-            ``source='yc'`` company with a slug from the DB.
-        full: forces a full rebuild (ignores any incremental cursor).
+        slugs: explicit company slugs to scrape; when None, selects companies
+            from the DB (see ``limit``).
+        full: forces a full rebuild (ignores any incremental cursor / limit).
+        limit: bounded incremental batch size. When ``slugs is None``, ``limit``
+            is set, and ``not full``, select only up to ``limit`` YC companies that
+            have never been sourced (no founder edges yet) via
+            ``db.get_unsourced_yc_company_slugs`` — so the nightly cron drains the
+            backlog over time instead of re-scraping every company each run. When
+            ``limit`` is None (the default), the full ``source='yc'`` set is used
+            and behavior is unchanged.
 
     Returns a summary dict: founders upserted, edges linked, companies scraped.
     """
     # 1. Determine the input set of company slugs.
     if slugs is None:
         try:
-            rows = db.get_yc_company_slugs()
+            if limit is not None and not full and hasattr(db, "get_unsourced_yc_company_slugs"):
+                # Bounded incremental: only not-yet-sourced YC companies, most notable first.
+                rows = db.get_unsourced_yc_company_slugs(limit)
+            else:
+                rows = db.get_yc_company_slugs()
         except Exception as e:  # noqa: BLE001
             logger.error("sync_founders: could not read YC company slugs: %s", e)
             raise
