@@ -19,6 +19,11 @@ import {
   Share2,
   ExternalLink,
   Info,
+  GraduationCap,
+  Award,
+  Rocket,
+  Briefcase,
+  Coins,
 } from 'lucide-react';
 import { apiClient, resolveMediaUrl } from '../lib/api';
 import { HackerCard } from '../components/ui/hacker-card';
@@ -472,107 +477,141 @@ export function FounderProfilePage() {
                 </span>
               </div>
 
-              <div className="p-4 space-y-4">
-                {/* Follower / count metrics */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {enrichment.twitter_followers != null && (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
-                        X followers
-                      </div>
-                      <div className="text-sm font-bold font-mono tabular-nums">
-                        {enrichment.twitter_followers.toLocaleString()}
-                      </div>
-                    </div>
-                  )}
-                  {enrichment.linkedin_followers != null && (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
-                        LinkedIn followers
-                      </div>
-                      <div className="text-sm font-bold font-mono tabular-nums">
-                        {enrichment.linkedin_followers.toLocaleString()}
-                      </div>
-                    </div>
-                  )}
-                  {enrichment.angel_investments_count != null && (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
-                        Angel investments
-                      </div>
-                      <div className="text-sm font-bold font-mono tabular-nums">
-                        {enrichment.angel_investments_count.toLocaleString()}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div className="p-4 space-y-5">
+                {/* Bio */}
+                {enrichment.bio_long && (
+                  <p className="text-sm text-muted-foreground leading-relaxed">{enrichment.bio_long}</p>
+                )}
 
-                {/* List sections */}
+                {/* Follower / count stat tiles */}
+                {(enrichment.twitter_followers != null ||
+                  enrichment.linkedin_followers != null ||
+                  enrichment.angel_investments_count != null) && (
+                  <div className="grid grid-cols-3 gap-3">
+                    {enrichment.twitter_followers != null && (
+                      <div className="rounded-md border border-border bg-muted/10 p-3">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                          <Twitter className="w-3 h-3" /> X followers
+                        </div>
+                        <div className="text-lg font-black font-mono tabular-nums">
+                          {enrichment.twitter_followers.toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                    {enrichment.linkedin_followers != null && (
+                      <div className="rounded-md border border-border bg-muted/10 p-3">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                          <Linkedin className="w-3 h-3" /> LinkedIn
+                        </div>
+                        <div className="text-lg font-black font-mono tabular-nums">
+                          {enrichment.linkedin_followers.toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                    {enrichment.angel_investments_count != null && (
+                      <div className="rounded-md border border-border bg-muted/10 p-3">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                          <Coins className="w-3 h-3" /> Angel deals
+                        </div>
+                        <div className="text-lg font-black font-mono tabular-nums">
+                          {enrichment.angel_investments_count.toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Education */}
                 {enrichment.education && enrichment.education.length > 0 && (
                   <div>
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                      Education
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      <GraduationCap className="w-3.5 h-3.5 text-violet-400" /> Education
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {enrichment.education.map((e, i) => (
-                        <span
-                          key={i}
-                          className="text-xs px-2 py-1 rounded-sm bg-muted text-muted-foreground"
-                        >
-                          {typeof e === 'string'
-                            ? e
-                            : `${e.school}${e.degree ? ` · ${e.degree}` : ''}`}
-                        </span>
-                      ))}
+                    <div className="space-y-1.5">
+                      {enrichment.education.map((e, i) => {
+                        if (typeof e === 'string') return <div key={i} className="text-sm">{e}</div>;
+                        const school = e.institution || e.school;
+                        const detail = [e.degree, e.field].filter(Boolean).join(' · ');
+                        return (
+                          <div key={i} className="flex items-baseline gap-2 text-sm">
+                            <span className="font-medium">{school}</span>
+                            {detail && <span className="text-xs text-muted-foreground">{detail}</span>}
+                            {e.year && (
+                              <span className="ml-auto text-xs font-mono text-muted-foreground/60">{e.year}</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
+
+                {/* Notable exits */}
+                {enrichment.notable_exits && enrichment.notable_exits.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      <Rocket className="w-3.5 h-3.5 text-emerald-400" /> Notable exits
+                    </div>
+                    <div className="space-y-1.5">
+                      {enrichment.notable_exits.map((x, i) => {
+                        if (typeof x === 'string') return <div key={i} className="text-sm">{x}</div>;
+                        const outcome = x.outcome || x.type || x.detail;
+                        return (
+                          <div key={i} className="flex items-baseline gap-2 text-sm">
+                            <span className="font-medium">{x.company}</span>
+                            {outcome && <span className="text-xs text-emerald-500/90">{outcome}</span>}
+                            {x.year && (
+                              <span className="ml-auto text-xs font-mono text-muted-foreground/60">{x.year}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Awards */}
                 {enrichment.awards && enrichment.awards.length > 0 && (
                   <div>
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                      Awards
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      <Award className="w-3.5 h-3.5 text-amber-400" /> Awards
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {enrichment.awards.map((a, i) => (
-                        <span
-                          key={i}
-                          className="text-xs px-2 py-1 rounded-sm bg-muted text-muted-foreground"
-                        >
+                        <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-500 border border-amber-400/30">
                           {a}
                         </span>
                       ))}
                     </div>
                   </div>
                 )}
-                {enrichment.notable_exits && enrichment.notable_exits.length > 0 && (
+
+                {/* Prior roles */}
+                {enrichment.notable_prior_roles && enrichment.notable_prior_roles.length > 0 && (
                   <div>
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                      Notable exits
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      <Briefcase className="w-3.5 h-3.5 text-blue-400" /> Before this
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {enrichment.notable_exits.map((x, i) => (
-                        <span
-                          key={i}
-                          className="text-xs px-2 py-1 rounded-sm bg-muted text-muted-foreground"
-                          title={typeof x === 'string' ? undefined : x.detail ?? undefined}
-                        >
-                          {typeof x === 'string'
-                            ? x
-                            : `${x.company}${x.type ? ` — ${x.type}` : ''}`}
+                      {enrichment.notable_prior_roles.map((r, i) => (
+                        <span key={i} className="text-xs px-2 py-1 rounded-sm bg-muted text-muted-foreground">
+                          {typeof r === 'string'
+                            ? r
+                            : `${r.role || ''}${r.role && r.organization ? ' @ ' : ''}${r.organization || ''}`}
                         </span>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* Citations */}
+                {/* Sources */}
                 {enrichment.citations && enrichment.citations.length > 0 && (
-                  <div className="pt-2 border-t border-border/50">
+                  <div className="pt-3 border-t border-border/50">
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
-                      Sources
+                      Sources ({enrichment.citations.length})
                     </div>
                     <div className="flex flex-col gap-1">
-                      {enrichment.citations.map((url, i) => (
+                      {enrichment.citations.slice(0, 6).map((url, i) => (
                         <a
                           key={i}
                           href={url}
@@ -584,16 +623,18 @@ export function FounderProfilePage() {
                           <span className="truncate">{url}</span>
                         </a>
                       ))}
+                      {enrichment.citations.length > 6 && (
+                        <span className="text-[10px] text-muted-foreground/60">
+                          +{enrichment.citations.length - 6} more
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {(enrichment.confidence || enrichment.enriched_at) && (
-                  <div className="pt-2 border-t border-border/50 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground font-mono">
-                    {enrichment.confidence && <span>confidence: {enrichment.confidence}</span>}
-                    {enrichment.enriched_at && (
-                      <span>updated: {new Date(enrichment.enriched_at).toLocaleDateString()}</span>
-                    )}
+                {enrichment.enriched_at && (
+                  <div className="pt-2 text-[10px] font-mono text-muted-foreground/70">
+                    updated {new Date(enrichment.enriched_at).toLocaleDateString()}
                   </div>
                 )}
               </div>
