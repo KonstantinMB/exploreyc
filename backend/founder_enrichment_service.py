@@ -157,12 +157,13 @@ class FounderEnrichmentService:
                                     f"YC {batch}" if batch else None] if x)
         subject = f"{who} ({ctx})" if ctx else who
         return (
-            f"Verified public stats for {subject}: X/Twitter followers, LinkedIn "
-            f"followers, education, notable exits, awards, angel investments, notable "
-            f"prior roles. Only include facts you can cite with a source URL. For each "
-            f"field, include a confidence level (high/medium/low) in a `confidence` "
-            f"object and whether it is backed by a citation in a `field_citations` "
-            f"object. If a fact cannot be cited, omit it."
+            f"Provide verified public information about {subject}: current X/Twitter "
+            f"follower count, LinkedIn follower/connection count, education (schools & "
+            f"degrees), notable company exits (IPO/acquisition), awards (e.g. Forbes 30 "
+            f"Under 30), number of angel investments, and notable roles held before this "
+            f"company. Only include facts you can support with a web source; use null or "
+            f"empty for anything you cannot verify. Also include a `confidence` object "
+            f"mapping each field name to high/medium/low."
         )
 
     # -- Perplexity call ----------------------------------------------------
@@ -218,27 +219,22 @@ class FounderEnrichmentService:
 
     @staticmethod
     def _drop_uncited(parsed: dict[str, Any], citations: list[str]) -> dict[str, Any]:
-        """Keep only fields the model claims a citation for AND that have a value.
+        """Keep non-empty fields when the response is web-grounded (>= 1 citation).
 
-        Uncited or empty fields are dropped, never stored (spec §6.3). With no
-        citations at all, every citeable field is dropped.
+        Perplexity returns citations at the RESPONSE level (a list of source URLs), not
+        reliably per-field — so we gate on "this answer is grounded in sources" and then
+        keep the non-empty fields. With zero citations we trust nothing and store nothing.
         """
-        field_citations = parsed.get("field_citations") or {}
-        confidence = parsed.get("confidence") or {}
         kept: dict[str, Any] = {"confidence": {}}
-
-        have_any_citation = bool(citations)
+        if not citations:
+            return kept
+        confidence = parsed.get("confidence") or {}
         for field in _CITEABLE_FIELDS:
             value = parsed.get(field)
             if value in (None, [], "", 0):
                 continue
-            # Require the model to flag a citation for the field AND that some source
-            # URL exists in the response's citation list.
-            cited = bool(field_citations.get(field)) and have_any_citation
-            if not cited:
-                continue
             kept[field] = value
-            if field in confidence:
+            if isinstance(confidence, dict) and field in confidence:
                 kept["confidence"][field] = confidence[field]
         return kept
 
