@@ -145,7 +145,7 @@ export function FoundersPreview() {
       {/* header */}
       <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/20 px-4 py-3">
         <div className="flex items-center gap-2 font-mono text-sm">
-          <img src="/yc-logo.svg" alt="Y Combinator" className="h-4 w-4 rounded-sm" />
+          <img src="/yc-logo.png" alt="Y Combinator" className="h-4 w-4 rounded-[3px]" />
           <span className="font-semibold">YC founder leaderboards</span>
           <span className="flex items-center gap-1 text-[10px] text-emerald-500">
             <span className="relative flex h-1.5 w-1.5">

@@ -264,7 +264,7 @@ export function FounderLeaderboardPage() {
           transition={{ delay: 0.08 }}
           className="group mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-[#FB651E]/30 bg-[#FB651E]/[0.05] px-4 py-3 transition-colors hover:border-[#FB651E]/60"
         >
-          <img src="/yc-logo.svg" alt="Y Combinator" className="h-8 w-8 shrink-0 rounded-sm" />
+          <img src="/yc-logo.png" alt="Y Combinator" className="h-9 w-9 shrink-0 rounded-md" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">
               Every founder here came through <span className="text-[#FB651E]">Y&nbsp;Combinator</span> — ranked by what their companies raised.
