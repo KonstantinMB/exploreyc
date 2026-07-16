@@ -252,5 +252,38 @@ def create_public_api(db, company_cache) -> FastAPI:
             raise HTTPException(status_code=404, detail="Batch not found")
         return data
 
+    @v1.get("/founders", tags=["Founders"], summary="Founder leaderboards (ranked)")
+    def list_founders(
+        metric: str = Query("funded", description="Ranking metric: serial | funded | exits | unicorns"),
+        batch: Optional[str] = Query(None, description="Filter to a YC batch, e.g. 'Winter 2012'"),
+        limit: int = Query(50, ge=1, le=MAX_PAGE),
+        offset: int = Query(0, ge=0),
+    ):
+        """Ranked Y Combinator founders. `funded` = total raised across their companies,
+        `serial` = most YC companies, `exits` = biggest exit, `unicorns` = $1B+ valuations.
+        Each row includes the founder, their derived stats, and their rank."""
+        if not hasattr(db, "get_founder_leaderboard"):
+            raise HTTPException(status_code=501, detail="Founder data unavailable on this deployment")
+        try:
+            data = db.get_founder_leaderboard(metric, batch=batch, limit=limit, offset=offset)
+        except ValueError:
+            raise HTTPException(status_code=400,
+                                detail="metric must be one of: serial, funded, exits, unicorns")
+        results = [{"rank": offset + i + 1, **r} for i, r in enumerate(data.get("results", []))]
+        total = data.get("total", 0)
+        return {"founders": results, "metric": metric, "total": total, "limit": limit,
+                "offset": offset, "has_more": (offset + limit) < total}
+
+    @v1.get("/founders/{slug}", tags=["Founders"], summary="Founder profile + stats + companies")
+    def get_founder(slug: str):
+        """A single founder: identity, derived stats, the YC companies they founded, every
+        leaderboard rank they hold, and (web-sourced) enrichment if available."""
+        if not hasattr(db, "get_founder_by_slug"):
+            raise HTTPException(status_code=501, detail="Founder data unavailable on this deployment")
+        founder = db.get_founder_by_slug(slug)
+        if not founder:
+            raise HTTPException(status_code=404, detail="Founder not found")
+        return founder
+
     api.include_router(v1)
     return api
