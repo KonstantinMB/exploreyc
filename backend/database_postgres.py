@@ -2838,6 +2838,29 @@ class DatabasePostgres:
                 """)
                 return [dict(r) for r in cur.fetchall()]
 
+    def get_unsourced_yc_company_slugs(self, limit: int) -> List[Dict]:
+        """YC companies never sourced for founders yet (no company_founders rows).
+
+        Bounded incremental input for the nightly founder-sourcing cron: returns up to
+        ``limit`` source='yc' companies with a slug that have zero founder edges, most
+        notable first (top_company, then largest team) so marquee companies get founders
+        before the long tail. Drains the backlog over successive runs without re-scraping
+        every company each night.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT c.id, c.slug FROM companies c
+                    WHERE LOWER(COALESCE(c.source, 'yc')) = 'yc'
+                      AND c.slug IS NOT NULL AND c.slug <> ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM company_founders cf WHERE cf.company_id = c.id
+                      )
+                    ORDER BY (c.top_company IS TRUE) DESC, c.team_size DESC NULLS LAST, c.id DESC
+                    LIMIT %s
+                """, (limit,))
+                return [dict(r) for r in cur.fetchall()]
+
     def get_company_id_by_slug(self, slug: str) -> Optional[int]:
         """Resolve a YC company slug to its internal id (for edge insertion)."""
         with self.get_connection() as conn:

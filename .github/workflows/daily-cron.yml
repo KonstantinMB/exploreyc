@@ -10,6 +10,8 @@ on:
     - cron: '0 10 * * *'
     # Hero answer-box pre-warm at 3 AM UTC (after scrape, needs Task 12 embeddings)
     - cron: '0 3 * * *'
+    # Founder sourcing + enrichment at 4 AM UTC (low-traffic, after scrape/pre-warm)
+    - cron: '0 4 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -51,6 +53,33 @@ jobs:
             -H "Content-Type: application/json" \
             -v
         timeout-minutes: 5
+
+  source-founders:
+    runs-on: ubuntu-latest
+    # Only run founder sourcing + enrichment at 4 AM UTC (after scrape + pre-warm)
+    if: github.event.schedule == '0 4 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Source founders for a bounded batch of un-sourced YC companies
+        run: |
+          curl -X POST "${{ secrets.BACKEND_URL }}/api/cron/sync-founders?limit=300" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -v
+        timeout-minutes: 20
+      - name: Enrich company funding (no-ops without PERPLEXITY_API_KEY)
+        run: |
+          curl -X POST "${{ secrets.BACKEND_URL }}/api/cron/enrich-companies" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -v
+        timeout-minutes: 10
+      - name: Enrich founders (no-ops without PERPLEXITY_API_KEY)
+        run: |
+          curl -X POST "${{ secrets.BACKEND_URL }}/api/cron/enrich-founders" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -v
+        timeout-minutes: 10
 
   # ---------------------------------------------------------------------------
   # Hero answer-box nightly pre-warm (Task 13)
