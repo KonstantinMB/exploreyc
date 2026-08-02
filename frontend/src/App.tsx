@@ -9,6 +9,8 @@ import { Navbar } from './components/Navbar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { CommandPalette } from './components/CommandPalette';
 import { ContactFormModal } from './components/ContactFormModal';
+import { SupportModal } from './components/SupportModal';
+import { Footer } from './components/Footer';
 import { LoadingScreen } from './components/LoadingScreen';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { HomePage } from './pages/HomePage';
@@ -154,6 +156,7 @@ function LayoutContent() {
       <main className="pt-[84px] lg:pt-0">
         <AnimatedOutlet />
       </main>
+      <Footer />
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
@@ -162,6 +165,7 @@ function LayoutContent() {
         open={contactFormOpen}
         onClose={() => setContactFormOpen(false)}
       />
+      <SupportModal />
     </div>
   );
 }
