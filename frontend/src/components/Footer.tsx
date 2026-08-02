@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
-import { Github, Coffee } from 'lucide-react';
+import { Github } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { openSupport } from '../lib/support';
+import { BuyMeCoffeeLogo } from './BuyMeCoffeeLogo';
 
 const GITHUB_URL = 'https://github.com/KonstantinMB/exploreyc';
 
@@ -52,7 +53,7 @@ export function Footer() {
               onClick={() => openSupport('footer')}
               className="inline-flex items-center gap-1.5 text-[#FB651E] hover:text-[#ff7a33] font-semibold transition-colors"
             >
-              <Coffee className="h-3.5 w-3.5" /> Buy me a coffee
+              <BuyMeCoffeeLogo className="h-3.5 w-3.5" /> Buy me a coffee
             </button>
           </nav>
         </div>

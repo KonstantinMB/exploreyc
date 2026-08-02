@@ -1,8 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Coffee, X, ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from './ui/dialog';
+import { BuyMeCoffeeLogo } from './BuyMeCoffeeLogo';
 import { SUPPORT_SEEN_KEY, SUPPORT_SUPPORTED_KEY, openSupport } from '../lib/support';
+
+// Buy Me a Coffee brand yellow — used for the badge + CTA so the platform is
+// instantly recognisable.
+const BMC_YELLOW = '#FFDD00';
+const BMC_YELLOW_HOVER = '#FFE21A';
+const BMC_INK = '#0D0C22';
 
 // Developer-portal pages where a "support" nudge would collide with a more
 // important ask (sign up / log in / manage keys).
@@ -15,11 +29,12 @@ const SCROLL_TRIGGER = 0.5;
 /**
  * A tasteful, once-per-session "Support the project" pop-up.
  *
- * It arms on mount and reveals after a delay OR on meaningful scroll — whichever
- * comes first — then records the session so it never re-appears until a new one.
- * If the visitor ever clicks through to support, it's suppressed for good. The
- * footer link stays available regardless. Mounted inside the main Layout, so it
- * never shows on full-screen pages (validator, research, admin, share cards).
+ * Light + theme-aware (uses the shared Dialog), branded with the Buy Me a Coffee
+ * mark. It arms on mount and reveals after a delay OR on meaningful scroll —
+ * whichever comes first — then records the session so it never re-appears until
+ * a new one. Once the visitor clicks through to support, it's suppressed for
+ * good. The footer link stays available regardless. Mounted inside the main
+ * Layout, so it never shows on full-screen pages (validator, research, admin).
  */
 export function SupportModal() {
   const location = useLocation();
@@ -68,53 +83,53 @@ export function SupportModal() {
   };
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[1001] bg-black/70 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 motion-reduce:animate-none" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-[1001] w-[95vw] max-w-md -translate-x-1/2 -translate-y-1/2 focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none">
-          {/* Always-dark panel echoing ApiProCta — reads well on both themes */}
-          <div className="relative rounded-xl bg-[#0a0c11] text-white overflow-hidden border border-white/10 shadow-2xl">
-            {/* soft orange glow + subtle grain */}
-            <div className="pointer-events-none absolute -top-16 -right-10 w-52 h-52 rounded-full bg-[#FB651E]/20 blur-3xl" />
-            <div className="pointer-events-none absolute inset-0 opacity-[0.15] mix-blend-overlay [background-image:radial-gradient(rgba(255,255,255,0.4)_0.5px,transparent_0.5px)] [background-size:4px_4px]" />
-
-            <DialogPrimitive.Close
-              aria-label="Dismiss"
-              className="absolute top-3 right-3 z-10 text-white/40 hover:text-white/90 transition-colors focus:outline-none"
-            >
-              <X className="h-4 w-4" />
-            </DialogPrimitive.Close>
-
-            <div className="relative p-6 sm:p-7">
-              <div className="inline-flex items-center gap-2 mb-4 font-mono text-[11px] uppercase tracking-widest text-[#FB651E]">
-                <Coffee className="h-3.5 w-3.5" />
-                Support the project
-              </div>
-
-              <DialogPrimitive.Title className="font-mono font-bold text-xl sm:text-2xl mb-2 leading-tight">
-                Enjoying <span className="text-[#FB651E]">ExploreYC</span>?
-              </DialogPrimitive.Title>
-              <DialogPrimitive.Description className="text-sm text-white/60 font-mono leading-relaxed mb-6">
-                It's free, fast, and ad-free — built and run by one person. If it's
-                useful to you, a coffee helps keep it that way.
-              </DialogPrimitive.Description>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={support}
-                  className="group flex-1 h-11 px-5 rounded-md bg-[#FB651E] hover:bg-[#ff7a33] text-white text-sm font-bold font-mono inline-flex items-center justify-center gap-2 transition-colors shadow-[0_0_24px_rgba(251,101,30,0.35)]"
-                >
-                  Buy me a coffee ☕
-                  <ArrowUpRight className="h-4 w-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                </button>
-                <DialogPrimitive.Close className="h-11 px-4 rounded-md text-sm font-mono text-white/45 hover:text-white/80 transition-colors whitespace-nowrap">
-                  Maybe later
-                </DialogPrimitive.Close>
-              </div>
-            </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md w-[95vw] sm:w-full">
+        <DialogHeader>
+          <div
+            className="mb-1 flex h-12 w-12 items-center justify-center rounded-full shadow-sm mx-auto sm:mx-0"
+            style={{ backgroundColor: BMC_YELLOW }}
+          >
+            <BuyMeCoffeeLogo className="h-6 w-6" />
           </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+          <DialogTitle className="text-xl sm:text-2xl">
+            Enjoying <span className="text-[#FB651E]">ExploreYC</span>?
+          </DialogTitle>
+          <DialogDescription className="leading-relaxed">
+            It's free, fast, and ad-free — built and run by one person. If it's useful
+            to you, a coffee helps keep it that way.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="mt-1 flex flex-col gap-3">
+          <button
+            onClick={support}
+            style={{ backgroundColor: BMC_YELLOW, color: BMC_INK }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = BMC_YELLOW_HOVER)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = BMC_YELLOW)}
+            className="group inline-flex h-12 items-center justify-center gap-2.5 rounded-md px-5 text-[15px] font-bold transition-colors"
+          >
+            <BuyMeCoffeeLogo className="h-5 w-5" />
+            Buy me a coffee
+            <ArrowUpRight className="h-4 w-4 opacity-70 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </button>
+
+          <div className="flex items-center justify-between gap-3">
+            <a
+              href="https://www.buymeacoffee.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <BuyMeCoffeeLogo className="h-3.5 w-3.5" />
+              Powered by Buy Me a Coffee
+            </a>
+            <DialogClose className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+              Maybe later
+            </DialogClose>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
