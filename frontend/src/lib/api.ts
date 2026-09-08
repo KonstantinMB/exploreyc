@@ -137,7 +137,17 @@ export interface ApiUser {
   status: string
   email_verified: boolean
   avatar_url?: string | null
-  daily_limit: number
+  daily_limit: number | null // null = unlimited plan
+  has_billing?: boolean
+  subscription_status?: string | null
+}
+
+export interface PlanInfo {
+  key: string
+  name: string
+  price_usd_month: number | null
+  daily_limit: number | null
+  purchasable: boolean
 }
 
 export interface ApiKey {
@@ -152,8 +162,8 @@ export interface ApiKey {
 
 export interface UsageSummary {
   used_24h: number
-  limit: number
-  remaining: number
+  limit: number | null // null = unlimited plan
+  remaining: number | null
 }
 
 export interface DevMe extends ApiUser {
@@ -264,6 +274,10 @@ export const apiClient = {
   devUsage: (days = 7) => devApi.get<UsageStats>(`/api/dev/usage?days=${days}`),
   updateProfile: (data: { company_name?: string; avatar_url?: string }) =>
     devApi.post<ApiUser>('/api/dev/profile', data),
+  // Billing (Stripe subscriptions for API plans)
+  getDevPlans: () => api.get<{ plans: PlanInfo[] }>('/api/dev/plans'),
+  createCheckout: (plan: string) => devApi.post<{ url: string }>('/api/dev/billing/checkout', { plan }),
+  createBillingPortal: () => devApi.post<{ url: string }>('/api/dev/billing/portal'),
   getBatches: () => api.get<{ batches: string[] }>('/api/filters/batches'),
   getIndustries: () => api.get<{ industries: string[] }>('/api/filters/industries'),
   getCountries: () => api.get<{ countries: string[] }>('/api/filters/countries'),

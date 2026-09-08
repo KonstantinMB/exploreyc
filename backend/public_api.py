@@ -139,6 +139,13 @@ def create_public_api(db, company_cache) -> FastAPI:
         now = datetime.now(timezone.utc)
         now_epoch = int(now.timestamp())
         limit = plan_limit(row.get("plan"))
+        if limit is None:
+            # Unlimited plan: no cap to enforce; usage is still logged by the middleware.
+            request.state.api_key_id = row["id"]
+            request.state.rate_limit = "unlimited"
+            request.state.rate_remaining = "unlimited"
+            request.state.rate_reset = now_epoch
+            return row
         used, oldest = db.count_api_usage_since(row["id"], now - RATE_WINDOW)
         reset = (_to_epoch(oldest) or now_epoch) + int(RATE_WINDOW.total_seconds())
         if used >= limit:

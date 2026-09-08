@@ -3496,7 +3496,7 @@ class ProfileUpdate(BaseModel):
 
 
 def _dev_user_public(user: dict) -> dict:
-    limit = plan_limit(user.get("plan"))
+    limit = plan_limit(user.get("plan"))  # None = unlimited
     return {
         "id": user["id"], "email": user["email"], "company_name": user.get("company_name"),
         "plan": user.get("plan", "free"),
@@ -3504,6 +3504,8 @@ def _dev_user_public(user: dict) -> dict:
         "status": user.get("status", "active"), "email_verified": bool(user.get("email_verified")),
         "avatar_url": user.get("avatar_url"),
         "daily_limit": limit,
+        "has_billing": bool(user.get("stripe_customer_id")),
+        "subscription_status": user.get("subscription_status"),
     }
 
 
@@ -3572,8 +3574,9 @@ async def dev_me(session: dict = Depends(verify_dev_session)):
         if k.get("is_active"):
             count, _ = db.count_api_usage_since(k["id"], datetime.now(timezone.utc) - timedelta(hours=24))
             used += count
-    info["usage"] = {"used_24h": used, "limit": info["daily_limit"],
-                     "remaining": max(0, info["daily_limit"] - used)}
+    limit = info["daily_limit"]
+    info["usage"] = {"used_24h": used, "limit": limit,
+                     "remaining": None if limit is None else max(0, limit - used)}
     info["keys"] = keys
     return info
 
@@ -3682,6 +3685,11 @@ async def cron_cleanup_api(request: Request):
     usage_deleted = db.cleanup_api_usage(datetime.now(timezone.utc) - timedelta(days=30))
     sessions_deleted = db.delete_expired_api_sessions()
     return {"usage_deleted": usage_deleted, "sessions_deleted": sessions_deleted}
+
+
+# ---- Stripe billing: checkout/portal for plan subscriptions + webhook ----
+from billing import create_billing_router
+app.include_router(create_billing_router(db, verify_dev_session))
 
 
 # ---- Mount the public API sub-app (own docs + CORS at /api/v1) ----
