@@ -161,7 +161,7 @@ export function DeveloperDashboard() {
       <div className="min-h-screen bg-background p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-2 font-mono text-sm text-muted-foreground">
                 <Terminal className="h-4 w-4 text-[#FB651E]" />
@@ -244,9 +244,11 @@ export function DeveloperDashboard() {
               <div className="text-2xl font-bold font-mono">
                 {usage?.used_24h ?? 0}<span className="text-sm text-muted-foreground"> / {limit == null ? '∞' : limit}</span>
               </div>
-              <div className="mt-3 h-2 w-full rounded-full bg-muted overflow-hidden">
-                <div className={`h-full ${pct >= 100 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
-              </div>
+              {limit != null && (
+                <div className="mt-3 h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div className={`h-full ${pct >= 100 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground font-mono mt-2">
                 {limit == null ? 'No cap on this plan' : `${usage?.remaining ?? '—'} remaining`}
               </p>
