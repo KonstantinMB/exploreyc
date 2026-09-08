@@ -1,19 +1,19 @@
-import { useState, type ChangeEvent } from 'react'
-import { Navigate, Link } from 'react-router-dom'
+import { useEffect, useState, type ChangeEvent } from 'react'
+import { Navigate, Link, useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   KeyRound, Copy, Check, Trash2, Plus, LogOut, Loader2, BookOpen, AlertCircle, Terminal, Activity, Camera,
+  CreditCard, Zap,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { HackerCard } from '../components/ui/hacker-card'
-import { ApiProCta } from '../components/ApiProCta'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog'
 import { Avatar } from '../components/ui/Avatar'
 import { useDevAuth } from '../contexts/DevAuthContext'
-import { apiClient, type DevMe, type CreatedApiKey, type UsageStats } from '../lib/api'
+import { apiClient, type DevMe, type CreatedApiKey, type UsageStats, type PlanInfo } from '../lib/api'
 
 /** Resize an uploaded image to a small square jpeg data URL (avoids file storage). */
 function resizeToDataUrl(file: File, size = 160): Promise<string> {
@@ -74,6 +74,39 @@ export function DeveloperDashboard() {
     enabled: !!user,
   })
 
+  const { data: plansData } = useQuery<{ plans: PlanInfo[] }>({
+    queryKey: ['dev-plans'],
+    queryFn: () => apiClient.getDevPlans().then((r) => r.data),
+    staleTime: 5 * 60_000,
+  })
+
+  const [billingError, setBillingError] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const billingResult = searchParams.get('billing') // 'success' | 'cancelled' | null
+
+  // After Stripe redirects back, the webhook may land a beat later — refetch once.
+  useEffect(() => {
+    if (billingResult === 'success') {
+      const t = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['dev-me'] })
+        refresh()
+      }, 1500)
+      return () => clearTimeout(t)
+    }
+  }, [billingResult]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const checkout = useMutation({
+    mutationFn: (plan: string) => apiClient.createCheckout(plan).then((r) => r.data),
+    onSuccess: (d) => { window.location.href = d.url },
+    onError: (e: any) => setBillingError(e?.response?.data?.detail || 'Could not start checkout.'),
+  })
+
+  const portal = useMutation({
+    mutationFn: () => apiClient.createBillingPortal().then((r) => r.data),
+    onSuccess: (d) => { window.location.href = d.url },
+    onError: (e: any) => setBillingError(e?.response?.data?.detail || 'Could not open billing portal.'),
+  })
+
   const createKey = useMutation({
     mutationFn: () => apiClient.createApiKey(keyName || undefined).then((r) => r.data),
     onSuccess: (data) => {
@@ -116,7 +149,11 @@ export function DeveloperDashboard() {
   if (!user) return <Navigate to="/login" replace />
 
   const usage = me?.usage
-  const pct = usage && usage.limit > 0 ? Math.min(100, Math.round((usage.used_24h / usage.limit) * 100)) : 0
+  const limit = usage?.limit ?? user.daily_limit // null = unlimited
+  const pct = usage && limit != null && limit > 0 ? Math.min(100, Math.round((usage.used_24h / limit) * 100)) : 0
+  const plan = me?.plan ?? user.plan
+  const paidPlans = (plansData?.plans ?? []).filter((p) => p.purchasable && p.key !== plan)
+  const hasActiveSub = ['active', 'trialing', 'past_due'].includes(me?.subscription_status ?? '')
 
   return (
     <>
@@ -188,28 +225,80 @@ export function DeveloperDashboard() {
               <div className="text-sm font-mono text-muted-foreground mb-1">PLAN</div>
               <div className="text-2xl font-bold font-mono capitalize">{me?.plan_name || user.plan}</div>
               <p className="text-xs text-muted-foreground font-mono mt-2">
-                {usage?.limit ?? user.daily_limit} requests / day
+                {limit == null ? 'Unlimited requests' : `${limit} requests / day`}
               </p>
-              <a href="mailto:konstantin.borimechkov14@gmail.com?subject=ExploreYC%20API%20upgrade"
-                 className="inline-block mt-3 text-xs text-[#FB651E] hover:underline font-mono">
-                Need more? Contact us to upgrade →
-              </a>
+              {hasActiveSub && (
+                <button
+                  onClick={() => portal.mutate()}
+                  disabled={portal.isPending}
+                  className="inline-flex items-center gap-1.5 mt-3 text-xs text-[#FB651E] hover:underline font-mono disabled:opacity-50"
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  {portal.isPending ? 'Opening…' : 'Manage billing →'}
+                </button>
+              )}
             </HackerCard>
 
             <HackerCard glowColor="green" className="p-6">
               <div className="text-sm font-mono text-muted-foreground mb-1">USAGE (LAST 24H)</div>
               <div className="text-2xl font-bold font-mono">
-                {usage?.used_24h ?? 0}<span className="text-sm text-muted-foreground"> / {usage?.limit ?? user.daily_limit}</span>
+                {usage?.used_24h ?? 0}<span className="text-sm text-muted-foreground"> / {limit == null ? '∞' : limit}</span>
               </div>
               <div className="mt-3 h-2 w-full rounded-full bg-muted overflow-hidden">
                 <div className={`h-full ${pct >= 100 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
               </div>
-              <p className="text-xs text-muted-foreground font-mono mt-2">{usage?.remaining ?? '—'} remaining</p>
+              <p className="text-xs text-muted-foreground font-mono mt-2">
+                {limit == null ? 'No cap on this plan' : `${usage?.remaining ?? '—'} remaining`}
+              </p>
             </HackerCard>
           </div>
 
-          {/* API Pro demand-validation CTA */}
-          <ApiProCta className="mb-6" defaultEmail={user.email} />
+          {/* Billing */}
+          {billingResult === 'success' && (
+            <div className="mb-6 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 font-mono text-sm text-emerald-500 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2"><Check className="h-4 w-4" /> Subscription active — your new limit is live.</span>
+              <button onClick={() => setSearchParams({}, { replace: true })} className="text-xs opacity-70 hover:opacity-100">dismiss</button>
+            </div>
+          )}
+          {billingError && (
+            <div className="mb-6 rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 font-mono text-sm text-red-500 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" /> {billingError}
+            </div>
+          )}
+          {plan !== 'unlimited' && paidPlans.length > 0 && (
+            <HackerCard glowColor="orange" className="p-6 mb-6">
+              <h2 className="text-xl font-bold font-mono mb-1 flex items-center gap-2">
+                <Zap className="h-5 w-5 text-[#FB651E]" /> Upgrade your plan
+              </h2>
+              <p className="text-sm text-muted-foreground font-mono mb-4">
+                {hasActiveSub
+                  ? 'Plan changes and cancellation are handled in the billing portal.'
+                  : 'Monthly subscription via Stripe — cancel anytime from this dashboard.'}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {paidPlans.map((p) => (
+                  <div key={p.key} className="rounded-lg border border-border p-4 flex flex-col gap-2">
+                    <div className="flex items-baseline justify-between">
+                      <span className="font-mono font-bold text-lg">{p.name}</span>
+                      <span className="font-mono text-[#FB651E] font-bold">${p.price_usd_month}<span className="text-xs text-muted-foreground font-normal">/mo</span></span>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      {p.daily_limit == null ? 'Unlimited requests' : `${p.daily_limit.toLocaleString()} requests / day`}
+                    </p>
+                    <Button
+                      className="bg-[#FB651E] hover:bg-[#E65C00] font-mono mt-1"
+                      disabled={checkout.isPending || portal.isPending}
+                      onClick={() => (hasActiveSub ? portal.mutate() : checkout.mutate(p.key))}
+                    >
+                      {checkout.isPending || portal.isPending
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : hasActiveSub ? 'Change plan' : `Subscribe — $${p.price_usd_month}/mo`}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </HackerCard>
+          )}
 
           {/* Usage — last 7 days */}
           <HackerCard glowColor="blue" className="p-6 mb-6">

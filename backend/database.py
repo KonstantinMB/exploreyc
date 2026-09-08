@@ -235,14 +235,30 @@ class Database:
                     email_verified BOOLEAN NOT NULL DEFAULT 0,
                     verification_token TEXT,
                     stripe_customer_id TEXT,
+                    stripe_subscription_id TEXT,
+                    subscription_status TEXT,
                     avatar_url TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            # Existing local DBs: add avatar_url if missing
-            if 'avatar_url' not in {r[1] for r in cursor.execute("PRAGMA table_info(api_users)").fetchall()}:
-                cursor.execute('ALTER TABLE api_users ADD COLUMN avatar_url TEXT')
+            # Existing local DBs: add columns that landed after the table shipped
+            existing_cols = {r[1] for r in cursor.execute("PRAGMA table_info(api_users)").fetchall()}
+            for col in ('avatar_url', 'stripe_subscription_id', 'subscription_status'):
+                if col not in existing_cols:
+                    cursor.execute(f'ALTER TABLE api_users ADD COLUMN {col} TEXT')
+            # One-shot remap of the pre-Stripe plan ladder (starter/pro/enterprise →
+            # pro/max/unlimited). Guarded by user_version because 'pro' changed meaning
+            # (5000/day → 500/day) and re-running would wrongly bump new-pro users to max.
+            if cursor.execute('PRAGMA user_version').fetchone()[0] < 1:
+                cursor.execute('''
+                    UPDATE api_users SET plan = CASE plan
+                        WHEN 'enterprise' THEN 'unlimited'
+                        WHEN 'pro' THEN 'max'
+                        WHEN 'starter' THEN 'pro'
+                        ELSE plan END
+                ''')
+                cursor.execute('PRAGMA user_version = 1')
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS api_keys (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -513,6 +529,20 @@ class Database:
             cur.execute('UPDATE api_users SET stripe_customer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
                         (customer_id, user_id))
             return cur.rowcount > 0
+
+    def set_api_user_subscription(self, user_id, subscription_id, status) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('UPDATE api_users SET stripe_subscription_id = ?, subscription_status = ?, '
+                        'updated_at = CURRENT_TIMESTAMP WHERE id = ?', (subscription_id, status, user_id))
+            return cur.rowcount > 0
+
+    def get_api_user_by_stripe_customer(self, customer_id) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM api_users WHERE stripe_customer_id = ?', (customer_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     def update_api_user_profile(self, user_id, company_name=None, avatar_url=None) -> bool:
         sets, params = [], []

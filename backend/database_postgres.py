@@ -2281,6 +2281,20 @@ class DatabasePostgres:
                             (customer_id, user_id))
                 return cur.rowcount > 0
 
+    def set_api_user_subscription(self, user_id, subscription_id, status) -> bool:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE api_users SET stripe_subscription_id = %s, subscription_status = %s, '
+                            'updated_at = NOW() WHERE id = %s', (subscription_id, status, user_id))
+                return cur.rowcount > 0
+
+    def get_api_user_by_stripe_customer(self, customer_id) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT * FROM api_users WHERE stripe_customer_id = %s', (customer_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
     def update_api_user_profile(self, user_id, company_name=None, avatar_url=None) -> bool:
         sets, params = [], []
         if company_name is not None:

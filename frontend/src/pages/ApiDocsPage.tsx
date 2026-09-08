@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { Copy, Check, KeyRound, Gauge, ExternalLink, BookOpen, ChevronRight, Trophy } from 'lucide-react'
 import { DotPattern } from '../components/ui/dot-pattern'
-import { ApiProCta } from '../components/ApiProCta'
 import { useDevAuth } from '../contexts/DevAuthContext'
 
 const API_BASE = 'https://api.exploreyc.com/api/v1'
@@ -495,9 +494,8 @@ export function ApiDocsPage() {
                       <thead className="bg-muted/50 text-left text-muted-foreground"><tr><th className="px-3 py-2">Plan</th><th className="px-3 py-2">Limit</th><th className="px-3 py-2">Price</th></tr></thead>
                       <tbody className="divide-y divide-border">
                         <tr><td className="px-3 py-2 font-medium">Free</td><td className="px-3 py-2 text-[#FB651E]">5 / day</td><td className="px-3 py-2 text-muted-foreground">$0</td></tr>
-                        <tr><td className="px-3 py-2 font-medium">Starter</td><td className="px-3 py-2 text-[#FB651E]">500 / day</td><td className="px-3 py-2 text-muted-foreground">$29/mo</td></tr>
-                        <tr><td className="px-3 py-2 font-medium">Pro</td><td className="px-3 py-2 text-[#FB651E]">5,000 / day</td><td className="px-3 py-2 text-muted-foreground">$99/mo</td></tr>
-                        <tr><td className="px-3 py-2 font-medium">Enterprise</td><td className="px-3 py-2 text-[#FB651E]">Custom</td><td className="px-3 py-2 text-muted-foreground">Contact us</td></tr>
+                        <tr><td className="px-3 py-2 font-medium">Pro</td><td className="px-3 py-2 text-[#FB651E]">500 / day</td><td className="px-3 py-2 text-muted-foreground">$50/mo</td></tr>
+                        <tr><td className="px-3 py-2 font-medium">Max</td><td className="px-3 py-2 text-[#FB651E]">5,000 / day</td><td className="px-3 py-2 text-muted-foreground">$500/mo</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -509,7 +507,11 @@ X-RateLimit-Remaining: 0
   your plan. Upgrade for a higher limit." }`}</code></pre>
                   </Terminal>
                 </div>
-                <ApiProCta className="mt-6" defaultEmail={user?.email ?? ''} />
+                <p className="mt-4 text-sm font-mono text-muted-foreground">
+                  Upgrade with a monthly Stripe subscription from your{' '}
+                  <Link to={user ? '/dashboard' : '/signup'} className="text-[#FB651E] hover:underline">dashboard</Link>
+                  {' '}— cancel anytime.
+                </p>
               </section>
 
               {/* Errors */}

@@ -834,7 +834,7 @@ function adminFetch(path: string, options: RequestInit = {}) {
   });
 }
 
-const API_PLANS = ['free', 'starter', 'pro', 'enterprise'];
+const API_PLANS = ['free', 'pro', 'max', 'unlimited'];
 
 function ApiConsumersSection() {
   const queryClient = useQueryClient();
