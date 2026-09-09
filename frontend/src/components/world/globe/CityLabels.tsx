@@ -11,7 +11,12 @@ import * as THREE from 'three'
 import { CITY_SNAP_RADIUS_KM } from '../constants'
 import type { GlobePin } from '../../../lib/worldApi'
 import { haversineKm, latLngToVector3 } from './geo'
-import { LOD_TIER_MIN, POP_FADE_DECADES } from './labelLayout'
+import {
+  LOD_TIER_MIN,
+  POP_FADE_DECADES,
+  anchoredLabelX,
+  clampLabelSpan,
+} from './labelLayout'
 import {
   LABEL_GAP,
   LABEL_HEIGHT,
@@ -447,23 +452,31 @@ export function CityLabels({ plots, enabled = true }: CityLabelsProps) {
           held > 0 ? frame.measure(plotCountText(held), 'meta') + LABEL_GAP : 0
         const pillWidth = LABEL_PAD_X * 2 + nameWidth + metaWidth
 
+        // Right of the dot, or mirrored to its left when the frame edge is in
+        // the way — a half-drawn city name is worse than a missing one.
+        const left = anchoredLabelX(px, pillWidth, LABEL_LEADER, width)
+        if (left === null) continue
+        const top = clampLabelSpan(py - halfH, pillH, height, halfH - 4)
+        if (top === null) continue
+
         // The box covers the dot as well as the pill: a name whose leader line
         // runs straight through a neighbouring city's dot reads as belonging to
         // the wrong place.
+        const boxX = Math.min(px - 5, left)
         out.push(
           s.boxes.take(
             ids[i],
-            px - 5,
-            py - halfH,
-            pillWidth + LABEL_LEADER + 5,
+            boxX,
+            top,
+            Math.max(px + 5, left + pillWidth) - boxX,
             pillH,
             cityPriority(index.population[i], held),
           ),
         )
         s.idx.push(i)
         s.alpha.push(alpha)
-        s.x.push(px)
-        s.y.push(py)
+        s.x.push(left)
+        s.y.push(top)
         taken += 1
       }
     },
@@ -476,17 +489,13 @@ export function CityLabels({ plots, enabled = true }: CityLabelsProps) {
 
       if (index && counts) {
         const s = scratch
-        const halfH = LABEL_HEIGHT.city / 2
         for (let k = 0; k < s.idx.length; k += 1) {
           const i = s.idx[k]
           if (!placed.has(index.ids[i])) continue
 
-          const slot = pool.show(
-            index.ids[i],
-            s.x[k] + LABEL_LEADER,
-            s.y[k] - halfH,
-            s.alpha[k],
-          )
+          // `collect` resolved the side and the edge clamp already, so this is
+          // the exact rectangle the layout agreed to.
+          const slot = pool.show(index.ids[i], s.x[k], s.y[k], s.alpha[k])
           if (slot < 0) continue
 
           const held = counts[i]

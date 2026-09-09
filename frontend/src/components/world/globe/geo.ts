@@ -110,44 +110,91 @@ export function markerColor(
 }
 
 /**
- * The claim palette: saturated pastels, one per claimed country.
+ * The claim ramp: one hue, from a faint warm tint to a confident orange.
  *
- * Ordered so that adjacent entries are far apart on the wheel — hashing is not
- * a permutation, and a palette ordered by hue would hand neighbouring countries
- * near-identical colours.
+ * This used to be twelve saturated pastels hashed off the ISO code, so that a
+ * country's colour was a property of the country and somebody could say "the
+ * purple one is us". That was a nice social property bought at a price the
+ * brand does not pay: it put a second, third and twelfth accent hue on a
+ * surface whose entire visual argument is that **orange is signal and nothing
+ * else is**. On a board with a single claim it rendered the United States in
+ * magenta, which is not a colour this product owns.
+ *
+ * So rank is the only thing the fill encodes now, and it encodes it on one
+ * axis of one hue derived from `YC_ORANGE`: value and chroma climb together
+ * from `faint` to `strong`. The identity a visitor reads off the globe is the
+ * *height* of a country on the board, which is the thing the board is actually
+ * about — and two claimed countries are still told apart by their own outline,
+ * which `CountryFills` derives from the fill.
+ *
+ * Both endpoints are chosen against their theme's `land`, not in the abstract:
+ *
+ * - **Dark.** Land is `#2B3038` (relative luminance 0.029). `faint` measures
+ *   0.070 — a contrast of 1.51:1, which is a clear warm shift without the
+ *   weakest claim shouting; `strong` measures 0.193, 2.03:1 above `faint`, so
+ *   the top of the board is unmistakable at world view.
+ * - **Light.** Land is `#E4E7EB` (0.797). `faint` measures 0.630, 1.25:1 under
+ *   the land and unmistakably warm against a neutral grey; `strong` measures
+ *   0.222, which is 3.11:1 against unclaimed land and 2.50:1 against `faint`.
+ *
+ * Both `strong` ends stay deliberately below pure `#FB651E` in value, so a
+ * promoted pin — the one place the *pure* accent is allowed — still reads as
+ * hotter than the ground it stands on.
  */
-export const CLAIM_PALETTE = [
-  '#A98BE8', // violet
-  '#F2A0C0', // pink
-  '#6FD1C6', // teal
-  '#F5D06A', // yellow
-  '#F09A7E', // coral
-  '#8FB8EC', // cornflower
-  '#B9C3CE', // slate
-  '#C8A2E0', // orchid
-  '#7FCBA0', // jade
-  '#EFB07A', // apricot
-  '#E88C99', // rose
-  '#9FD5EA', // sky
-] as const
+export interface ClaimRamp {
+  /** A country sitting at the $5 floor. */
+  faint: string
+  /** The top of the board. */
+  strong: string
+}
 
 /**
- * Fill hue for a claimed country: a deterministic FNV-1a hash of the ISO code.
+ * Where a claimed country sits on the ramp when every claim is at the floor.
  *
- * A country's hue is a property of the *country*, not of the current board —
- * it survives a reshuffle, a reload, and a different visitor, because the
- * social value of the map is somebody saying "the purple one is us" and having
- * that still be true tomorrow.
+ * `t = 0` would be correct and would also render the map's only claim at its
+ * faintest, which reads as a rendering failure rather than as a statement about
+ * rank. Mid-ramp is the honest answer to "there is nothing to rank yet".
  */
-export function claimColor(iso2: string): string {
-  const key = iso2.toUpperCase()
-  let hash = 0x811c9dc5
-  for (let i = 0; i < key.length; i += 1) {
-    hash ^= key.charCodeAt(i)
-    // FNV prime; Math.imul keeps this in 32-bit integer space.
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return CLAIM_PALETTE[(hash >>> 0) % CLAIM_PALETTE.length]
+const SOLO_CLAIM_T = 0.55
+
+/**
+ * Fill for a claimed country at ramp position `t` (0 = floor, 1 = top).
+ *
+ * Interpolated in sRGB. Both endpoints sit at ~22° hue, so a straight lerp
+ * stays on the ramp's hue instead of bending through brown — the check that
+ * makes the cheap interpolation legitimate here rather than merely convenient.
+ */
+export function claimFill(ramp: ClaimRamp, t: number): string {
+  const k = t <= 0 ? 0 : t >= 1 ? 1 : t
+  const a = hexToRgb(ramp.faint)
+  const b = hexToRgb(ramp.strong)
+  const mix = (i: number) => Math.round(a[i] + (b[i] - a[i]) * k)
+  return `rgb(${mix(0)},${mix(1)},${mix(2)})`
+}
+
+/**
+ * Ramp position for a claim of `weight` on a board whose heaviest claim is
+ * `max`, where a weight of 1 is a single pin at the $5 floor.
+ *
+ * Logarithmic and anchored at the floor rather than at zero. Zero stake is not
+ * a case — an unclaimed country is grey — so anchoring there wastes the bottom
+ * of the ramp on a state that never renders and compresses every real claim
+ * into its top half. Anchored at the floor, the cheapest claim on the board is
+ * the faintest colour on it and the ramp is used end to end.
+ */
+export function claimRampT(weight: number, max: number): number {
+  const denom = Math.log1p(Math.max(max, 1) - 1)
+  if (!(denom > 0)) return SOLO_CLAIM_T
+  const t = Math.log1p(Math.max(weight, 1) - 1) / denom
+  return t <= 0 ? 0 : t >= 1 ? 1 : t
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ]
 }
 
 /**
@@ -168,6 +215,8 @@ export interface GlobePalette {
   gridMinor: string
   gridMajor: string
   markers: MarkerPalette
+  /** Claimed-country fill, floor to top of board. */
+  claim: ClaimRamp
 }
 
 export const GLOBE_PALETTE_LIGHT: GlobePalette = {
@@ -183,6 +232,7 @@ export const GLOBE_PALETTE_LIGHT: GlobePalette = {
     seed: '#C3D0E0',
     ramp: ['#8494AB', '#5B6B84', '#3B4A63'],
   },
+  claim: { faint: '#F0C9A4', strong: '#D0621F' },
 }
 
 export const GLOBE_PALETTE_DARK: GlobePalette = {
@@ -198,6 +248,7 @@ export const GLOBE_PALETTE_DARK: GlobePalette = {
     seed: '#55616F',
     ramp: ['#94A3B8', '#B8C4D4', '#DCE4EE'],
   },
+  claim: { faint: '#6B4028', strong: '#C05E20' },
 }
 
 /** The palette for a theme flag. The single switch the whole globe reads. */

@@ -370,10 +370,21 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
               </button>
             ) : null}
           </div>
+          {/*
+            Out of the tab order on purpose.
+
+            `sr-only` clips this input visually but leaves it focusable, so a
+            keyboard user tabbing through the form got a stop where the focus
+            ring simply disappeared — the visible "Upload" button, then nothing,
+            then the next field. The button above is the control: it forwards
+            the click here, and the file picker it opens is the browser's own.
+            The label stays for the picker's benefit.
+          */}
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
+            tabIndex={-1}
             className="sr-only"
             aria-label="Upload a logo"
             onChange={onLogoPick}

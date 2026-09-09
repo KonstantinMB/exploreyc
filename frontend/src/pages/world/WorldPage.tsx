@@ -124,8 +124,26 @@ export default function WorldPage() {
       <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
         <DialogPrimitive.Portal>
           <DialogPrimitive.Overlay className="fixed inset-0 z-[1001] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none" />
-          <DialogPrimitive.Content className="fixed inset-x-0 bottom-0 z-[1001] flex max-h-[82vh] flex-col gap-3 overflow-y-auto rounded-t-lg border-t border-border bg-background p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] font-mono focus:outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom motion-reduce:animate-none">
-            <div className="flex items-start justify-between gap-3">
+          {/*
+            Header pinned, body scrolled — and the split is load-bearing rather
+            than cosmetic.
+
+            This was one `flex flex-col overflow-y-auto` box holding all four
+            children. Under `max-h-[82vh]` a flex child shrinks before its
+            parent overflows, so on any phone shorter than about 810px the
+            boards table collapsed to a single row, the featured rail vanished
+            entirely, and the pulse list ran off the bottom edge — with
+            `scrollHeight === clientHeight`, so there was nothing to scroll
+            back. Measured on a 360px-tall frame: content squashed to exactly
+            the 294px cap.
+
+            A block-flow scroll region cannot do that: its children keep their
+            natural height, the region overflows, and it scrolls. Keeping the
+            title and the close control out of that region also means the way
+            out never scrolls off screen.
+          */}
+          <DialogPrimitive.Content className="fixed inset-x-0 bottom-0 z-[1001] flex max-h-[82vh] flex-col rounded-t-lg border-t border-border bg-background font-mono focus:outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom motion-reduce:animate-none">
+            <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3">
               <div>
                 <DialogPrimitive.Title className="font-mono text-sm font-bold">
                   <span className="text-[#FB651E]">$</span> exploreyc --world --boards
@@ -140,12 +158,14 @@ export default function WorldPage() {
                 </Button>
               </DialogPrimitive.Close>
             </div>
-            <WorldBoards />
-            <FeaturedRail />
-            <section aria-label="World pulse">
-              <h3 className="mb-1.5 font-mono text-xs text-muted-foreground">recent activity</h3>
-              <PulseList />
-            </section>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+              <WorldBoards />
+              <FeaturedRail />
+              <section aria-label="World pulse">
+                <h3 className="mb-1.5 font-mono text-xs text-muted-foreground">recent activity</h3>
+                <PulseList />
+              </section>
+            </div>
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>

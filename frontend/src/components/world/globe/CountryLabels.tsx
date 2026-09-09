@@ -11,7 +11,7 @@ import * as THREE from 'three'
 import { flagEmoji } from './countries'
 import { latLngToVector3 } from './geo'
 import type { CountryInfo } from './CountryBorders'
-import { countryLabelBudget } from './labelLayout'
+import { clampLabelSpan, countryLabelBudget } from './labelLayout'
 import {
   LABEL_GAP,
   LABEL_HEIGHT,
@@ -53,6 +53,21 @@ const OFFSCREEN_SLACK = 80
  * of the same data and should win a collision against a place name.
  */
 const CLAIMED_PRIORITY_BASE = 1e9
+
+/**
+ * How much of the pill must still sit over the country's centroid after the
+ * pill has been pushed away from a viewport edge.
+ *
+ * A country pill is centred on its centroid rather than offset beside it — the
+ * label *is* the mark, and there is no dot or leader line saying which country
+ * it belongs to. Slide it far enough and it stops being a label for that
+ * country and becomes a caption floating in the ocean, so the pill is allowed
+ * to move only while the centroid stays this far inside it. Past that the label
+ * is dropped, which on a phone is what happens to a country whose centre is
+ * within half a pill of the screen edge — correct, because the alternative is
+ * naming a country the visitor cannot see.
+ */
+const ANCHOR_KEEP = 10
 
 export interface CountryLabelsProps {
   /** Every country in the current topology, from `CountryBorders`. */
@@ -164,9 +179,9 @@ export function CountryLabels({
       boxes: createBoxPool(),
       idx: [] as number[],
       alpha: [] as number[],
+      /** Final top-left of each candidate, already clamped to the frame. */
       x: [] as number[],
       y: [] as number[],
-      w: [] as number[],
     }),
     [],
   )
@@ -179,7 +194,6 @@ export function CountryLabels({
       s.alpha.length = 0
       s.x.length = 0
       s.y.length = 0
-      s.w.length = 0
 
       if (!enabled || data.count === 0 || !poolRef.current) return
 
@@ -223,13 +237,32 @@ export function CountryLabels({
           LABEL_GAP +
           frame.measure(data.metas[i], 'meta')
 
-        // Centred on the centroid rather than offset beside it. A country has
-        // no dot to sit next to; the label *is* the mark.
+        /*
+         * Centred on the centroid rather than offset beside it — a country has
+         * no dot to sit next to; the label *is* the mark — and then pulled back
+         * inside the frame if that centre is close enough to an edge to hang the
+         * pill over it.
+         *
+         * The clamp happens here, before the box is offered, so collision
+         * resolution sees where the pill will actually be drawn. Clamping in
+         * `commit` instead would let two pills that were resolved as disjoint
+         * end up stacked in the corner they were both pushed into.
+         */
+        const left = clampLabelSpan(
+          px - pillWidth / 2,
+          pillWidth,
+          width,
+          pillWidth / 2 - ANCHOR_KEEP,
+        )
+        if (left === null) continue
+        const top = clampLabelSpan(py - halfH, pillH, height, halfH - 4)
+        if (top === null) continue
+
         out.push(
           s.boxes.take(
             data.ids[i],
-            px - pillWidth / 2,
-            py - halfH,
+            left,
+            top,
             pillWidth,
             pillH,
             data.priority[i],
@@ -237,9 +270,8 @@ export function CountryLabels({
         )
         s.idx.push(i)
         s.alpha.push(alpha)
-        s.x.push(px)
-        s.y.push(py)
-        s.w.push(pillWidth)
+        s.x.push(left)
+        s.y.push(top)
         taken += 1
       }
     },
@@ -251,17 +283,13 @@ export function CountryLabels({
       pool.begin()
 
       const s = scratch
-      const halfH = LABEL_HEIGHT.country / 2
       for (let k = 0; k < s.idx.length; k += 1) {
         const i = s.idx[k]
         if (!placed.has(data.ids[i])) continue
 
-        const slot = pool.show(
-          data.ids[i],
-          s.x[k] - s.w[k] / 2,
-          s.y[k] - halfH,
-          s.alpha[k],
-        )
+        // `collect` already resolved the final top-left, edge clamp included,
+        // so `commit` places exactly the rectangle the layout agreed to.
+        const slot = pool.show(data.ids[i], s.x[k], s.y[k], s.alpha[k])
         if (slot < 0) continue
 
         if (slotCountry[slot] !== i) {
