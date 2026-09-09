@@ -282,7 +282,7 @@ export function DeveloperDashboard() {
               </p>
               {hasActiveSub && (
                 <button
-                  onClick={() => portal.mutate()}
+                  onClick={() => portal.mutate('manage')}
                   disabled={portal.isPending}
                   className="inline-flex items-center gap-1.5 mt-3 text-xs text-[#FB651E] hover:underline font-mono disabled:opacity-50"
                 >
