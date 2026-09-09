@@ -173,8 +173,42 @@ export function DeveloperDashboard() {
               <p className="text-sm text-muted-foreground font-mono mt-1">{user.email}</p>
             </div>
             <div className="flex items-center gap-2">
-              <Link to="/api-docs"><Button variant="outline" className="font-mono"><BookOpen className="h-4 w-4 mr-2" />Docs</Button></Link>
+              <Link to="/api-docs">
+                <Button className="font-mono bg-[#FB651E] hover:bg-[#E65C00] text-white shadow-[0_0_16px_rgba(251,101,30,0.35)]">
+                  <BookOpen className="h-4 w-4 mr-2" />API Docs
+                </Button>
+              </Link>
               <Button variant="outline" className="font-mono" onClick={logout}><LogOut className="h-4 w-4 mr-2" />Logout</Button>
+            </div>
+          </div>
+
+          {/* Quick start — the one path: key → call → quota */}
+          <div className="mb-6 rounded-md border border-border overflow-hidden font-mono text-sm">
+            <div className="flex items-center gap-1.5 bg-[#0a0c11] px-3 py-2 border-b border-white/10">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500/80" />
+              <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/80" />
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
+              <span className="ml-2 text-[11px] text-white/40">quick start</span>
+            </div>
+            <div className="bg-[#0a0c11] text-white/85 px-4 py-3 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-2">
+              <a href="#keys" className="group flex items-baseline gap-2 hover:text-white transition-colors">
+                <span className="text-[#FB651E]">$</span>
+                <span>create-key<span className="hidden lg:inline text-white/35"> — mint your eyc_live_… token below</span></span>
+              </a>
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="text-[#FB651E]">$</span>
+                <span className="truncate">curl api.exploreyc.com/api/v1/companies</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText('curl -H "Authorization: Bearer YOUR_KEY" https://api.exploreyc.com/api/v1/companies')}
+                  className="text-white/40 hover:text-[#FB651E] transition-colors flex-shrink-0" title="Copy example request"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <Link to="/api-docs" className="group flex items-baseline gap-2 hover:text-white transition-colors">
+                <span className="text-[#FB651E]">$</span>
+                <span>man exploreyc <span className="text-white/35 group-hover:text-[#FB651E] transition-colors">→ full docs</span></span>
+              </Link>
             </div>
           </div>
 
@@ -223,9 +257,9 @@ export function DeveloperDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <HackerCard glowColor="orange" className="p-6">
               <div className="text-sm font-mono text-muted-foreground mb-1">PLAN</div>
-              <div className="text-2xl font-bold font-mono capitalize">{me?.plan_name || user.plan}</div>
+              <div className="text-3xl font-bold font-mono capitalize text-[#FB651E]">{me?.plan_name || user.plan}</div>
               <p className="text-xs text-muted-foreground font-mono mt-2">
-                {limit == null ? 'Unlimited requests' : `${limit} requests / day`}
+                {limit == null ? 'Unlimited requests' : `${limit.toLocaleString()} requests / day · rolling 24h window`}
               </p>
               {hasActiveSub && (
                 <button
@@ -241,12 +275,15 @@ export function DeveloperDashboard() {
 
             <HackerCard glowColor="green" className="p-6">
               <div className="text-sm font-mono text-muted-foreground mb-1">USAGE (LAST 24H)</div>
-              <div className="text-2xl font-bold font-mono">
-                {usage?.used_24h ?? 0}<span className="text-sm text-muted-foreground"> / {limit == null ? '∞' : limit}</span>
+              <div className="text-3xl font-bold font-mono tabular-nums">
+                {usage?.used_24h ?? 0}<span className="text-sm text-muted-foreground"> / {limit == null ? '∞' : limit.toLocaleString()}</span>
               </div>
               {limit != null && (
                 <div className="mt-3 h-2 w-full rounded-full bg-muted overflow-hidden">
-                  <div className={`h-full ${pct >= 100 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+                  <div
+                    className={`h-full transition-[width] duration-500 ease-out motion-reduce:transition-none ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-[#FB651E]' : 'bg-emerald-500'}`}
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
               )}
               <p className="text-xs text-muted-foreground font-mono mt-2">
@@ -278,26 +315,46 @@ export function DeveloperDashboard() {
                   : 'Monthly subscription via Stripe — cancel anytime from this dashboard.'}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {paidPlans.map((p) => (
-                  <div key={p.key} className="rounded-lg border border-border p-4 flex flex-col gap-2">
-                    <div className="flex items-baseline justify-between">
-                      <span className="font-mono font-bold text-lg">{p.name}</span>
-                      <span className="font-mono text-[#FB651E] font-bold">${p.price_usd_month}<span className="text-xs text-muted-foreground font-normal">/mo</span></span>
-                    </div>
-                    <p className="text-xs text-muted-foreground font-mono">
-                      {p.daily_limit == null ? 'Unlimited requests' : `${p.daily_limit.toLocaleString()} requests / day`}
-                    </p>
-                    <Button
-                      className="bg-[#FB651E] hover:bg-[#E65C00] font-mono mt-1"
-                      disabled={checkout.isPending || portal.isPending}
-                      onClick={() => (hasActiveSub ? portal.mutate() : checkout.mutate(p.key))}
+                {paidPlans.map((p) => {
+                  const featured = p.key === 'pro' && plan === 'free'
+                  return (
+                    <div
+                      key={p.key}
+                      className={`rounded-lg border p-4 flex flex-col gap-2 transition-shadow ${
+                        featured
+                          ? 'border-[#FB651E]/60 shadow-[0_0_20px_rgba(251,101,30,0.12)]'
+                          : 'border-border'
+                      }`}
                     >
-                      {checkout.isPending || portal.isPending
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
-                        : hasActiveSub ? 'Change plan' : `Subscribe — $${p.price_usd_month}/mo`}
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex items-baseline justify-between">
+                        <span className="font-mono font-bold text-lg flex items-center gap-2">
+                          {p.name}
+                          {featured && (
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-[#FB651E] border border-[#FB651E]/50 rounded px-1.5 py-0.5">
+                              recommended
+                            </span>
+                          )}
+                        </span>
+                        <span className="font-mono text-[#FB651E] font-bold text-xl">${p.price_usd_month}<span className="text-xs text-muted-foreground font-normal">/mo</span></span>
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {p.daily_limit == null ? 'Unlimited requests' : `${p.daily_limit.toLocaleString()} requests / day`}
+                        {p.daily_limit != null && limit != null && p.daily_limit > limit && (
+                          <span className="text-emerald-500"> · {Math.round(p.daily_limit / Math.max(1, limit))}× your current limit</span>
+                        )}
+                      </p>
+                      <Button
+                        className={`font-mono mt-1 ${featured ? 'bg-[#FB651E] hover:bg-[#E65C00] shadow-[0_0_14px_rgba(251,101,30,0.3)]' : 'bg-[#FB651E]/90 hover:bg-[#E65C00]'}`}
+                        disabled={checkout.isPending || portal.isPending}
+                        onClick={() => (hasActiveSub ? portal.mutate() : checkout.mutate(p.key))}
+                      >
+                        {checkout.isPending || portal.isPending
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : hasActiveSub ? 'Change plan' : `Subscribe — $${p.price_usd_month}/mo`}
+                      </Button>
+                    </div>
+                  )
+                })}
               </div>
             </HackerCard>
           )}
@@ -357,7 +414,7 @@ export function DeveloperDashboard() {
           </HackerCard>
 
           {/* API keys */}
-          <HackerCard glowColor="orange" className="p-6">
+          <HackerCard glowColor="orange" className="p-6 scroll-mt-24" id="keys">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
               <h2 className="text-xl font-bold font-mono flex items-center gap-2">
                 <KeyRound className="h-5 w-5 text-[#FB651E]" /> API Keys
