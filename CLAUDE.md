@@ -11,7 +11,7 @@ ExploreYC — a full-stack web app that scrapes Y Combinator's Algolia API for c
 - **Frontend:** React 19 + Vite 8 + TypeScript + Tailwind CSS (monospace/hacker theme with YC orange `#FF6600`)
 - **Backend:** FastAPI (Python 3.11) — nearly all endpoints live in `backend/main.py`
 - **Database:** SQLite locally, PostgreSQL (Supabase) in production — chosen via `database_factory.py` based on `DATABASE_URL`
-- **Deployment:** Vercel (frontend + API rewrites to `api.exploreyc.com`) + Render (backend) + GitHub Actions (cron)
+- **Deployment:** Vercel (frontend + API rewrites to `api.exploreyc.com`) + Railway (backend; `render.yaml` is vestigial) + GitHub Actions (cron)
 - **Key integrations:** OpenAI (idea validation/embeddings), Perplexity AI (research), CoreSignal (company enrichment), Resend (email), Algolia (YC data source)
 
 ## Development Commands

@@ -278,7 +278,8 @@ export default function WorldPlotPage() {
   const cityRank = cityBoard.data?.rows.find((r) => r.plot_id === plot.id)?.rank ?? null
   const toBeat = countryBoard.data?.cents_to_beat ?? null
   const isMine = plot.is_mine === true
-  const ogImage = `/api/og/world?plot=${encodeURIComponent(plot.id)}`
+  // Absolute: social crawlers do not resolve relative og:image paths.
+  const ogImage = `${window.location.origin}/api/og/world?plot=${encodeURIComponent(plot.id)}`
 
   return (
     <div className="relative min-h-screen bg-background font-mono">

@@ -75,7 +75,8 @@ export default function WorldCountryPage() {
         ? `${formatDollars(toBeat)} takes #1 in ${country.name}`
         : `price to take #1 in ${country.name}: unknown`
 
-  const ogImage = `/api/og/world?country=${encodeURIComponent(iso)}`
+  // Absolute: social crawlers do not resolve relative og:image paths.
+  const ogImage = `${window.location.origin}/api/og/world?country=${encodeURIComponent(iso)}`
 
   return (
     <div className="relative min-h-screen bg-background font-mono">

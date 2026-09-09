@@ -59,6 +59,13 @@ function applyMeta(html, m) {
   html = setMetaByName(html, 'twitter:title', m.ogTitle || m.title);
   html = setMetaByName(html, 'twitter:description', m.ogDescription || m.description);
   html = setMetaByName(html, 'twitter:url', url);
+  // Crawlers never run the SPA, so a route wanting its own card must set it here.
+  if (m.ogImage) {
+    const img = m.ogImage.startsWith('http') ? m.ogImage : `${ORIGIN}${m.ogImage}`;
+    html = setMetaByProp(html, 'og:image', img);
+    html = setMetaByName(html, 'twitter:image', img);
+    if (m.ogImageAlt) html = setMetaByProp(html, 'og:image:alt', m.ogImageAlt);
+  }
   if (m.jsonLd) html = appendJsonLd(html, m.jsonLd);
   return html;
 }
@@ -105,6 +112,17 @@ const ROUTES = [
         contentUrl: 'https://api.exploreyc.com/api/v1/companies',
       },
     },
+  },
+  {
+    path: '/world',
+    title: 'ExploreYC World — claim your startup a plot on the globe',
+    description:
+      'Plant your startup on a 3D globe from $5. Every dollar scores for your country. World, country and city leaderboards — being #1 in your city is closer than you think. No prize, no payout, no refund.',
+    ogTitle: 'ExploreYC World — own a piece of the startup map',
+    ogDescription:
+      'Claim a permanent pin for your startup from $5 and put your country on the board. Three leaderboards: world, country, city.',
+    ogImage: '/api/og/world',
+    ogImageAlt: 'ExploreYC World — a 3D globe of startups competing for country rankings',
   },
   {
     path: '/map',
