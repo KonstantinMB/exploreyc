@@ -14,3 +14,4 @@ numpy>=1.24.0
 playwright>=1.40.0
 stripe>=8.0.0
 httpx>=0.24.0
+shapely>=2.0.0

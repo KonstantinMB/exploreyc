@@ -2886,3 +2886,625 @@ class DatabasePostgres:
                 )
                 row = cur.fetchone()
                 return row[0] if row else None
+
+    # ============================================================================
+    # EXPLOREYC WORLD (plots, payments, boards, promotions)
+    # Signatures are identical in database.py (SQLite) — keep them in lockstep.
+    # Schema: supabase/migrations/20260909100000_world.sql
+    # ============================================================================
+
+    #: Columns a plot owner may edit via update_world_plot. `status` is included
+    #: so moderation can flip active/pending; money fields never appear here.
+    WORLD_PLOT_EDITABLE_FIELDS = frozenset({
+        "name", "url", "tagline", "founder_name", "founder_title",
+        "founder_link", "logo_url", "status", "city_id",
+    })
+
+    @staticmethod
+    def _world_ts(value):
+        """Parity shim with the SQLite backend — psycopg2 adapts datetimes
+        natively, so values pass through unchanged."""
+        return value
+
+    def seed_world_reference_data(self, data_dir: Optional[str] = None) -> Dict[str, int]:
+        """Idempotently load world_countries + world_cities from backend/data/.
+
+        ON CONFLICT DO NOTHING keyed on the primary keys, so re-running never
+        touches a plot or payment. Skips entirely when row counts already
+        match the files (startup fast path). Returns {'countries': n,
+        'cities': n} counts now present in the DB.
+        """
+        base = data_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        with open(os.path.join(base, "world_countries.json")) as f:
+            countries = json.load(f)["countries"]
+        with open(os.path.join(base, "world_cities.json")) as f:
+            cities = json.load(f)["cities"]
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM world_countries")
+                have_countries = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM world_cities")
+                have_cities = cur.fetchone()[0]
+                if have_countries < len(countries):
+                    execute_values(cur,
+                        """INSERT INTO world_countries
+                           (iso2, iso3, name, flag_emoji, centroid_lat, centroid_lng)
+                           VALUES %s ON CONFLICT (iso2) DO NOTHING""",
+                        [(c["iso2"], c["iso3"], c["name"], c["flag_emoji"],
+                          c["centroid_lat"], c["centroid_lng"]) for c in countries])
+                if have_cities < len(cities):
+                    execute_values(cur,
+                        """INSERT INTO world_cities
+                           (id, name, country_iso, lat, lng, population)
+                           VALUES %s ON CONFLICT (id) DO NOTHING""",
+                        [(c["id"], c["name"], c["country_iso"], c["lat"],
+                          c["lng"], c["population"]) for c in cities])
+                cur.execute("SELECT COUNT(*) FROM world_countries")
+                n_countries = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM world_cities")
+                n_cities = cur.fetchone()[0]
+                return {"countries": n_countries, "cities": n_cities}
+
+    def get_world_country(self, iso2: str) -> Optional[Dict]:
+        """Reference row for a country (iso2/iso3/name/flag/centroid), or None."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM world_countries WHERE iso2 = %s",
+                            (iso2.upper(),))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def list_world_countries(self) -> List[Dict]:
+        """All country reference rows, ordered by iso2."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM world_countries ORDER BY iso2")
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_city(self, city_id: int) -> Optional[Dict]:
+        """Reference row for a city (name/country_iso/lat/lng/population), or None."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM world_cities WHERE id = %s", (city_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def list_world_cities(self) -> List[Dict]:
+        """All city reference rows (id, name, country_iso, lat, lng,
+        population), biggest population first. Feeds the globe's city-label
+        layer via GET /api/world/cities."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT id, name, country_iso, lat, lng, population
+                       FROM world_cities ORDER BY population DESC, id""")
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_cities_in_bbox(self, min_lat: float, max_lat: float,
+                                 min_lng: float, max_lng: float,
+                                 limit: int = 256) -> List[Dict]:
+        """Cities inside a bounding box, biggest population first.
+
+        Prefilter for the nearest-city snap: the caller haversines the result.
+        When min_lng > max_lng the box wraps the antimeridian and matches
+        (lng >= min_lng OR lng <= max_lng).
+        """
+        lng_clause = "(lng >= %s AND lng <= %s)" if min_lng <= max_lng else "(lng >= %s OR lng <= %s)"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""SELECT * FROM world_cities
+                        WHERE lat >= %s AND lat <= %s AND {lng_clause}
+                        ORDER BY population DESC LIMIT %s""",
+                    (min_lat, max_lat, min_lng, max_lng, limit))
+                return [dict(r) for r in cur.fetchall()]
+
+    def create_world_plot(self, plot: Dict[str, Any]) -> int:
+        """Insert a plot and return its id.
+
+        Required keys: user_id, name, lat, lng, country_iso. Optional:
+        company_id, url, tagline, founder_name, founder_title, founder_link,
+        logo_url, city_id, total_cents, status ('active'|'pending').
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO world_plots
+                       (user_id, company_id, name, url, tagline, founder_name,
+                        founder_title, founder_link, logo_url, lat, lng,
+                        country_iso, city_id, total_cents, status)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                               %s, %s, %s, %s)
+                       RETURNING id""",
+                    (plot["user_id"], plot.get("company_id"), plot["name"],
+                     plot.get("url"), plot.get("tagline"), plot.get("founder_name"),
+                     plot.get("founder_title"), plot.get("founder_link"),
+                     plot.get("logo_url"), plot["lat"], plot["lng"],
+                     plot["country_iso"].upper(), plot.get("city_id"),
+                     plot.get("total_cents", 0), plot.get("status", "active")))
+                return cur.fetchone()[0]
+
+    def get_world_plot(self, plot_id: int) -> Optional[Dict]:
+        """Full plot row plus country_name, city_name, company_slug and a
+        `promoted` flag (active featured promotion). None when missing."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT p.*, wc.name AS country_name, ci.name AS city_name,
+                              co.slug AS company_slug,
+                              EXISTS(SELECT 1 FROM world_promotions pr
+                                     WHERE pr.plot_id = p.id AND pr.kind = 'featured'
+                                       AND pr.status = 'active'
+                                       AND pr.ends_at > NOW()) AS promoted
+                       FROM world_plots p
+                       JOIN world_countries wc ON wc.iso2 = p.country_iso
+                       LEFT JOIN world_cities ci ON ci.id = p.city_id
+                       LEFT JOIN companies co ON co.id = p.company_id
+                       WHERE p.id = %s""", (plot_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                plot = dict(row)
+                plot["promoted"] = bool(plot["promoted"])
+                return plot
+
+    def get_world_plot_by_company(self, company_id: int) -> Optional[Dict]:
+        """The plot that claimed a seed company, or None if still unclaimed."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM world_plots WHERE company_id = %s",
+                            (company_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_world_plots_for_globe(self) -> List[Dict]:
+        """All active plots for globe rendering: id, lat, lng, name,
+        total_cents, country_iso, company_slug and promoted flag."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT p.id, p.lat, p.lng, p.name, p.total_cents,
+                              p.country_iso, p.company_id, co.slug AS company_slug,
+                              EXISTS(SELECT 1 FROM world_promotions pr
+                                     WHERE pr.plot_id = p.id AND pr.kind = 'featured'
+                                       AND pr.status = 'active'
+                                       AND pr.ends_at > NOW()) AS promoted
+                       FROM world_plots p
+                       LEFT JOIN companies co ON co.id = p.company_id
+                       WHERE p.status = 'active'""")
+                out = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    d["promoted"] = bool(d["promoted"])
+                    out.append(d)
+                return out
+
+    def get_world_seed_companies(self) -> List[Dict]:
+        """Geo-located companies not yet claimed as plots — the virtual seed
+        pins (id, name, slug, lat, lng). Excluded automatically once a plot
+        row references the company."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT c.id, c.name, c.slug,
+                              c.latitude AS lat, c.longitude AS lng
+                       FROM companies c
+                       WHERE c.latitude IS NOT NULL AND c.longitude IS NOT NULL
+                         AND NOT EXISTS (SELECT 1 FROM world_plots p
+                                         WHERE p.company_id = c.id)""")
+                return [dict(r) for r in cur.fetchall()]
+
+    def update_world_plot(self, plot_id: int, fields: Dict[str, Any]) -> bool:
+        """Update whitelisted identity fields (WORLD_PLOT_EDITABLE_FIELDS) and
+        bump updated_at. Unknown keys are ignored. Returns True when a row
+        changed. Money (total_cents) is never editable here — use
+        credit_world_plot."""
+        safe = {k: v for k, v in fields.items() if k in self.WORLD_PLOT_EDITABLE_FIELDS}
+        if not safe:
+            return False
+        sets = ", ".join(f"{k} = %s" for k in safe)
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE world_plots SET {sets}, updated_at = NOW() WHERE id = %s",
+                    (*safe.values(), plot_id))
+                return cur.rowcount > 0
+
+    def credit_world_plot(self, plot_id: int, amount_cents: int) -> bool:
+        """Atomically add to a plot's stake via SQL increment (never
+        read-modify-write). Returns True when the plot exists."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE world_plots
+                       SET total_cents = total_cents + %s, updated_at = NOW()
+                       WHERE id = %s""", (amount_cents, plot_id))
+                return cur.rowcount > 0
+
+    def delete_world_plot_if_unreferenced(self, plot_id: int) -> bool:
+        """Delete a plot only when no payment and no promotion reference it.
+
+        Exists for exactly one caller: webhook-redelivery cleanup of an orphan
+        row that lost the insert_world_payment race — a row whose id was never
+        returned to anyone. The guards make it a no-op on any plot that ever
+        took money, so it can never destroy a paid listing."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """DELETE FROM world_plots WHERE id = %s
+                       AND NOT EXISTS (SELECT 1 FROM world_payments WHERE plot_id = %s)
+                       AND NOT EXISTS (SELECT 1 FROM world_promotions WHERE plot_id = %s)""",
+                    (plot_id, plot_id, plot_id))
+                return cur.rowcount > 0
+
+    def insert_world_payment(self, plot_id: int, user_id: int,
+                             stripe_session_id: str, amount_cents: int) -> Dict:
+        """Record a completed checkout. stripe_session_id UNIQUE is the
+        idempotency key: a duplicate insert is reported as
+        {'id': existing_id, 'already_processed': True} so webhook retries
+        never double-credit."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO world_payments
+                       (plot_id, user_id, stripe_session_id, amount_cents)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (stripe_session_id) DO NOTHING
+                       RETURNING id""",
+                    (plot_id, user_id, stripe_session_id, amount_cents))
+                row = cur.fetchone()
+                if row:
+                    return {"id": row[0], "already_processed": False}
+                cur.execute(
+                    "SELECT id FROM world_payments WHERE stripe_session_id = %s",
+                    (stripe_session_id,))
+                existing = cur.fetchone()
+                return {"id": existing[0] if existing else None,
+                        "already_processed": True}
+
+    def get_world_payment_by_session(self, stripe_session_id: str) -> Optional[Dict]:
+        """Payment row for a Stripe checkout session id, or None (used by the
+        post-checkout /claimed poll)."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM world_payments WHERE stripe_session_id = %s",
+                    (stripe_session_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_world_country_board(self, kind: str, limit: int = 100) -> List[Dict]:
+        """World-scope country leaderboard with joint ranks over the FULL set.
+
+        kind: 'richest' (sum of stakes), 'planted' (plot count) or 'rising'
+        (sum of payments in the trailing 24h; delta_cents carries the sum).
+        Rows: rank, iso, name, flag_emoji, total_cents, plots_count,
+        delta_cents (None unless rising). Only active plots count, so virtual
+        seeds can never appear."""
+        if kind == "rising":
+            sql = """
+                SELECT c.iso2 AS iso, c.name, c.flag_emoji,
+                       agg.delta_cents, tot.total_cents, tot.plots_count,
+                       rank() OVER (ORDER BY agg.delta_cents DESC) AS rank
+                FROM (SELECT p.country_iso, SUM(pay.amount_cents) AS delta_cents
+                      FROM world_payments pay
+                      JOIN world_plots p ON p.id = pay.plot_id
+                      WHERE p.status = 'active'
+                        AND pay.created_at >= NOW() - INTERVAL '24 hours'
+                      GROUP BY p.country_iso) agg
+                JOIN world_countries c ON c.iso2 = agg.country_iso
+                LEFT JOIN (SELECT country_iso, SUM(total_cents) AS total_cents,
+                                  COUNT(*) AS plots_count
+                           FROM world_plots WHERE status = 'active'
+                           GROUP BY country_iso) tot
+                       ON tot.country_iso = agg.country_iso
+                ORDER BY rank, c.iso2 LIMIT %s"""
+        else:
+            metric = "agg.total_cents" if kind == "richest" else "agg.plots_count"
+            sql = f"""
+                SELECT c.iso2 AS iso, c.name, c.flag_emoji,
+                       agg.total_cents, agg.plots_count, NULL AS delta_cents,
+                       rank() OVER (ORDER BY {metric} DESC) AS rank
+                FROM (SELECT country_iso, SUM(total_cents) AS total_cents,
+                             COUNT(*) AS plots_count
+                      FROM world_plots WHERE status = 'active'
+                      GROUP BY country_iso) agg
+                JOIN world_countries c ON c.iso2 = agg.country_iso
+                ORDER BY rank, c.iso2 LIMIT %s"""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, (limit,))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_plot_board(self, kind: str, country_iso: Optional[str] = None,
+                             city_id: Optional[int] = None,
+                             limit: int = 100) -> List[Dict]:
+        """Plot leaderboard, optionally scoped to a country or a city.
+
+        kind: 'richest' (stake desc), 'planted' (earliest first) or 'rising'
+        (payments in trailing 24h, delta_cents carries the sum). Joint ranks
+        via rank() over the full filtered set. Rows: rank, plot_id, name, iso,
+        total_cents, delta_cents (None unless rising), created_at."""
+        where, params = ["p.status = 'active'"], []
+        if country_iso:
+            where.append("p.country_iso = %s")
+            params.append(country_iso.upper())
+        if city_id is not None:
+            where.append("p.city_id = %s")
+            params.append(city_id)
+        where_sql = " AND ".join(where)
+        if kind == "rising":
+            sql = f"""
+                SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
+                       p.total_cents, agg.delta_cents, p.created_at,
+                       rank() OVER (ORDER BY agg.delta_cents DESC) AS rank
+                FROM (SELECT plot_id, SUM(amount_cents) AS delta_cents
+                      FROM world_payments
+                      WHERE created_at >= NOW() - INTERVAL '24 hours'
+                      GROUP BY plot_id) agg
+                JOIN world_plots p ON p.id = agg.plot_id
+                WHERE {where_sql}
+                ORDER BY rank, p.id LIMIT %s"""
+        elif kind == "planted":
+            sql = f"""
+                SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
+                       p.total_cents, NULL AS delta_cents, p.created_at,
+                       rank() OVER (ORDER BY p.created_at ASC) AS rank
+                FROM world_plots p WHERE {where_sql}
+                ORDER BY rank, p.id LIMIT %s"""
+        else:
+            sql = f"""
+                SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
+                       p.total_cents, NULL AS delta_cents, p.created_at,
+                       rank() OVER (ORDER BY p.total_cents DESC) AS rank
+                FROM world_plots p WHERE {where_sql}
+                ORDER BY rank, p.id LIMIT %s"""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, (*params, limit))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_founder_board(self, kind: str, limit: int = 100) -> List[Dict]:
+        """Founder leaderboard over active plots that carry a founder_name.
+
+        kind: 'staked' (stake desc) or 'pioneers' (earliest plant first).
+        Rows: rank, founder_name, plot_id, name, total_cents, created_at."""
+        order = "p.created_at ASC" if kind == "pioneers" else "p.total_cents DESC"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""SELECT rank() OVER (ORDER BY {order}) AS rank,
+                               p.founder_name, p.id AS plot_id, p.name,
+                               p.total_cents, p.created_at
+                        FROM world_plots p
+                        WHERE p.status = 'active' AND p.founder_name IS NOT NULL
+                          AND p.founder_name <> ''
+                        ORDER BY rank, p.id LIMIT %s""", (limit,))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_country_stats(self, iso2: str) -> Optional[Dict]:
+        """Country reference row + aggregates: total_cents, plots_count,
+        rank_richest, rank_planted (joint ranks over all countries with
+        active plots; None while the country has no plots)."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT c.iso2, c.iso3, c.name, c.flag_emoji,
+                              c.centroid_lat, c.centroid_lng,
+                              ranked.total_cents, ranked.plots_count,
+                              ranked.rank_richest, ranked.rank_planted
+                       FROM world_countries c
+                       LEFT JOIN (SELECT country_iso, total_cents, plots_count,
+                                         rank() OVER (ORDER BY total_cents DESC) AS rank_richest,
+                                         rank() OVER (ORDER BY plots_count DESC) AS rank_planted
+                                  FROM (SELECT country_iso,
+                                               SUM(total_cents) AS total_cents,
+                                               COUNT(*) AS plots_count
+                                        FROM world_plots WHERE status = 'active'
+                                        GROUP BY country_iso) agg) ranked
+                              ON ranked.country_iso = c.iso2
+                       WHERE c.iso2 = %s""", (iso2.upper(),))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                stats = dict(row)
+                if stats["total_cents"] is None:
+                    stats["total_cents"] = 0
+                    stats["plots_count"] = 0
+                return stats
+
+    def get_world_country_cities(self, iso2: str, limit: int = 50) -> List[Dict]:
+        """Cities of a country that have active plots, richest first:
+        id, name, total_cents, plots_count, top_plot_id, top_plot_name,
+        top_plot_total_cents."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT ci.id, ci.name, agg.total_cents, agg.plots_count,
+                              top.plot_id AS top_plot_id, top.plot_name AS top_plot_name,
+                              top.plot_total_cents AS top_plot_total_cents
+                       FROM (SELECT city_id, SUM(total_cents) AS total_cents,
+                                    COUNT(*) AS plots_count
+                             FROM world_plots
+                             WHERE status = 'active' AND country_iso = %s
+                               AND city_id IS NOT NULL
+                             GROUP BY city_id) agg
+                       JOIN world_cities ci ON ci.id = agg.city_id
+                       LEFT JOIN (SELECT city_id, id AS plot_id, name AS plot_name,
+                                         total_cents AS plot_total_cents
+                                  FROM (SELECT city_id, id, name, total_cents,
+                                               row_number() OVER (PARTITION BY city_id
+                                                                  ORDER BY total_cents DESC, id) AS rn
+                                        FROM world_plots
+                                        WHERE status = 'active' AND country_iso = %s
+                                          AND city_id IS NOT NULL) ranked
+                                  WHERE rn = 1) top
+                              ON top.city_id = ci.id
+                       ORDER BY agg.total_cents DESC, ci.id LIMIT %s""",
+                    (iso2.upper(), iso2.upper(), limit))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_pulse(self, limit: int = 30) -> List[Dict]:
+        """Recent activity feed, newest first. Rows: type ('plant' when the
+        payment is the plot's first, 'topup' otherwise, or 'promotion'),
+        name, country_iso, amount_cents, at."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT * FROM (
+                           SELECT CASE WHEN pay.rn = 1 THEN 'plant' ELSE 'topup' END AS type,
+                                  p.name, p.country_iso, pay.amount_cents,
+                                  pay.created_at AS at
+                           FROM (SELECT id, plot_id, amount_cents, created_at,
+                                        row_number() OVER (PARTITION BY plot_id
+                                                           ORDER BY created_at, id) AS rn
+                                 FROM world_payments) pay
+                           JOIN world_plots p ON p.id = pay.plot_id
+                           WHERE p.status = 'active'
+                           UNION ALL
+                           SELECT 'promotion' AS type,
+                                  COALESCE(pl.name, pr.label) AS name,
+                                  COALESCE(pr.country_iso, pl.country_iso) AS country_iso,
+                                  pr.amount_cents, pr.created_at AS at
+                           FROM world_promotions pr
+                           LEFT JOIN world_plots pl ON pl.id = pr.plot_id
+                           WHERE pr.status = 'active' AND pr.kind = 'featured'
+                       ) events ORDER BY at DESC LIMIT %s""", (limit,))
+                return [dict(r) for r in cur.fetchall()]
+
+    def create_world_promotion(self, promo: Dict[str, Any]) -> Dict:
+        """Insert a promotion. Required: kind ('featured'|'sponsor'), ends_at.
+        Optional: plot_id, user_id, label, url, logo_url, country_iso
+        (None = global), starts_at, amount_cents, stripe_session_id, status.
+        stripe_session_id UNIQUE gives webhook idempotency: duplicates return
+        {'id': existing_id, 'already_processed': True}."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO world_promotions
+                       (kind, plot_id, user_id, label, url, logo_url, country_iso,
+                        starts_at, ends_at, amount_cents, stripe_session_id, status)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s,
+                               COALESCE(%s, NOW()), %s, %s, %s, %s)
+                       ON CONFLICT (stripe_session_id) DO NOTHING
+                       RETURNING id""",
+                    (promo["kind"], promo.get("plot_id"), promo.get("user_id"),
+                     promo.get("label"), promo.get("url"), promo.get("logo_url"),
+                     (promo.get("country_iso") or None) and promo["country_iso"].upper(),
+                     self._world_ts(promo.get("starts_at")),
+                     self._world_ts(promo["ends_at"]),
+                     promo.get("amount_cents", 0), promo.get("stripe_session_id"),
+                     promo.get("status", "active")))
+                row = cur.fetchone()
+                if row:
+                    return {"id": row[0], "already_processed": False}
+                cur.execute(
+                    "SELECT id FROM world_promotions WHERE stripe_session_id = %s",
+                    (promo.get("stripe_session_id"),))
+                existing = cur.fetchone()
+                return {"id": existing[0] if existing else None,
+                        "already_processed": True}
+
+    def get_world_promotion(self, promo_id: int) -> Optional[Dict]:
+        """Promotion row by id, or None."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM world_promotions WHERE id = %s",
+                            (promo_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_world_promotion_by_session(self, stripe_session_id: str) -> Optional[Dict]:
+        """Promotion row for a Stripe checkout session id, or None."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM world_promotions WHERE stripe_session_id = %s",
+                    (stripe_session_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_active_world_promotions(self, country_iso: Optional[str] = None,
+                                    include_global: bool = True) -> List[Dict]:
+        """Currently-running promotions (status active, inside their window),
+        joined with plot name/logo for featured ones. country_iso=None returns
+        the global pool only; a country returns its pool, plus the global pool
+        when include_global is True."""
+        params: list = []
+        if country_iso:
+            scope = "(pr.country_iso = %s" + (" OR pr.country_iso IS NULL)" if include_global else ")")
+            params.append(country_iso.upper())
+        else:
+            scope = "pr.country_iso IS NULL"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""SELECT pr.*, pl.name AS plot_name, pl.logo_url AS plot_logo_url
+                        FROM world_promotions pr
+                        LEFT JOIN world_plots pl ON pl.id = pr.plot_id
+                        WHERE pr.status = 'active'
+                          AND pr.starts_at <= NOW()
+                          AND pr.ends_at > NOW()
+                          AND {scope}
+                        ORDER BY pr.ends_at ASC""", params)
+                return [dict(r) for r in cur.fetchall()]
+
+    def count_active_featured(self, country_iso: Optional[str]) -> int:
+        """How many 'featured' promotions are currently active in a country's
+        pool (None = the global pool, which counts separately). Used to
+        enforce MAX_ACTIVE_FEATURED_PER_COUNTRY at checkout time."""
+        iso = country_iso.upper() if country_iso else None
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT COUNT(*) FROM world_promotions
+                       WHERE kind = 'featured' AND status = 'active'
+                         AND ends_at > NOW()
+                         AND ((country_iso IS NULL AND %s::text IS NULL)
+                              OR country_iso = %s)""", (iso, iso))
+                return cur.fetchone()[0]
+
+    def expire_world_promotions(self) -> int:
+        """Hygiene: flip status to 'expired' on active promotions whose window
+        has passed (queries already filter on ends_at). Returns rows changed."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE world_promotions SET status = 'expired'
+                       WHERE status = 'active' AND ends_at <= NOW()""")
+                return cur.rowcount
+
+    def revoke_world_promotion(self, promo_id: int) -> bool:
+        """Admin removal: set status 'revoked'. Returns True when a row changed."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE world_promotions SET status = 'revoked' WHERE id = %s",
+                    (promo_id,))
+                return cur.rowcount > 0
+
+    def get_world_plots_for_user(self, user_id: int) -> List[Dict]:
+        """All plots owned by a user (any status), newest first, with
+        country_name and city_name attached."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT p.*, wc.name AS country_name, ci.name AS city_name
+                       FROM world_plots p
+                       JOIN world_countries wc ON wc.iso2 = p.country_iso
+                       LEFT JOIN world_cities ci ON ci.id = p.city_id
+                       WHERE p.user_id = %s
+                       ORDER BY p.created_at DESC, p.id DESC""", (user_id,))
+                return [dict(r) for r in cur.fetchall()]
+
+    def get_world_promotions_for_user(self, user_id: int) -> List[Dict]:
+        """A user's promotions (any status), newest first, with plot names."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """SELECT pr.*, pl.name AS plot_name
+                       FROM world_promotions pr
+                       LEFT JOIN world_plots pl ON pl.id = pr.plot_id
+                       WHERE pr.user_id = %s
+                       ORDER BY pr.created_at DESC, pr.id DESC""", (user_id,))
+                return [dict(r) for r in cur.fetchall()]

@@ -29,7 +29,7 @@ const showShareNav = import.meta.env.VITE_SHOW_SHARE_NAV === 'true' || import.me
 
 const moreTabs: NavTab[] = [
   { id: 'leaderboards', label: 'Leaderboards', icon: Trophy, path: '/founders/leaderboard' },
-  { id: 'map', label: 'World Map', icon: Globe2, path: '/map' },
+  { id: 'map', label: 'Company Map', icon: Globe2, path: '/map' },
   { id: 'funding', label: 'Funding', icon: DollarSign, path: '/funding' },
   { id: 'tools', label: 'Tools', icon: Wrench, path: '/tools' },
   { id: 'founders', label: 'Founders', icon: BookOpen, path: '/founders' },

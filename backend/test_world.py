@@ -1,0 +1,620 @@
+"""
+Tests for ExploreYC World — checkout validation, webhook fulfillment,
+boards and promotions (world.py + world_geo.py + the billing.py branch).
+
+Pattern of test_billing.py: fakes, no network, no Stripe account. Checkout
+endpoints run against a FastAPI TestClient with a stubbed stripe module;
+fulfillment is driven through billing.handle_stripe_event with dict events
+(the same shape stripe-python deserializes to). The DB is the real SQLite
+layer on a temp file, so UNIQUE-constraint idempotency and rank() window
+functions are exercised for real, not mocked.
+
+Run: python -m pytest test_world.py
+"""
+
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+import world
+from billing import handle_stripe_event
+from database import Database
+from world import fulfill_world_checkout, screen, status_for_listing
+from world_constants import MIN_STAKE_CENTS, OVERTAKE_MARGIN_CENTS
+
+# Sofia city centre — resolves to BG and snaps to the seeded Sofia row.
+SOFIA = (42.6977, 23.3219)
+# Mid-Atlantic — open ocean, must refuse.
+OCEAN = (0.0, -35.0)
+
+
+# ---- fixtures / helpers ----------------------------------------------------
+
+@pytest.fixture
+def db(tmp_path):
+    d = Database(str(tmp_path / "world_test.db"))
+    with d.get_connection() as conn:
+        conn.executemany(
+            """INSERT INTO world_countries (iso2, iso3, name, flag_emoji, centroid_lat, centroid_lng)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [("BG", "BGR", "Bulgaria", "🇧🇬", 42.75, 25.49),
+             ("US", "USA", "United States", "🇺🇸", 39.78, -100.45),
+             ("FR", "FRA", "France", "🇫🇷", 46.62, 2.45)],
+        )
+        conn.executemany(
+            """INSERT INTO world_cities (id, name, country_iso, lat, lng, population)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [(1, "Sofia", "BG", 42.6977, 23.3219, 1236000),
+             (2, "San Francisco", "US", 37.7749, -122.4194, 873965)],
+        )
+    return d
+
+
+def _user(db, email="founder@example.com", plan="free"):
+    user_id = db.create_api_user(email, "x" * 32)
+    if plan != "free":
+        db.set_api_user_plan(user_id, plan)
+    return user_id
+
+
+def _plant(db, user_id, name="Acme", iso="BG", cents=500, **kw):
+    return db.create_world_plot({
+        "user_id": user_id, "name": name, "lat": kw.pop("lat", SOFIA[0]),
+        "lng": kw.pop("lng", SOFIA[1]), "country_iso": iso,
+        "total_cents": cents, **kw,
+    })
+
+
+def _plot_event(session_id, amount, metadata, mode="payment", payment_status="paid",
+                user_id=None):
+    md = {"product": "world_plot", **metadata}
+    return {"type": "checkout.session.completed",
+            "data": {"object": {
+                "id": session_id, "mode": mode, "payment_status": payment_status,
+                "amount_total": amount,
+                "client_reference_id": str(user_id) if user_id else md.get("user_id"),
+                "metadata": md,
+            }}}
+
+
+def _new_plot_md(user_id, name="Acme", iso="BG", lat=SOFIA[0], lng=SOFIA[1], **extra):
+    return {"user_id": str(user_id), "name": name, "country_iso": iso,
+            "lat": str(lat), "lng": str(lng), **extra}
+
+
+class FakeStripe:
+    """Records checkout.Session.create params; never touches the network."""
+
+    api_key = None
+
+    def __init__(self, url="https://stripe.test/cs_1", session_id="cs_1"):
+        self.sessions = []
+        outer = self
+
+        class _Session:
+            @staticmethod
+            def create(**params):
+                outer.sessions.append(params)
+                return SimpleNamespace(url=url, id=session_id)
+
+        self.checkout = SimpleNamespace(Session=_Session)
+
+
+def _client(db, user_id=None, monkeypatch=None, fake_stripe=None):
+    """TestClient over the world router with a fake dev session."""
+    if user_id is None:
+        def session_dep():
+            raise HTTPException(status_code=401, detail="Missing authorization header")
+    else:
+        def session_dep():
+            return {"user_id": user_id, "user_status": "active"}
+    if monkeypatch is not None:
+        monkeypatch.setattr(world, "stripe", fake_stripe or FakeStripe())
+        monkeypatch.setattr(world, "STRIPE_SECRET_KEY", "sk_test_stub")
+    app = FastAPI()
+    app.include_router(world.create_world_router(db, session_dep))
+    return TestClient(app)
+
+
+def _claim_payload(amount=1000, **overrides):
+    payload = {"lat": SOFIA[0], "lng": SOFIA[1], "name": "Acme",
+               "url": "https://acme.example", "tagline": "We do things",
+               "amount_cents": amount}
+    payload.update(overrides)
+    return payload
+
+
+# ---- moderation ------------------------------------------------------------
+
+def test_clean_listing_is_active():
+    assert status_for_listing("Acme Robotics", "We build robots") == "active"
+
+
+def test_denylist_variants_hit():
+    assert screen("total fuck up") is not None          # word boundary
+    assert screen("f u c k this") is not None           # spaced run
+    assert screen("v14gra deals") is not None           # leetspeak fold
+    assert screen("visit evil.com now") is not None     # embedded url
+    assert screen("Scunthorpe Systems") is None         # Scunthorpe rule holds
+
+
+# ---- checkout validation ---------------------------------------------------
+
+def test_checkout_requires_auth(db, monkeypatch):
+    client = _client(db, user_id=None, monkeypatch=monkeypatch)
+    r = client.post("/api/world/checkout", json=_claim_payload())
+    assert r.status_code == 401
+
+
+def test_checkout_enforces_floor(db, monkeypatch):
+    uid = _user(db)
+    client = _client(db, uid, monkeypatch)
+    r = client.post("/api/world/checkout", json=_claim_payload(amount=MIN_STAKE_CENTS - 1))
+    assert r.status_code == 400
+    assert "5.00" in r.json()["detail"]
+
+
+def test_checkout_rejects_ocean(db, monkeypatch):
+    uid = _user(db)
+    client = _client(db, uid, monkeypatch)
+    r = client.post("/api/world/checkout",
+                    json=_claim_payload(lat=OCEAN[0], lng=OCEAN[1]))
+    assert r.status_code == 400
+    assert r.json()["detail"] == "ocean"
+
+
+def test_checkout_503_when_stripe_unconfigured(db, monkeypatch):
+    uid = _user(db)
+    client = _client(db, uid, monkeypatch)
+    monkeypatch.setattr(world, "STRIPE_SECRET_KEY", None)
+    r = client.post("/api/world/checkout", json=_claim_payload())
+    assert r.status_code == 503
+
+
+def test_checkout_resolves_geography_server_side(db, monkeypatch):
+    uid = _user(db)
+    fake = FakeStripe()
+    client = _client(db, uid, monkeypatch, fake_stripe=fake)
+    r = client.post("/api/world/checkout", json=_claim_payload(amount=1500))
+    assert r.status_code == 200
+    assert r.json() == {"checkout_url": "https://stripe.test/cs_1"}
+
+    assert len(fake.sessions) == 1
+    params = fake.sessions[0]
+    assert params["mode"] == "payment"
+    assert params["client_reference_id"] == str(uid)
+    md = params["metadata"]
+    assert md["product"] == "world_plot"
+    assert md["country_iso"] == "BG"        # resolved by the server, not sent
+    assert md["city_id"] == "1"             # snapped to Sofia
+    # Mirrored to the PaymentIntent for dispute visibility.
+    assert params["payment_intent_data"]["metadata"] == md
+    assert params["line_items"][0]["price_data"]["unit_amount"] == 1500
+    assert "/world/claimed?session_id={CHECKOUT_SESSION_ID}" in params["success_url"]
+    # Checkout writes nothing — the webhook is the sole writer of money.
+    with db.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_plots").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM world_payments").fetchone()[0] == 0
+
+
+def test_topup_checkout_uses_stored_geography(db, monkeypatch):
+    """A top-up must not let the buyer relocate the plot by lying about lat/lng."""
+    uid = _user(db)
+    plot_id = _plant(db, uid, iso="BG")
+    fake = FakeStripe()
+    client = _client(db, uid, monkeypatch, fake_stripe=fake)
+    r = client.post("/api/world/checkout",
+                    json=_claim_payload(plot_id=plot_id, lat=48.8566, lng=2.3522))  # Paris
+    assert r.status_code == 200
+    md = fake.sessions[0]["metadata"]
+    assert md["country_iso"] == "BG"
+    assert float(md["lat"]) == pytest.approx(SOFIA[0])
+    assert md["plot_id"] == str(plot_id)
+
+
+def test_checkout_refuses_already_claimed_company(db, monkeypatch):
+    uid = _user(db)
+    _plant(db, uid, company_id=77)
+    client = _client(db, uid, monkeypatch)
+    r = client.post("/api/world/checkout", json=_claim_payload(company_id=77))
+    assert r.status_code == 409
+
+
+# ---- THE regression: mode=payment never touches api_users.plan -------------
+
+def test_mode_payment_session_never_modifies_plan(db):
+    uid = _user(db, plan="pro")  # a paying Pro subscriber buys a plot
+    event = _plot_event("cs_reg_1", 1000, _new_plot_md(uid), user_id=uid)
+    result = handle_stripe_event(db, event)
+    assert result["handled"] is True
+    assert result["outcome"] == "created"
+    # The hazard this guards: plan_for_price("") → None → "free" would have
+    # silently downgraded the subscriber. The plan must be untouched.
+    assert db.get_api_user_by_id(uid)["plan"] == "pro"
+
+
+def test_foreign_payment_session_is_ignored_and_plan_untouched(db):
+    uid = _user(db, plan="max")
+    event = {"type": "checkout.session.completed",
+             "data": {"object": {"id": "cs_other", "mode": "payment",
+                                 "payment_status": "paid", "amount_total": 700,
+                                 "client_reference_id": str(uid),
+                                 "metadata": {"product": "gift_card"}}}}
+    result = handle_stripe_event(db, event)
+    assert result["outcome"] == "ignored"
+    assert db.get_api_user_by_id(uid)["plan"] == "max"
+    with db.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_payments").fetchone()[0] == 0
+
+
+def test_subscription_checkout_still_reaches_billing_path(db, monkeypatch):
+    """The world branch must not swallow subscription sessions (no mode, no product)."""
+    import billing
+
+    class _StubSub:
+        @staticmethod
+        def retrieve(sub_id):
+            return {"status": "active", "items": {"data": [{"price": {"id": "price_x"}}]}}
+
+    monkeypatch.setattr(billing, "stripe", SimpleNamespace(Subscription=_StubSub))
+    monkeypatch.setattr(billing, "STRIPE_SECRET_KEY", "sk_test_stub")
+    uid = _user(db)
+    event = {"type": "checkout.session.completed",
+             "data": {"object": {"client_reference_id": str(uid), "customer": "cus_1",
+                                 "subscription": "sub_1", "metadata": {"plan": "pro"}}}}
+    result = handle_stripe_event(db, event)
+    assert result["handled"] is True
+    assert "plan" in result  # went down the subscription path
+
+
+# ---- fulfillment -----------------------------------------------------------
+
+def test_new_plot_fulfillment(db):
+    uid = _user(db)
+    md = _new_plot_md(uid, tagline="We do things", founder_name="Ana",
+                      city_id="1", url="https://acme.example")
+    result = fulfill_world_checkout(db, _plot_event("cs_1", 2500, md, user_id=uid)["data"]["object"])
+    assert result["outcome"] == "created"
+    plot = db.get_world_plot(result["plot_id"])
+    assert plot["total_cents"] == 2500      # amount_total, the receipt
+    assert plot["status"] == "active"
+    assert plot["founder_name"] == "Ana"
+    assert plot["city_id"] == 1
+    assert plot["user_id"] == uid
+
+
+def test_fulfillment_is_idempotent(db):
+    """Duplicate delivery of the same session id → a single credit."""
+    uid = _user(db)
+    event = _plot_event("cs_dup", 1000, _new_plot_md(uid), user_id=uid)
+    first = handle_stripe_event(db, event)
+    second = handle_stripe_event(db, event)
+    assert first["outcome"] == "created"
+    assert second["outcome"] == "duplicate"
+    plot = db.get_world_plot(first["plot_id"])
+    assert plot["total_cents"] == 1000  # credited exactly once
+    with db.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_plots").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM world_payments").fetchone()[0] == 1
+
+
+def test_topup_credits_and_ignores_text_fields(db):
+    uid = _user(db)
+    plot_id = _plant(db, uid, name="Original", cents=500, tagline="honest line")
+    md = {"user_id": str(uid), "plot_id": str(plot_id),
+          "name": "HACKED", "tagline": "unmoderated rewrite"}
+    result = fulfill_world_checkout(db, _plot_event("cs_top", 700, md, user_id=uid)["data"]["object"])
+    assert result["outcome"] == "topped-up"
+    plot = db.get_world_plot(plot_id)
+    assert plot["total_cents"] == 1200
+    assert plot["name"] == "Original"           # checkout is not an edit path
+    assert plot["tagline"] == "honest line"
+
+
+def test_topup_duplicate_session_single_credit(db):
+    uid = _user(db)
+    plot_id = _plant(db, uid, cents=500)
+    obj = _plot_event("cs_top_dup", 700, {"user_id": str(uid), "plot_id": str(plot_id)},
+                      user_id=uid)["data"]["object"]
+    assert fulfill_world_checkout(db, obj)["outcome"] == "topped-up"
+    assert fulfill_world_checkout(db, obj)["outcome"] == "duplicate"
+    assert db.get_world_plot(plot_id)["total_cents"] == 1200
+
+
+def test_unpaid_session_credits_nothing(db):
+    uid = _user(db)
+    event = _plot_event("cs_unpaid", 1000, _new_plot_md(uid), user_id=uid,
+                        payment_status="unpaid")
+    result = handle_stripe_event(db, event)
+    assert result["outcome"] == "ignored"
+    with db.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_plots").fetchone()[0] == 0
+
+
+def test_moderation_hit_holds_render_never_money(db):
+    uid = _user(db)
+    md = _new_plot_md(uid, name="Fuck Yeah Inc")
+    result = fulfill_world_checkout(db, _plot_event("cs_mod", 900, md, user_id=uid)["data"]["object"])
+    assert result["outcome"] == "created"
+    plot = db.get_world_plot(result["plot_id"])
+    assert plot["status"] == "pending"      # held, not rendered
+    assert plot["total_cents"] == 900       # but paid for and credited
+
+
+def test_seed_claim_and_second_claim_becomes_topup(db):
+    uid1, uid2 = _user(db, "a@x.com"), _user(db, "b@x.com")
+    with db.get_connection() as conn:
+        conn.execute("""INSERT INTO companies (id, name, slug, latitude, longitude)
+                        VALUES (55, 'SeedCo', 'seedco', 42.7, 23.3)""")
+    assert any(c["id"] == 55 for c in db.get_world_seed_companies())
+
+    md1 = _new_plot_md(uid1, name="SeedCo", company_id="55")
+    r1 = fulfill_world_checkout(db, _plot_event("cs_s1", 1000, md1, user_id=uid1)["data"]["object"])
+    assert r1["outcome"] == "created"
+    # Claimed: the virtual seed pin disappears by construction.
+    assert not any(c["id"] == 55 for c in db.get_world_seed_companies())
+
+    # Second buyer paying for the same company out-stakes the owner: top-up,
+    # their text never overwrites the first claim.
+    md2 = _new_plot_md(uid2, name="Stolen Name", company_id="55")
+    r2 = fulfill_world_checkout(db, _plot_event("cs_s2", 600, md2, user_id=uid2)["data"]["object"])
+    assert r2["outcome"] == "topped-up"
+    plot = db.get_world_plot(r1["plot_id"])
+    assert plot["name"] == "SeedCo"
+    assert plot["total_cents"] == 1600
+
+
+# ---- boards ----------------------------------------------------------------
+
+def test_board_joint_ranks_over_full_set(db):
+    uid = _user(db)
+    _plant(db, uid, name="A", iso="US", cents=1000, lat=37.7, lng=-122.4)
+    _plant(db, uid, name="B", iso="BG", cents=1000)
+    _plant(db, uid, name="C", iso="FR", cents=500, lat=48.8, lng=2.35)
+    client = _client(db, uid)
+    rows = client.get("/api/world/board?kind=richest&scope=world").json()["rows"]
+    assert [r["rank"] for r in rows] == [1, 1, 3]    # joint ranks are real
+    assert all(r["plot_id"] is None for r in rows)   # world scope = countries
+
+
+def test_cents_to_beat_richest_and_unknown_planted(db):
+    uid = _user(db)
+    _plant(db, uid, name="Leader", iso="BG", cents=2000)
+    client = _client(db, uid)
+    richest = client.get("/api/world/board?kind=richest&scope=world").json()
+    assert richest["cents_to_beat"] == 2000 + OVERTAKE_MARGIN_CENTS
+    # 'planted' ranks by count/age — money cannot buy it, so the honest
+    # answer is unknown: an explicit null, never a guessed price.
+    planted = client.get("/api/world/board?kind=planted&scope=world").json()
+    assert planted["cents_to_beat"] is None
+
+
+def test_cents_to_beat_on_empty_board_is_the_floor(db):
+    client = _client(db, _user(db))
+    body = client.get("/api/world/board?kind=richest&scope=world").json()
+    assert body["rows"] == []
+    assert body["cents_to_beat"] == MIN_STAKE_CENTS
+
+
+def test_board_country_scope_rows_are_plots(db):
+    uid = _user(db)
+    p1 = _plant(db, uid, name="A", iso="BG", cents=900)
+    _plant(db, uid, name="B", iso="US", cents=5000, lat=37.7, lng=-122.4)
+    client = _client(db, uid)
+    rows = client.get("/api/world/board?kind=richest&scope=country:BG").json()["rows"]
+    assert [r["plot_id"] for r in rows] == [p1]
+
+
+def test_board_rejects_bad_kind_and_scope(db):
+    client = _client(db, _user(db))
+    assert client.get("/api/world/board?kind=weird").status_code == 400
+    assert client.get("/api/world/board?kind=richest&scope=galaxy:1").status_code == 400
+
+
+def test_virtual_seeds_excluded_from_boards_but_on_globe(db):
+    uid = _user(db)
+    with db.get_connection() as conn:
+        conn.execute("""INSERT INTO companies (id, name, slug, latitude, longitude)
+                        VALUES (9, 'GhostCo', 'ghostco', 42.7, 23.3)""")
+    client = _client(db, uid)
+    globe = client.get("/api/world/globe").json()["plots"]
+    seeds = [p for p in globe if p["kind"] == "seed"]
+    assert len(seeds) == 1 and seeds[0]["company_slug"] == "ghostco" and seeds[0]["tier"] == 0
+    # Boards read only world_plots, so seeds can never appear.
+    assert client.get("/api/world/board?kind=planted&scope=world").json()["rows"] == []
+    assert client.get("/api/world/board?kind=richest&scope=country:BG").json()["rows"] == []
+
+
+# ---- promotions ------------------------------------------------------------
+
+def _active_promo(db, iso="BG", plot_id=None, sid=None):
+    return db.create_world_promotion({
+        "kind": "featured", "plot_id": plot_id, "country_iso": iso,
+        "ends_at": datetime.now(timezone.utc) + timedelta(days=7),
+        "amount_cents": 1900, "stripe_session_id": sid, "status": "active",
+    })
+
+
+def test_promotion_checkout_caps_at_three_per_country(db, monkeypatch):
+    uid = _user(db)
+    plot_id = _plant(db, uid, iso="BG")
+    for i in range(3):
+        _active_promo(db, iso="BG", plot_id=plot_id, sid=f"cs_seed_{i}")
+    client = _client(db, uid, monkeypatch)
+    r = client.post("/api/world/promotions/checkout", json={"plot_id": plot_id, "tier": "7d"})
+    assert r.status_code == 409
+
+
+def test_promotion_checkout_creates_session(db, monkeypatch):
+    uid = _user(db)
+    plot_id = _plant(db, uid, iso="BG")
+    fake = FakeStripe()
+    client = _client(db, uid, monkeypatch, fake_stripe=fake)
+    r = client.post("/api/world/promotions/checkout", json={"plot_id": plot_id, "tier": "7d"})
+    assert r.status_code == 200
+    params = fake.sessions[0]
+    assert params["mode"] == "payment"
+    assert params["metadata"]["product"] == "world_promotion"
+    assert params["metadata"]["country_iso"] == "BG"
+    assert params["line_items"][0]["price_data"]["unit_amount"] == 1900  # $19 / 7d
+
+
+def test_promotion_checkout_rejects_bad_tier_and_wrong_owner(db, monkeypatch):
+    owner, stranger = _user(db, "o@x.com"), _user(db, "s@x.com")
+    plot_id = _plant(db, owner)
+    client = _client(db, stranger, monkeypatch)
+    assert client.post("/api/world/promotions/checkout",
+                       json={"plot_id": plot_id, "tier": "90d"}).status_code == 400
+    assert client.post("/api/world/promotions/checkout",
+                       json={"plot_id": plot_id, "tier": "7d"}).status_code == 403
+
+
+def test_promotion_fulfillment_activates_and_is_idempotent(db):
+    uid = _user(db)
+    plot_id = _plant(db, uid, iso="BG")
+    obj = {"id": "cs_promo", "mode": "payment", "payment_status": "paid",
+           "amount_total": 1900, "client_reference_id": str(uid),
+           "metadata": {"product": "world_promotion", "user_id": str(uid),
+                        "plot_id": str(plot_id), "tier": "7d", "country_iso": "BG"}}
+    first = fulfill_world_checkout(db, obj)
+    second = fulfill_world_checkout(db, obj)
+    assert first["outcome"] == "created"
+    assert second["outcome"] == "duplicate"
+    assert db.count_active_featured("BG") == 1
+    active = db.get_active_world_promotions("BG")
+    assert len(active) == 1 and active[0]["plot_id"] == plot_id
+
+
+# ---- post-checkout poll & where -------------------------------------------
+
+def test_claimed_poll_pending_then_done(db):
+    uid = _user(db)
+    client = _client(db, uid)
+    assert client.get("/api/world/claimed?session_id=cs_wait").json() == {
+        "status": "pending", "plot_id": None}
+    result = fulfill_world_checkout(
+        db, _plot_event("cs_wait", 800, _new_plot_md(uid), user_id=uid)["data"]["object"])
+    body = client.get("/api/world/claimed?session_id=cs_wait").json()
+    assert body == {"status": "done", "plot_id": result["plot_id"]}
+
+
+def test_where_resolves_land_and_refuses_ocean(db):
+    client = _client(db, _user(db))
+    body = client.get(f"/api/world/where?lat={SOFIA[0]}&lng={SOFIA[1]}").json()
+    assert body["country_iso"] == "BG"
+    assert body["country_name"] == "Bulgaria"
+    assert body["city_id"] == 1 and body["city_name"] == "Sofia"
+    r = client.get(f"/api/world/where?lat={OCEAN[0]}&lng={OCEAN[1]}")
+    assert r.status_code == 400 and r.json()["detail"] == "ocean"
+
+
+# ---- plot detail & owner management ---------------------------------------
+
+def test_plot_detail_is_mine_flag(db):
+    uid, other = _user(db, "o@x.com"), _user(db, "s@x.com")
+    plot_id = _plant(db, uid)
+    client = _client(db, uid)
+    # No Authorization header → no is_mine key at all.
+    anon = client.get(f"/api/world/plots/{plot_id}").json()
+    assert "is_mine" not in anon
+    assert "user_id" not in anon  # owner identity is not public
+    assert client.get("/api/world/plots/999999").status_code == 404
+
+
+def test_patch_reruns_moderation_and_enforces_owner(db):
+    owner, stranger = _user(db, "o@x.com"), _user(db, "s@x.com")
+    plot_id = _plant(db, owner, name="Clean")
+    assert _client(db, stranger).patch(
+        f"/api/world/plots/{plot_id}", json={"name": "Mine Now"}).status_code == 403
+    body = _client(db, owner).patch(
+        f"/api/world/plots/{plot_id}", json={"tagline": "buy free bitcoin here"}).json()
+    assert body["status"] == "pending"   # edit held for review, plot kept
+    assert db.get_world_plot(plot_id)["tagline"] == "buy free bitcoin here"
+
+
+# ---- adversarial hardening -------------------------------------------------
+
+def test_checkout_rejects_non_https_links(db, monkeypatch):
+    """url / founder_link render straight into <a href>: https-only, always."""
+    uid = _user(db)
+    client = _client(db, uid, monkeypatch)
+    for field, value in (
+        ("url", "javascript:alert(1)"),
+        ("url", "http://acme.example"),          # downgrade
+        ("url", "data:text/html,<script>1</script>"),
+        ("url", "java\nscript:alert(1)"),        # WHATWG newline smuggle
+        ("url", "acme.example"),                 # scheme-less
+        ("founder_link", "javascript:alert(1)"),
+    ):
+        r = client.post("/api/world/checkout", json=_claim_payload(**{field: value}))
+        assert r.status_code == 400, (field, value, r.text)
+    # and a clean https link still sails through
+    assert client.post("/api/world/checkout", json=_claim_payload()).status_code == 200
+
+
+def test_patch_rejects_non_https_links(db):
+    uid = _user(db)
+    plot_id = _plant(db, uid)
+    client = _client(db, uid)
+    assert client.patch(f"/api/world/plots/{plot_id}",
+                        json={"url": "javascript:alert(1)"}).status_code == 400
+    assert client.patch(f"/api/world/plots/{plot_id}",
+                        json={"founder_link": "http://x.example"}).status_code == 400
+    assert db.get_world_plot(plot_id)["url"] is None  # nothing stored
+    assert client.patch(f"/api/world/plots/{plot_id}",
+                        json={"url": "https://ok.example"}).status_code == 200
+
+
+def test_founder_fields_are_moderated_at_fulfillment(db):
+    """founder_name renders on the shared founders board — a hostile value
+    holds the render exactly like a hostile name would (never the money)."""
+    uid = _user(db)
+    md = _new_plot_md(uid, founder_name="Fuck You Inc")
+    result = fulfill_world_checkout(
+        db, _plot_event("cs_fmod", 900, md, user_id=uid)["data"]["object"])
+    assert result["outcome"] == "created"
+    plot = db.get_world_plot(result["plot_id"])
+    assert plot["status"] == "pending"
+    assert plot["total_cents"] == 900
+
+
+def test_patch_moderates_founder_fields(db):
+    uid = _user(db)
+    plot_id = _plant(db, uid, name="Clean")
+    body = _client(db, uid).patch(
+        f"/api/world/plots/{plot_id}",
+        json={"founder_title": "chief fuck officer"}).json()
+    assert body["status"] == "pending"
+    # clearing it back to clean text reactivates via the merged re-screen
+    body = _client(db, uid).patch(
+        f"/api/world/plots/{plot_id}", json={"founder_title": "CEO"}).json()
+    assert body["status"] == "active"
+
+
+def test_redelivery_race_orphan_plot_self_heals(db, monkeypatch):
+    """Two concurrent deliveries of one session: the loser's freshly minted
+    plot row is deleted, leaving exactly one plot and one payment."""
+    uid = _user(db)
+    obj = _plot_event("cs_race", 1000, _new_plot_md(uid), user_id=uid)["data"]["object"]
+    first = fulfill_world_checkout(db, obj)
+    assert first["outcome"] == "created"
+    # Simulate the loser thread: it passed the fast path before the winner's
+    # payment row existed, so it reaches create_world_plot + insert.
+    monkeypatch.setattr(db, "get_world_payment_by_session", lambda sid: None)
+    second = fulfill_world_checkout(db, obj)
+    assert second["outcome"] == "duplicate"
+    with db.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_plots").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM world_payments").fetchone()[0] == 1
+    assert db.get_world_plot(first["plot_id"])["total_cents"] == 1000
+
+
+def test_delete_guard_never_touches_a_paid_plot(db):
+    uid = _user(db)
+    plot_id = _plant(db, uid)
+    db.insert_world_payment(plot_id, uid, "cs_paid_guard", 500)
+    assert db.delete_world_plot_if_unreferenced(plot_id) is False
+    assert db.get_world_plot(plot_id) is not None
