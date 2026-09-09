@@ -19,8 +19,13 @@ export function FoundersPage() {
           <div className="flex items-center gap-3 mb-6">
             <DataInsightsSVG className="w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0" />
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold">For Founders</h1>
-              <p className="text-sm text-muted-foreground font-mono">
+              <div className="flex items-center gap-2 mb-1 font-mono text-sm text-muted-foreground">
+                <span>$ exploreyc --founders</span>
+              </div>
+              <h1 className="text-3xl font-bold font-mono">
+                <span className="text-[#FB651E]">&gt;</span> For Founders
+              </h1>
+              <p className="text-sm text-muted-foreground font-mono mt-1">
                 Paul Graham essays and daily YC updates
               </p>
             </div>

@@ -296,11 +296,8 @@ export function FundingPage() {
             </div>
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
               <div className="flex-1">
-                <h1 className="text-3xl md:text-4xl font-bold mb-2 font-mono">
-                  <span className="text-emerald-500">&gt;</span>{' '}
-                  <span className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
-                    YC Funding Leaderboard
-                  </span>
+                <h1 className="text-3xl font-bold mb-2 font-mono">
+                  <span className="text-[#FB651E]">&gt;</span> YC Funding Leaderboard
                 </h1>
                 <p className="text-muted-foreground font-mono text-sm">
                   {filteredNetwork?.companies.length

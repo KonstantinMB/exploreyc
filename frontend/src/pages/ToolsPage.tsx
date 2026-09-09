@@ -38,10 +38,13 @@ export function ToolsPage() {
             <Zap className="h-4 w-4 text-[#FB651E]" />
             <span className="text-sm font-mono text-[#FB651E]">Free Tools for Founders</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">
-            <span className="font-mono text-[#FB651E]">&gt;</span> Build Smarter with YC Data
+          <div className="flex items-center justify-center gap-2 mb-2 font-mono text-sm text-muted-foreground">
+            <span>$ exploreyc --tools</span>
+          </div>
+          <h1 className="text-3xl md:text-4xl font-bold font-mono mb-4 [text-wrap:balance]">
+            <span className="text-[#FB651E]">&gt;</span> Build Smarter with YC Data
           </h1>
-          <p className="text-lg text-muted-foreground font-mono">
+          <p className="text-base text-muted-foreground font-mono max-w-2xl mx-auto">
             Powerful, free tools built on Y Combinator's portfolio data to help you validate ideas, track funding, and grow your startup.
           </p>
         </motion.div>
@@ -51,7 +54,7 @@ export function ToolsPage() {
           variants={containerVariants}
           initial="hidden"
           animate="show"
-          className="grid lg:grid-cols-3 gap-6 md:gap-8 max-w-7xl mx-auto mb-12"
+          className="grid sm:grid-cols-2 gap-6 md:gap-8 max-w-5xl mx-auto mb-12"
         >
           {/* Idea Validator */}
           <motion.div variants={itemVariants}>
