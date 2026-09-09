@@ -112,15 +112,28 @@ def handle_stripe_event(db, event: dict) -> dict:
     return {"handled": False}  # unrecognized events are acknowledged, not errors
 
 
+def _stripe_error_detail(e: Exception, fallback: str) -> str:
+    """
+    Human-readable Stripe failure for the dashboard. Stripe's user_message /
+    message fields are safe to show (no secrets) and name the actual problem
+    (e.g. "No such price: 'prod_…'"), which beats a generic retry prompt.
+    """
+    msg = getattr(e, "user_message", None) or getattr(e, "message", None) or str(e)
+    return f"{fallback} Stripe said: {msg}" if msg else fallback
+
+
 def create_billing_router(db, verify_dev_session) -> APIRouter:
     router = APIRouter()
 
+    # Endpoints are sync `def` on purpose: the Stripe SDK is blocking, and FastAPI
+    # runs sync handlers in the threadpool instead of blocking the event loop.
+
     @router.get("/api/dev/plans")
-    async def list_plans():
+    def list_plans():
         return {"plans": public_plans()}
 
     @router.post("/api/dev/billing/checkout")
-    async def create_checkout(payload: dict, session: dict = Depends(verify_dev_session)):
+    def create_checkout(payload: dict, session: dict = Depends(verify_dev_session)):
         _stripe_ready()
         plan = (payload or {}).get("plan")
         if plan not in PURCHASABLE_PLANS:
@@ -152,11 +165,13 @@ def create_billing_router(db, verify_dev_session) -> APIRouter:
             checkout = stripe.checkout.Session.create(**params)
         except Exception as e:
             logger.error("billing: checkout session failed: %s", e)
-            raise HTTPException(status_code=502, detail="Could not start checkout. Please try again.")
+            # 400, not 502: Cloudflare replaces origin 502s with its own error page
+            # (no CORS headers), which the browser reports as a CORS failure.
+            raise HTTPException(status_code=400, detail=_stripe_error_detail(e, "Could not start checkout."))
         return {"url": checkout.url}
 
     @router.post("/api/dev/billing/portal")
-    async def create_portal(session: dict = Depends(verify_dev_session)):
+    def create_portal(session: dict = Depends(verify_dev_session)):
         _stripe_ready()
         user = db.get_api_user_by_id(session["user_id"])
         if not user.get("stripe_customer_id"):
@@ -168,7 +183,7 @@ def create_billing_router(db, verify_dev_session) -> APIRouter:
             )
         except Exception as e:
             logger.error("billing: portal session failed: %s", e)
-            raise HTTPException(status_code=502, detail="Could not open the billing portal. Please try again.")
+            raise HTTPException(status_code=400, detail=_stripe_error_detail(e, "Could not open the billing portal."))
         return {"url": portal.url}
 
     @router.post("/api/stripe/webhook")
