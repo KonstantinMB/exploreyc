@@ -432,11 +432,26 @@ export function ApiDocsPage() {
                   founders, and more. JSON over HTTPS. Free tier is 5 requests/day.
                 </p>
                 <div className="flex flex-wrap gap-2">
+                  <Link to={user ? '/dashboard' : '/signup'}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-[#FB651E] hover:bg-[#E65C00] text-white text-sm font-semibold rounded-sm transition-colors font-mono shadow-[0_0_16px_rgba(251,101,30,0.3)]">
+                    <KeyRound className="h-4 w-4" /> {user ? 'Your dashboard — keys & usage' : 'Get your free API key'}
+                  </Link>
                   <a href={`${API_BASE}/docs`} target="_blank" rel="noopener noreferrer"
                      className="inline-flex items-center gap-2 px-3 py-2 border border-border text-sm rounded-sm hover:border-[#FB651E]/50 transition-colors font-mono">
                     <BookOpen className="h-4 w-4" /> Interactive Swagger <ExternalLink className="h-3 w-3" />
                   </a>
                 </div>
+                {user && (
+                  <div className="mt-3 inline-flex flex-wrap items-center gap-x-4 gap-y-1 rounded-sm border border-border px-3 py-2 font-mono text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      {user.email}
+                    </span>
+                    <span>plan: <span className="text-[#FB651E] capitalize">{user.plan}</span></span>
+                    <span>quota: {user.daily_limit == null ? '∞' : `${user.daily_limit.toLocaleString()}/day`}</span>
+                    <Link to="/dashboard" className="text-[#FB651E] hover:underline">usage →</Link>
+                  </div>
+                )}
                 <div className="mt-4">
                   <Terminal title="base url">
                     <div className="flex items-center justify-between gap-2">
@@ -448,7 +463,7 @@ export function ApiDocsPage() {
                 {/* New: founder leaderboards anchor */}
                 <Link
                   to="/founders/leaderboard"
-                  className="mt-4 group flex flex-wrap items-center gap-3 rounded-md border border-[#FB651E]/30 bg-[#FB651E]/[0.05] px-4 py-3 transition-colors hover:border-[#FB651E]/60"
+                  className="mt-4 group flex flex-col sm:flex-row sm:items-center items-start gap-3 rounded-md border border-[#FB651E]/30 bg-[#FB651E]/[0.05] px-4 py-3 transition-colors hover:border-[#FB651E]/60"
                 >
                   <img src="/yc-logo.png" alt="Y Combinator" className="h-9 w-9 shrink-0 rounded-md" />
                   <div className="min-w-0 flex-1">
