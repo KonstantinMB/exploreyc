@@ -116,8 +116,10 @@ export function DeveloperDashboard() {
     onError: (e: any) => setBillingError(e?.response?.data?.detail || 'Could not start checkout.'),
   })
 
+  // `_source` is only there so mutation.variables identifies which button was
+  // clicked — the API call itself takes no arguments.
   const portal = useMutation({
-    mutationFn: () => apiClient.createBillingPortal().then((r) => r.data),
+    mutationFn: (_source?: string) => apiClient.createBillingPortal().then((r) => r.data),
     onSuccess: (d) => { window.location.href = d.url },
     onError: (e: any) => setBillingError(e?.response?.data?.detail || 'Could not open billing portal.'),
   })
@@ -379,9 +381,9 @@ export function DeveloperDashboard() {
                       <Button
                         className={`font-mono mt-1 ${featured ? 'bg-[#FB651E] hover:bg-[#E65C00] shadow-[0_0_14px_rgba(251,101,30,0.3)]' : 'bg-[#FB651E]/90 hover:bg-[#E65C00]'}`}
                         disabled={checkout.isPending || portal.isPending}
-                        onClick={() => (hasActiveSub ? portal.mutate() : checkout.mutate(p.key))}
+                        onClick={() => (hasActiveSub ? portal.mutate(p.key) : checkout.mutate(p.key))}
                       >
-                        {checkout.isPending || portal.isPending
+                        {(checkout.isPending && checkout.variables === p.key) || (portal.isPending && portal.variables === p.key)
                           ? <Loader2 className="h-4 w-4 animate-spin" />
                           : hasActiveSub ? 'Change plan' : `Subscribe — $${p.price_usd_month}/mo`}
                       </Button>
