@@ -173,15 +173,18 @@ export function HiringBoardPagePaginated() {
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-8 text-center"
               >
-                <h1 className="mb-4 bg-gradient-to-r from-[#FB651E] via-orange-400 to-red-400 bg-clip-text text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-transparent leading-relaxed py-1">
-                  YC Hiring Board
+                <div className="flex items-center justify-center gap-2 mb-2 font-mono text-sm text-muted-foreground">
+                  <span>$ exploreyc --hiring</span>
+                </div>
+                <h1 className="mb-3 text-3xl md:text-4xl font-bold font-mono [text-wrap:balance]">
+                  <span className="text-[#FB651E]">&gt;</span> YC Hiring Board
                 </h1>
-                <p className="text-sm sm:text-base md:text-lg text-muted-foreground mb-4">
-                  Discover latest job opportunities at Y Combinator funded companies
+                <p className="text-sm md:text-base text-muted-foreground font-mono mb-4">
+                  Discover the latest job opportunities at Y Combinator funded companies
                 </p>
                 <Link
                   to="/hiring/analytics"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#FB651E]/50 text-[#FB651E] hover:bg-[#FB651E]/10 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-sm border border-[#FB651E]/50 text-[#FB651E] hover:bg-[#FB651E]/10 font-mono text-sm transition-colors"
                 >
                   <BarChart3 className="h-4 w-4" />
                   View Market Analytics →
