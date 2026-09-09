@@ -6,6 +6,7 @@ import {
   KeyRound, Copy, Check, Trash2, Plus, LogOut, Loader2, BookOpen, AlertCircle, Terminal, Activity, Camera,
   CreditCard, Zap,
 } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { HackerCard } from '../components/ui/hacker-card'
 import { Button } from '../components/ui/button'
@@ -39,6 +40,19 @@ function resizeToDataUrl(file: File, size = 160): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = () => setReduced(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return reduced
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -81,6 +95,7 @@ export function DeveloperDashboard() {
   })
 
   const [billingError, setBillingError] = useState('')
+  const reducedMotion = usePrefersReducedMotion()
   const [searchParams, setSearchParams] = useSearchParams()
   const billingResult = searchParams.get('billing') // 'success' | 'cancelled' | null
 
@@ -158,14 +173,16 @@ export function DeveloperDashboard() {
   return (
     <>
       <Helmet><title>Developer Dashboard | ExploreYC API</title></Helmet>
-      <div className="min-h-screen bg-background p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
+      <div className="min-h-screen bg-background p-4 md:p-8 relative overflow-x-clip">
+        {/* Ambient glow — anchors the page to the brand without shouting */}
+        <div aria-hidden className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 h-80 w-[36rem] max-w-full rounded-full bg-[#FB651E]/10 blur-3xl" />
+        <div className="max-w-4xl mx-auto relative">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-2 font-mono text-sm text-muted-foreground">
                 <Terminal className="h-4 w-4 text-[#FB651E]" />
-                <span>$ exploreyc --api</span>
+                <span>$ exploreyc --api<span className="terminal-cursor" aria-hidden /></span>
               </div>
               <h1 className="text-3xl font-bold font-mono">
                 <span className="text-[#FB651E]">&gt;</span> Developer Dashboard
@@ -318,14 +335,30 @@ export function DeveloperDashboard() {
                 {paidPlans.map((p) => {
                   const featured = p.key === 'pro' && plan === 'free'
                   return (
-                    <div
-                      key={p.key}
-                      className={`rounded-lg border p-4 flex flex-col gap-2 transition-shadow ${
-                        featured
-                          ? 'border-[#FB651E]/60 shadow-[0_0_20px_rgba(251,101,30,0.12)]'
-                          : 'border-border'
-                      }`}
-                    >
+                    <div key={p.key} className={featured ? 'relative rounded-lg p-[1.5px] overflow-hidden' : ''}>
+                      {/* Rotating conic ring — the one hero flourish, reserved for the recommended tier */}
+                      {featured && !reducedMotion && (
+                        <motion.div
+                          aria-hidden
+                          className="pointer-events-none absolute -inset-[150%]"
+                          style={{
+                            background:
+                              'conic-gradient(from 0deg, transparent 0deg, #FB651E 40deg, #ffb27a 70deg, transparent 130deg, transparent 230deg, #FB651E 300deg, transparent 340deg)',
+                          }}
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 7, ease: 'linear', repeat: Infinity }}
+                        />
+                      )}
+                      {featured && reducedMotion && (
+                        <div aria-hidden className="pointer-events-none absolute inset-0 rounded-lg border border-[#FB651E]/50" />
+                      )}
+                      <div
+                        className={`flex flex-col gap-2 p-4 ${
+                          featured
+                            ? 'relative rounded-[calc(0.5rem-1.5px)] bg-background shadow-[0_0_24px_rgba(251,101,30,0.10)]'
+                            : 'rounded-lg border border-border transition-shadow hover:border-[#FB651E]/40'
+                        }`}
+                      >
                       <div className="flex items-baseline justify-between">
                         <span className="font-mono font-bold text-lg flex items-center gap-2">
                           {p.name}
@@ -352,6 +385,7 @@ export function DeveloperDashboard() {
                           ? <Loader2 className="h-4 w-4 animate-spin" />
                           : hasActiveSub ? 'Change plan' : `Subscribe — $${p.price_usd_month}/mo`}
                       </Button>
+                      </div>
                     </div>
                   )
                 })}
@@ -437,7 +471,7 @@ export function DeveloperDashboard() {
                   <div key={k.id} className="flex items-center justify-between py-3 gap-3">
                     <div className="min-w-0">
                       <div className="font-mono text-sm truncate">
-                        {k.key_prefix}<span className="text-muted-foreground">…</span>
+                        <span className={k.is_active ? 'text-emerald-500' : ''}>{k.key_prefix}</span><span className="text-muted-foreground">…</span>
                         {k.name && <span className="ml-2 text-muted-foreground">({k.name})</span>}
                         {!k.is_active && <span className="ml-2 text-xs text-red-500">revoked</span>}
                       </div>

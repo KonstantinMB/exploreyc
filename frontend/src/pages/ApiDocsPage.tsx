@@ -424,7 +424,7 @@ export function ApiDocsPage() {
               {/* Overview */}
               <section id="overview" className="scroll-mt-6">
                 <div className="flex items-center gap-2 mb-2 font-mono text-sm text-muted-foreground">
-                  <span>$ curl api.exploreyc.com/api/v1</span>
+                  <span>$ curl api.exploreyc.com/api/v1<span className="terminal-cursor" aria-hidden /></span>
                 </div>
                 <h1 className="text-3xl font-bold font-mono mb-2"><span className="text-[#FB651E]">&gt;</span> ExploreYC API</h1>
                 <p className="text-muted-foreground max-w-2xl mb-4">
