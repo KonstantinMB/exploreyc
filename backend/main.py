@@ -1885,6 +1885,15 @@ async def _run_daily_scrape():
         except Exception as e:
             logger.error(f"Daily embedding backfill failed (non-fatal): {e}")
 
+        # World promotions hygiene: flip status to 'expired' when the window has
+        # passed (queries already filter on ends_at; this keeps rows honest).
+        try:
+            expired = db.expire_world_promotions()
+            if expired:
+                logger.info(f"World promotions hygiene: expired {expired} promotion(s)")
+        except Exception as e:
+            logger.error(f"World promotion expiry failed (non-fatal): {e}")
+
         logger.info(f"Daily scrape completed: {total_scraped} companies, {embeddings_generated} embeddings, {deleted} changes cleaned")
         return {"scraped": total_scraped, "embeddings_generated": embeddings_generated, "cleaned_up": deleted}
     except Exception as e:
@@ -3690,6 +3699,18 @@ async def cron_cleanup_api(request: Request):
 # ---- Stripe billing: checkout/portal for plan subscriptions + webhook ----
 from billing import create_billing_router
 app.include_router(create_billing_router(db, verify_dev_session))
+
+
+# ---- ExploreYC World: globe, boards, claim/stake checkout, promotions ----
+# One-time payments are fulfilled through billing's /api/stripe/webhook, which
+# branches mode="payment" sessions to world.fulfill_world_checkout.
+from world import create_world_router
+app.include_router(create_world_router(db, verify_dev_session, verify_admin_session))
+try:
+    _world_seeded = db.seed_world_reference_data()
+    logger.info(f"World reference data ready: {_world_seeded}")
+except Exception as e:
+    logger.warning(f"World reference data seeding skipped: {e}")
 
 
 # ---- Mount the public API sub-app (own docs + CORS at /api/v1) ----

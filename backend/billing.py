@@ -78,6 +78,16 @@ def handle_stripe_event(db, event: dict) -> dict:
     obj = (event.get("data") or {}).get("object") or {}
 
     if etype == "checkout.session.completed":
+        # World one-time payments (plots / promotions) are fulfilled by
+        # world.py and must never reach the subscription logic below: a
+        # mode="payment" session has no subscription, so it would resolve
+        # plan_for_price("") → None → "free" and silently downgrade a paying
+        # Pro/Max subscriber. Branch BEFORE any subscription handling.
+        metadata = obj.get("metadata") or {}
+        if obj.get("mode") == "payment" or metadata.get("product") in ("world_plot", "world_promotion"):
+            from world import fulfill_world_checkout  # local import; keeps billing importable alone
+            return fulfill_world_checkout(db, obj)
+
         user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
         customer_id = obj.get("customer")
         if not user_id:

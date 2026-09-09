@@ -44,6 +44,29 @@ import { DeveloperDashboard } from './pages/DeveloperDashboard';
 import { ApiDocsPage } from './pages/ApiDocsPage';
 import './index.css';
 
+// ExploreYC World — chrome-less full-screen routes, lazy-loaded so the
+// three.js globe bundle never taxes the rest of the app.
+const WorldPage = React.lazy(() => import('./pages/world/WorldPage'));
+const WorldCountryPage = React.lazy(() => import('./pages/world/WorldCountryPage'));
+const WorldPlotPage = React.lazy(() => import('./pages/world/WorldPlotPage'));
+const WorldClaimPage = React.lazy(() => import('./pages/world/WorldClaimPage'));
+const WorldClaimedPage = React.lazy(() => import('./pages/world/WorldClaimedPage'));
+
+// Minimal chrome-less fallback shown while a /world chunk loads.
+function WorldFallback() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center font-mono">
+      <p className="text-sm text-muted-foreground" role="status">
+        $ exploreyc --world <span className="animate-pulse">loading…</span>
+      </p>
+    </div>
+  );
+}
+
+function lazyWorld(element: React.ReactNode) {
+  return <React.Suspense fallback={<WorldFallback />}>{element}</React.Suspense>;
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -190,6 +213,13 @@ function AnimatedRoutes() {
       <Route path="/company/:slug" element={<CompanyPage />} />
       <Route path="/share/company/:slug" element={<CompanyCardPage />} />
       <Route path="/share/company" element={<CompanyCardPage />} />
+
+      {/* ExploreYC World — chrome-less full-screen (globe is the page) */}
+      <Route path="/world" element={lazyWorld(<WorldPage />)} />
+      <Route path="/world/c/:iso" element={lazyWorld(<WorldCountryPage />)} />
+      <Route path="/world/p/:id" element={lazyWorld(<WorldPlotPage />)} />
+      <Route path="/world/claim" element={lazyWorld(<WorldClaimPage />)} />
+      <Route path="/world/claimed" element={lazyWorld(<WorldClaimedPage />)} />
 
       {/* Main app: Layout wraps all pages - data loads once on first visit, instant nav */}
       <Route path="/explore" element={<Navigate to="/" replace />} />

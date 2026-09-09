@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   Home, BarChart3, Wrench, BookOpen, Map as MapIcon, Globe2, DollarSign, Share2,
   Moon, Sun, Command, Briefcase, Mail, Database, Terminal, ChevronDown,
-  LayoutDashboard, LogOut, KeyRound, Trophy,
+  LayoutDashboard, LogOut, KeyRound, Trophy, Earth,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useDevAuth } from '../contexts/DevAuthContext';
@@ -22,13 +22,14 @@ const primaryTabs: NavTab[] = [
   { id: 'database', label: 'Database', icon: Database, path: '/database' },
   { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/analytics' },
   { id: 'hiring', label: 'Hiring', icon: Briefcase, path: '/hiring' },
+  { id: 'world', label: 'World', icon: Earth, path: '/world' },
 ];
 
 const showShareNav = import.meta.env.VITE_SHOW_SHARE_NAV === 'true' || import.meta.env.VITE_SHOW_SHARE_NAV === '1';
 
 const moreTabs: NavTab[] = [
   { id: 'leaderboards', label: 'Leaderboards', icon: Trophy, path: '/founders/leaderboard' },
-  { id: 'map', label: 'World Map', icon: Globe2, path: '/map' },
+  { id: 'map', label: 'Company Map', icon: Globe2, path: '/map' },
   { id: 'funding', label: 'Funding', icon: DollarSign, path: '/funding' },
   { id: 'tools', label: 'Tools', icon: Wrench, path: '/tools' },
   { id: 'founders', label: 'Founders', icon: BookOpen, path: '/founders' },

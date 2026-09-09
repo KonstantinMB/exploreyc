@@ -1,0 +1,59 @@
+// Lazy bindings to the globe and claim-flow modules owned by other agents.
+//
+// Both are imported dynamically with the type check suppressed on the import
+// specifier: if either module is still missing it surfaces as a module/build
+// error (Vite), never as a type error here — per the agreed integration
+// contract. The prop shapes below ARE the contract both sides code against.
+
+import { lazy, type ComponentType } from 'react'
+import type { GlobePin } from '../../lib/worldApi'
+
+/** The /api/world/globe plot shape — re-exported under the contract name. */
+export type GlobePlot = GlobePin
+
+export type GlobeFocus = { lat: number; lng: number } | { iso: string } | null
+
+export interface WorldGlobeProps {
+  plots: GlobePlot[]
+  darkMode: boolean
+  focus?: GlobeFocus
+  pickMode?: boolean
+  onPick?: (p: { lat: number; lng: number }) => void
+  onSelectPlot?: (id: number) => void
+  onSelectCountry?: (iso: string) => void
+  className?: string
+}
+
+export const LazyWorldGlobe = lazy(async () => {
+  // @ts-ignore -- module is owned by the globe agent; resolved at build time.
+  const mod = await import('../../components/world/globe')
+  return { default: mod.default as ComponentType<WorldGlobeProps> }
+})
+
+/**
+ * ClaimFlow initial data. The claim agent owns the authoritative prop types;
+ * this stays intentionally loose so a lagging definition never blocks tsc.
+ */
+export interface ClaimInitial {
+  /** Set for a top-up of an existing plot. */
+  plotId?: string
+  lat?: number
+  lng?: number
+  /** Seed claiming: prefill from a companies row. */
+  companyId?: number
+  name?: string
+  url?: string
+  tagline?: string
+  [key: string]: unknown
+}
+
+export interface ClaimFlowProps {
+  initial?: ClaimInitial
+  onNeedPick?: () => void
+}
+
+export const LazyClaimFlow = lazy(async () => {
+  // @ts-ignore -- module is owned by the claim agent; resolved at build time.
+  const mod = await import('../../components/world/claim')
+  return { default: mod.default as ComponentType<ClaimFlowProps> }
+})

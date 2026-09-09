@@ -37,6 +37,8 @@ wheels/
 !vercel.json
 !frontend/vercel.json
 !backend/railway.json
+# World feature runtime data (seeds + geometry) must ship with the backend
+!backend/data/*.json
 
 # Environment variables
 .env
