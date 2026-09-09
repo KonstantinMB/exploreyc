@@ -9,7 +9,8 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      '/api': {
+      // '^/api/' (not '/api') so SPA routes like /api-docs aren't swallowed by the proxy
+      '^/api/': {
         target: backendUrl,
         changeOrigin: true,
       },
