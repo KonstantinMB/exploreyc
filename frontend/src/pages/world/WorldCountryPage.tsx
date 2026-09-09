@@ -76,7 +76,7 @@ export default function WorldCountryPage() {
         : `price to take #1 in ${country.name}: unknown`
 
   // Absolute: social crawlers do not resolve relative og:image paths.
-  const ogImage = `${window.location.origin}/api/og/world?country=${encodeURIComponent(iso)}`
+  const ogImage = `${window.location.origin}/og-world.png`
 
   return (
     <div className="relative min-h-screen bg-background font-mono">

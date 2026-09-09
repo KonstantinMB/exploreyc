@@ -121,7 +121,7 @@ const ROUTES = [
     ogTitle: 'ExploreYC World — own a piece of the startup map',
     ogDescription:
       'Claim a permanent pin for your startup from $5 and put your country on the board. Three leaderboards: world, country, city.',
-    ogImage: '/api/og/world',
+    ogImage: '/og-world.png',
     ogImageAlt: 'ExploreYC World — a 3D globe of startups competing for country rankings',
   },
   {

@@ -1,12 +1,8 @@
 {
   "name": "yc-company-scraper",
   "private": true,
-  "type": "module",
   "scripts": {
     "build": "cd frontend && npm install && npm run build"
-  },
-  "dependencies": {
-    "@vercel/og": "^1.0.2"
   },
   "engines": {
     "node": ">=18"

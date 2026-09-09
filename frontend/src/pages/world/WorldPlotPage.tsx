@@ -279,7 +279,7 @@ export default function WorldPlotPage() {
   const toBeat = countryBoard.data?.cents_to_beat ?? null
   const isMine = plot.is_mine === true
   // Absolute: social crawlers do not resolve relative og:image paths.
-  const ogImage = `${window.location.origin}/api/og/world?plot=${encodeURIComponent(plot.id)}`
+  const ogImage = `${window.location.origin}/og-world.png`
 
   return (
     <div className="relative min-h-screen bg-background font-mono">
