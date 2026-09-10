@@ -162,16 +162,12 @@ const ROUTES = [
   },
 ];
 
-// FAQ — keep in sync with src/components/HomeFaq.tsx. Injected into the homepage
-// <head> as FAQPage JSON-LD so non-JS AI bots get the answers too.
-const FAQS = [
-  ['Is there an API for Y Combinator company data?', 'Yes. ExploreYC provides a free, open-source REST API for Y Combinator company data at api.exploreyc.com/api/v1. Authenticate with an API key and query companies, full-text search, stats and more — returned as structured JSON, no scraping required.'],
-  ['Does ExploreYC include a16z and Product Hunt data too?', 'Yes. Alongside Y Combinator, ExploreYC aggregates Andreessen Horowitz (a16z) portfolio companies, Product Hunt launches and Hacker News startups. You can search across all sources at once or filter to a single source.'],
-  ['Is the ExploreYC API free?', 'Yes, there is a free tier. Create a developer account, generate an API key, and start with 5 requests per day. Higher rate limits are available for heavier usage.'],
-  ['Is ExploreYC open source?', 'Yes — ExploreYC is an open-source project. Instead of scraping Y Combinator, a16z or Product Hunt yourself, you can pull clean, structured company data straight from the public API.'],
-  ['What startup data can I get?', 'For 8,600+ companies: name, one-liner, description, batch, industry, country, team size, hiring status, founders, funding, stage, exits and geo-coordinates — via the API or the filterable web database.'],
-  ['How do I get started with the API?', 'Grab an API key at exploreyc.com/signup, then send a request to the /companies endpoint with your bearer token. The full endpoint reference is at exploreyc.com/api-docs.'],
-];
+// FAQ — read from the same src/data/faqs.json that HomeFaq.tsx renders, so the
+// static JSON-LD can never drift from the visible answers. Injected into the
+// homepage <head> as FAQPage structured data so non-JS AI bots get them too.
+const FAQS = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data', 'faqs.json'), 'utf8'),
+);
 
 function main() {
   const base = readFileSync(join(DIST, 'index.html'), 'utf8');
@@ -180,7 +176,7 @@ function main() {
   const faqSchema = {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
-    mainEntity: FAQS.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+    mainEntity: FAQS.map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
   };
   writeFileSync(join(DIST, 'index.html'), appendJsonLd(base, faqSchema));
 
