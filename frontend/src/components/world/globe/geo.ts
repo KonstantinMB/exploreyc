@@ -440,12 +440,13 @@ export const GLOBE_PALETTE_LIGHT: GlobePalette = {
   gridMajor: '#4E9AD1',
   markers: {
     promoted: YC_ORANGE,
-    // 3.17:1 on land, 1.83:1 on ocean, and every bead carries a white ring in
-    // the marker shader on top of that. Deepened from #8A9DB6, which measured
-    // 2.46:1 — a pale mark five pixels wide on near-white land was the other
-    // half of why the pin field read as an empty globe. Still a full rung
-    // lighter than tier 1 (#5A6E8C, 4.61:1): quieter than a stake, present.
-    seed: '#7789A3',
+    // 3.69:1 on land, 2.13:1 on ocean. Deepened twice now — #8A9DB6 (2.46:1),
+    // then #7789A3 (3.17:1), and 3.17 was still not enough: viewed at 1920 and
+    // 2560 with the paid layer empty, the several hundred seeds over the United
+    // States read as dust on near-white land. Still a full rung lighter than
+    // tier 1 (#5A6E8C, 4.61:1), so it stays quieter than a stake — the other
+    // half of that fix is size and the narrower white ring, in PlotColumns.
+    seed: '#6B7E97',
     // 4.61:1 / 6.91:1 / 10.39:1 against land — the tiers are told apart by
     // value alone, which is what makes the ladder survive a greyscale print.
     ramp: ['#5A6E8C', '#3E5375', '#26385A'],

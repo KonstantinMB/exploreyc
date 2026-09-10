@@ -67,7 +67,7 @@ export function ClaimSummary({
           text: (
             <>
               A permanent plot at{' '}
-              <span className="font-semibold text-[color:var(--w-ink)]">
+              <span className="font-semibold text-foreground">
                 {placeLabel ?? 'your coordinate'}
               </span>
               , rendered on the globe.
@@ -78,7 +78,7 @@ export function ClaimSummary({
           icon: <Check aria-hidden="true" />,
           text: (
             <>
-              <span className="font-semibold text-[color:var(--w-ink)]">{displayName}</span>, your
+              <span className="font-semibold text-foreground">{displayName}</span>, your
               one line, and your rank in your city, your country and the world.
             </>
           ),
@@ -105,9 +105,9 @@ export function ClaimSummary({
           {gets.map((item, i) => (
             <li
               key={i}
-              className="flex items-start gap-2.5 text-[0.9375rem] leading-snug text-[color:var(--w-muted)]"
+              className="flex items-start gap-2.5 text-sm leading-snug text-muted-foreground"
             >
-              <span className="mt-0.5 shrink-0 text-[color:var(--w-accent-text)] [&_svg]:h-[1.125rem] [&_svg]:w-[1.125rem]">
+              <span className="mt-0.5 shrink-0 text-[#FB651E] [&_svg]:h-[1.125rem] [&_svg]:w-[1.125rem]">
                 {item.icon}
               </span>
               <span>{item.text}</span>
@@ -118,9 +118,9 @@ export function ClaimSummary({
 
       {/* Deliberately NOT a hover-lift card: this block is not interactive and
           must not look like something you can dismiss or click past. */}
-      <WorldCard flat className="flex flex-col gap-2 bg-[color:var(--w-ground)] p-4">
+      <WorldCard flat className="flex flex-col gap-2 bg-background p-4">
         <p className={SECTION_LABEL}>Read this</p>
-        <p className="text-[0.9375rem] leading-relaxed text-[color:var(--w-ink)]">
+        <p className="text-sm leading-relaxed text-foreground">
           <strong className="font-bold">{HONESTY_LEAD}</strong> {HONESTY_REST}
         </p>
       </WorldCard>
@@ -129,14 +129,14 @@ export function ClaimSummary({
         <WorldCard
           role="alert"
           flat
-          className="flex items-start gap-2.5 border-[color:var(--w-accent)] bg-[color:var(--w-tint)] p-3.5"
+          className="flex items-start gap-2.5 border-[#FB651E]/40 bg-[#FB651E]/[0.05] p-3.5"
         >
           <AlertCircle
             aria-hidden="true"
-            className="mt-0.5 h-[1.125rem] w-[1.125rem] shrink-0 text-[color:var(--w-accent-text)]"
+            className="mt-0.5 h-[1.125rem] w-[1.125rem] shrink-0 text-[#FB651E]"
           />
           <div className="flex flex-col gap-1">
-            <p className="text-[0.9375rem] font-bold text-[color:var(--w-ink)]">
+            <p className="text-sm font-bold text-foreground">
               Checkout did not start
             </p>
             <p className={HINT}>

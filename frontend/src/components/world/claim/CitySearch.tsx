@@ -235,7 +235,7 @@ export function CitySearch({
       <div className="relative">
         <Search
           aria-hidden="true"
-          className="pointer-events-none absolute left-3 top-1/2 h-[1.125rem] w-[1.125rem] -translate-y-1/2 text-[color:var(--w-muted)]"
+          className="pointer-events-none absolute left-3 top-1/2 h-[1.125rem] w-[1.125rem] -translate-y-1/2 text-muted-foreground"
         />
         <input
           id={inputId}
@@ -268,7 +268,7 @@ export function CitySearch({
         {load === 'loading' ? (
           <Loader2
             aria-hidden="true"
-            className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[color:var(--w-muted)] motion-reduce:animate-none"
+            className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground motion-reduce:animate-none"
           />
         ) : query !== '' ? (
           <button
@@ -277,8 +277,8 @@ export function CitySearch({
             className={cn(
               'world-focus absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center',
               'rounded-full',
-              'text-[color:var(--w-muted)] transition-colors duration-150',
-              'hover:bg-[color:var(--w-tint)] hover:text-[color:var(--w-accent-text)]',
+              'text-muted-foreground transition-colors duration-150',
+              'hover:bg-[#FB651E]/[0.05] hover:text-[#FB651E]',
               'active:translate-y-[calc(-50%+1px)] motion-reduce:transition-none',
             )}
           >
@@ -304,7 +304,7 @@ export function CitySearch({
           role="listbox"
           aria-label="City results"
           className={cn(
-            'world-card world-scroll-list z-30 mt-1 overflow-y-auto p-1.5 overscroll-contain',
+            'world-scroll-list z-30 mt-1 overflow-y-auto overscroll-contain rounded-sm border border-border bg-card p-1.5 shadow-lg',
             resultsPlacement === 'overlay'
               ? 'absolute left-0 right-0 top-full max-h-[15rem]'
               // Shorter in flow: the list is pushing the rest of the step down
@@ -329,11 +329,11 @@ export function CitySearch({
                 onMouseEnter={() => setActive(index)}
                 onClick={() => choose(city)}
                 className={cn(
-                  'flex cursor-pointer items-center gap-2.5 rounded-[10px] px-2.5 py-2',
-                  'min-h-[2.75rem] text-[0.9375rem] transition-colors duration-100 motion-reduce:transition-none',
+                  'flex cursor-pointer items-center gap-2.5 rounded-sm px-2.5 py-2',
+                  'min-h-[2.75rem] text-sm transition-colors duration-100 motion-reduce:transition-none',
                   isActive
-                    ? 'bg-[color:var(--w-tint)] text-[color:var(--w-ink)]'
-                    : 'text-[color:var(--w-ink)]',
+                    ? 'bg-[#FB651E]/[0.05] text-foreground'
+                    : 'text-foreground',
                 )}
               >
                 <MapPin
@@ -341,13 +341,13 @@ export function CitySearch({
                   className={cn(
                     'h-4 w-4 shrink-0',
                     isActive
-                      ? 'text-[color:var(--w-accent-text)]'
-                      : 'text-[color:var(--w-muted)]',
+                      ? 'text-[#FB651E]'
+                      : 'text-muted-foreground',
                   )}
                 />
                 <span className="min-w-0 flex-1 truncate">
                   <span className="font-semibold">{city.name}</span>
-                  <span className="text-[color:var(--w-muted)]">
+                  <span className="text-muted-foreground">
                     {' '}
                     · {countryName(city.iso)}
                   </span>
@@ -355,7 +355,7 @@ export function CitySearch({
                 {city.population > 0 ? (
                   <span
                     aria-hidden="true"
-                    className="world-num shrink-0 text-[0.75rem] text-[color:var(--w-muted)]"
+                    className="world-num shrink-0 text-xs text-muted-foreground"
                   >
                     {formatPopulation(city.population)}
                   </span>

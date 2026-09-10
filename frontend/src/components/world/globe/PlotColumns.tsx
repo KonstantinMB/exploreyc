@@ -68,8 +68,27 @@ import { densityFade, quantize, seedScaleForDensity } from './labelLayout'
  *
  * — a legible ladder where stake is readable as size, and every paid pin is a
  * target a hand can hit.
+ *
+ * RAISED AGAIN, to 0.48, after the globe was looked at on a real 1920 and 2560
+ * screen with an empty paid layer. The legend read "911 companies" (5,585 in
+ * production) and the map over the United States showed perhaps eight marks the
+ * size of dust. Two things stacked: the bead is small, and `MARKER_FRAG` spends
+ * the outer 40% of its radius on a WHITE ring — which on light land (#EDF2F8,
+ * near-white) is invisible, so the mark a visitor could actually see was only
+ * the 60% core. A 5px bead was a 3px dot. The ring has been narrowed alongside
+ * this (see MARKER_FRAG), and together they take the visible core of a seed
+ * from 3.0px to 4.8px.
+ *
+ *   seed (tier 0, x1.30) .....  6.7px    <- was 5.0px
+ *   tier 1 ($5-$49) ..........  9.9px
+ *   tier 2 ($50-$249) ........ 14.7px
+ *   tier 3 ($250-$999) ....... 19.6px
+ *   tier 4 ($1,000+) ......... 24.4px
+ *
+ * Everything sized against a marker — the beacon, the ghost, the hover
+ * tolerance — is pinned to this number below and moves with it.
  */
-const MARKER_SCALE = 0.36
+const MARKER_SCALE = 0.48
 
 /**
  * Seed radius, as a multiple of the tier-0 rung of the same ladder.
@@ -126,10 +145,19 @@ const POP_LIFT = 1.4
    Vector3 and an Object3D per frame is garbage the collector has to chase. */
 const popDummy = new THREE.Object3D()
 const popDir = new THREE.Vector3()
+/**
+ * The biggest bead the ladder actually draws, in globe radii.
+ *
+ * Tier 4 — `$1,000+`, the top bucket `backend/world.py` emits and the top rung
+ * `stakeBand` knows how to name. Named, because three constants below are "some
+ * multiple of the biggest bead" and used to be written as bare decimals that
+ * silently stopped meaning that the moment MARKER_SCALE moved.
+ */
+const MAX_MARKER_RADIUS = tierToHeight(4) * MARKER_SCALE
 /** Ghost marker radius. Larger than any real pin — it is a cursor, not a bid. */
-const GHOST_RADIUS = 0.046
+const GHOST_RADIUS = MAX_MARKER_RADIUS * 1.15
 /** Beacon quad half-width, in globe radii. Sized to ring the biggest bead. */
-const BEACON_RADIUS = 0.062
+const BEACON_RADIUS = MAX_MARKER_RADIUS * 2
 /** Hover halo half-width, as a multiple of the pin's own radius. */
 const HALO_GAIN = 2.6
 /** …and never smaller than this, so a hovered seed still gets a real ring. */
@@ -146,8 +174,15 @@ const CAPACITY_STEP = 512
  * roughly eleven pixels, which is a little wider than the largest bead: the
  * cursor should be able to sit just off a pin and still find it, because
  * hovering a pin is how a visitor discovers a pin is a thing at all.
+ *
+ * Raised from 0.011 with the beads. Multiplied by the camera distance it
+ * resolves to a chord in globe radii, so at the default 3.45 this is 0.050
+ * radii — about 15 CSS pixels, still a little wider than the biggest bead the
+ * ladder now draws (MAX_MARKER_RADIUS, 0.041 radii ≈ 12px). A tier-4 plot whose
+ * outer ring does not answer the cursor would be the most expensive pin on the
+ * map and the hardest one to hover.
  */
-const HOVER_TOLERANCE = 0.011
+const HOVER_TOLERANCE = 0.0145
 /**
  * Seed beads stop answering the cursor once the density cross-fade has taken
  * them below half size. Half, rather than the 0.15 floor, because a bead that is
@@ -208,10 +243,18 @@ const MARKER_FRAG = /* glsl */ `
     // The white ring is borrowed from printed maps: a pin surrounded by paper
     // reads at any size against any background, so tier colour can keep
     // meaning rank instead of fighting the terrain underneath it.
+    //
+    // THE CORE RUNS TO 0.72, NOT 0.60. The ring used to take the outer 40% of
+    // the radius — 64% of the bead's AREA — and the light theme's land is
+    // #EDF2F8, i.e. very nearly the ring's own white. Over the United States,
+    // which is where most of the feed is, the ring did not separate the bead
+    // from the terrain; it ate it, and a 5px marker rendered as a 3px speck of
+    // grey. At 0.72 the core is 52% of the area instead of 36%, the ring is
+    // still a full ring, and the bead reads as a mark on both grounds.
     vec3 edgeCol = vFill * 0.62;
 
-    float toRing = smoothstep(0.60, 0.70, d);
-    float toEdge = smoothstep(0.86, 0.94, d);
+    float toRing = smoothstep(0.72, 0.80, d);
+    float toEdge = smoothstep(0.88, 0.96, d);
 
     vec3 col = mix(vFill, vec3(1.0), toRing);
     col = mix(col, edgeCol, toEdge);

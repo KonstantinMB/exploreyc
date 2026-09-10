@@ -14,6 +14,8 @@ import {
   Megaphone,
 } from 'lucide-react'
 import worldApi, { type PlotPatchRequest, type WorldPlot } from '../../lib/worldApi'
+import { PageHeader } from '../../components/ui/PageHeader'
+import { DotPattern } from '../../components/ui/dot-pattern'
 import {
   Money,
   Rank,
@@ -26,7 +28,6 @@ import {
   worldButtonClass,
   WORLD_FOCUS_CLASS,
 } from '../../components/world/ui'
-import WorldChrome from '../../components/world/WorldChrome'
 import CountUp from '../../components/world/boards/CountUp'
 import { isoFlag, shortDate } from '../../components/world/boards/format'
 import { formatDollars, PROMOTION_TIERS } from '../../components/world/constants'
@@ -38,7 +39,7 @@ import { LazyClaimFlow } from './worldLazy'
  * ring the primitives use rather than a hand-rolled one.
  */
 const INPUT_CLASS =
-  'world-focus w-full rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-3 py-2 text-[0.9375rem] text-[var(--w-ink)] outline-none transition-colors duration-150 placeholder:text-[var(--w-muted)] focus:border-[var(--w-accent)]'
+  'world-focus w-full rounded-sm border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors duration-150 placeholder:text-muted-foreground focus:border-[#FB651E]/40'
 
 /**
  * A standing. `null` is "unranked", never a placeholder number; a top-three
@@ -48,14 +49,14 @@ const INPUT_CLASS =
  */
 function RankChip({ label, rank }: { label: string; rank: number | null }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
-      <span className="text-[var(--w-muted)]">{label}</span>
+    <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-card px-2.5 py-1.5 text-xs">
+      <span className="text-muted-foreground">{label}</span>
       {rank == null ? (
-        <span className="font-semibold text-[var(--w-muted)]">unranked</span>
+        <span className="font-semibold text-muted-foreground">unranked</span>
       ) : rank <= 3 ? (
         <Rank n={rank} />
       ) : (
-        <span className="world-tokens world-num text-[0.9375rem] font-extrabold text-[var(--w-ink)]">
+        <span className="world-num text-sm font-bold text-foreground">
           #{rank}
         </span>
       )}
@@ -91,7 +92,7 @@ function OwnerSection({
         {title}
       </WorldHeading>
       {description ? (
-        <p className="mb-4 text-[0.875rem] text-[var(--w-muted)]">{description}</p>
+        <p className="mb-4 text-sm text-muted-foreground">{description}</p>
       ) : null}
       {children}
     </WorldCard>
@@ -163,7 +164,7 @@ function PlotEditForm({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void 
     >
       {groups.map((group) => (
         <fieldset key={group.legend} className="min-w-0">
-          <legend className="mb-2 text-[0.8125rem] font-bold text-[var(--w-muted)]">
+          <legend className="mb-2 text-xs font-bold text-muted-foreground">
             {group.legend}
           </legend>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -171,11 +172,11 @@ function PlotEditForm({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void 
               <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
                 <label
                   htmlFor={`plot-${f.key}`}
-                  className="text-[0.8125rem] font-semibold text-[var(--w-ink)]"
+                  className="text-xs font-semibold text-foreground"
                 >
                   {f.label}
                   {f.required ? (
-                    <span className="ml-1 text-[var(--w-accent-text)]" aria-hidden>
+                    <span className="ml-1 text-[#FB651E]" aria-hidden>
                       *
                     </span>
                   ) : null}
@@ -200,7 +201,7 @@ function PlotEditForm({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void 
         {message && (
           <p
             role={failed ? 'alert' : 'status'}
-            className="text-[0.8125rem] text-[var(--w-muted)]"
+            className="text-xs text-muted-foreground"
           >
             {message}
           </p>
@@ -265,7 +266,7 @@ function LogoUpload({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void })
         {mutation.isPending ? 'Uploading…' : plot.logo_url ? 'Replace logo' : 'Upload logo'}
       </WorldButton>
       {message && (
-        <p role={failed ? 'alert' : 'status'} className="text-[0.8125rem] text-[var(--w-muted)]">
+        <p role={failed ? 'alert' : 'status'} className="text-xs text-muted-foreground">
           {message}
         </p>
       )}
@@ -296,7 +297,7 @@ function PromotePanel({ plot }: { plot: WorldPlot }) {
 
   if (slotsFull) {
     return (
-      <p role="status" className="text-[0.875rem] text-[var(--w-muted)]">
+      <p role="status" className="text-sm text-muted-foreground">
         All {plot.country_name} featured slots are taken right now. Slots free up when a promotion
         ends — check back soon.
       </p>
@@ -316,7 +317,7 @@ function PromotePanel({ plot }: { plot: WorldPlot }) {
               mutation.mutate(tier.id)
             }}
           >
-            <Megaphone className="h-4 w-4 text-[var(--w-accent-text)]" aria-hidden />
+            <Megaphone className="h-4 w-4 text-[#FB651E]" aria-hidden />
             {tier.label} — {formatDollars(tier.price_cents)}
           </WorldButton>
         ))}
@@ -327,7 +328,7 @@ function PromotePanel({ plot }: { plot: WorldPlot }) {
         // role="alert", so it never relies on colour to read as a problem.
         <p
           role="alert"
-          className="rounded-[10px] border border-[var(--w-accent)] bg-[var(--w-tint)] px-3 py-2 text-[0.8125rem] font-semibold text-[var(--w-ink)]"
+          className="rounded-sm border border-[#FB651E]/40 bg-[#FB651E]/[0.05] px-3 py-2 text-xs font-semibold text-foreground"
         >
           {error}
         </p>
@@ -369,7 +370,7 @@ export default function WorldPlotPage() {
         <WorldHeading level={3} className="mb-2 justify-center">
           Plot not found
         </WorldHeading>
-        <p role="alert" className="mb-5 text-sm text-[var(--w-muted)]">
+        <p role="alert" className="mb-5 text-sm text-muted-foreground">
           There is no plot at this address. It may have been removed.
         </p>
         <Link to="/world" className={worldButtonClass('secondary', 'md')}>
@@ -382,7 +383,7 @@ export default function WorldPlotPage() {
   if (plotQuery.isLoading || !plot) {
     return (
       <PlotMessage>
-        <p role="status" className="text-sm text-[var(--w-muted)]">
+        <p role="status" className="text-sm text-muted-foreground">
           Digging up this plot…
         </p>
       </PlotMessage>
@@ -401,7 +402,7 @@ export default function WorldPlotPage() {
     <>
       {toBeat != null ? (
         <>
-          <Money cents={toBeat} className="text-[var(--w-accent-text)]" /> takes #1 in{' '}
+          <Money cents={toBeat} className="text-[#FB651E]" /> takes #1 in{' '}
           {plot.country_name}.
         </>
       ) : (
@@ -413,8 +414,7 @@ export default function WorldPlotPage() {
   )
 
   return (
-    <div className="world-root min-h-screen">
-      <WorldChrome />
+    <div className="world-root relative min-h-screen overflow-x-hidden">
       <Helmet>
         <title>{`${plot.name} — ExploreYC World`}</title>
         <meta
@@ -431,17 +431,34 @@ export default function WorldPlotPage() {
         <meta name="twitter:image" content={ogImage} />
       </Helmet>
 
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+      <DotPattern color="hsl(var(--primary) / 0.12)" size={24} radius={0.5} />
+
+      <div className="container relative mx-auto max-w-3xl px-4 py-6 sm:py-8">
         <Link
           to="/world"
-          className={`${WORLD_FOCUS_CLASS} mb-5 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-[var(--w-muted)] transition-colors hover:text-[var(--w-accent-text)]`}
+          className={`${WORLD_FOCUS_CLASS} mb-5 inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-muted-foreground transition-colors hover:text-[#FB651E]`}
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Back to the globe
         </Link>
 
-        <WorldCard className="mb-4 p-5 sm:p-6">
-          <div className="flex items-start gap-4">
+        {/* The page's one `$ command`. Everything below is a plain heading. */}
+        <PageHeader
+          command={`$ world --plot ${plot.id}`}
+          title={plot.name}
+          subtitle={plot.tagline || `A plot in ${plot.country_name}.`}
+        />
+
+        {/* The mark and the standings.
+            The NAME AND TAGLINE ARE NOT REPEATED HERE — <PageHeader> above
+            already prints both, and a card that says "Stripe / Payments
+            infrastructure for the internet" three lines under a heading that
+            says exactly that is the kind of thing that makes a page feel
+            machine-assembled. This card answers a different question: what does
+            this plot's mark look like, is it a paid placement, and where does
+            it stand. */}
+        <WorldCard flat className="mb-4 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             {/* The plot's own logo if the owner uploaded one, otherwise the
                 imported ExploreYC company thumb — a plot linked to a company
                 should not show a grey letter when the company's real mark is
@@ -451,35 +468,20 @@ export default function WorldPlotPage() {
               src={plot.logo_url ?? plot.company?.logo_url}
               name={plot.name}
               size={56}
-              className="rounded-[12px]"
             />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {/* min-w-0: WorldHeading's wrapper is itself a flex box, so
-                    without this a long startup name refuses to shrink and
-                    pushes the Promoted chip off the card. */}
-                <WorldHeading level={1} className="min-w-0">
-                  {plot.name}
-                </WorldHeading>
-                {plot.promoted && <WorldChip tone="promoted" />}
-              </div>
-              {plot.tagline ? (
-                <p className="mt-1 text-[0.9375rem] text-[var(--w-muted)]">{plot.tagline}</p>
-              ) : null}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <RankChip label={plot.country_name} rank={countryRank} />
+              {plot.city_name && <RankChip label={plot.city_name} rank={cityRank} />}
+              <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-card px-2.5 py-1.5 text-xs">
+                <span className="text-muted-foreground">Staked</span>
+                <CountUp
+                  value={plot.total_cents}
+                  format={formatDollars}
+                  className="font-mono text-sm font-bold tabular-nums text-[#FB651E] sm:text-base"
+                />
+              </span>
+              {plot.promoted && <WorldChip tone="promoted" />}
             </div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            <RankChip label={plot.country_name} rank={countryRank} />
-            {plot.city_name && <RankChip label={plot.city_name} rank={cityRank} />}
-            <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
-              <span className="text-[var(--w-muted)]">Staked</span>
-              <CountUp
-                value={plot.total_cents}
-                format={formatDollars}
-                className="world-tokens world-money world-score text-[var(--w-accent-text)]"
-              />
-            </span>
           </div>
         </WorldCard>
 
@@ -500,7 +502,7 @@ export default function WorldPlotPage() {
             title={
               <span className="inline-flex items-center gap-1.5">
                 {plot.company.name} on ExploreYC
-                <ArrowUpRight className="h-4 w-4 shrink-0 text-[var(--w-muted)]" aria-hidden />
+                <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               </span>
             }
             // Batch and industry only. Team size was a third clause here and it
@@ -517,16 +519,16 @@ export default function WorldPlotPage() {
 
         {plot.status === 'pending' && (
           <WorldCard className="mb-4 p-4" flat>
-            <p role="status" className="text-[0.875rem] text-[var(--w-muted)]">
+            <p role="status" className="text-sm text-muted-foreground">
               This plot is pending review and stays off the public globe until approved.
             </p>
           </WorldCard>
         )}
 
         <WorldCard className="mb-4 p-5">
-          <dl className="grid gap-x-8 gap-y-3 text-[0.875rem] sm:grid-cols-2">
+          <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
             <div className="flex min-w-0 gap-2">
-              <dt className="shrink-0 text-[var(--w-muted)]">Location</dt>
+              <dt className="shrink-0 text-muted-foreground">Location</dt>
               <dd className="min-w-0">
                 <Link to={`/world/c/${plot.country_iso}`} className="world-link">
                   <span aria-hidden>{isoFlag(plot.country_iso)}</span> {plot.country_name}
@@ -535,12 +537,12 @@ export default function WorldPlotPage() {
               </dd>
             </div>
             <div className="flex gap-2">
-              <dt className="shrink-0 text-[var(--w-muted)]">Planted</dt>
-              <dd className="world-tokens world-num">{shortDate(plot.created_at)}</dd>
+              <dt className="shrink-0 text-muted-foreground">Planted</dt>
+              <dd className="world-num">{shortDate(plot.created_at)}</dd>
             </div>
             {plot.url && (
               <div className="flex min-w-0 gap-2">
-                <dt className="shrink-0 text-[var(--w-muted)]">Website</dt>
+                <dt className="shrink-0 text-muted-foreground">Website</dt>
                 <dd className="min-w-0">
                   <a
                     href={plot.url}
@@ -556,7 +558,7 @@ export default function WorldPlotPage() {
             )}
             {plot.founder_name && (
               <div className="flex min-w-0 gap-2">
-                <dt className="shrink-0 text-[var(--w-muted)]">Founder</dt>
+                <dt className="shrink-0 text-muted-foreground">Founder</dt>
                 <dd className="min-w-0">
                   {plot.founder_link ? (
                     <a
@@ -579,13 +581,13 @@ export default function WorldPlotPage() {
 
         {!isMine && (
           <WorldCard className="mb-4 p-5">
-            <p className="mb-4 text-[0.9375rem]">{toBeatLine}</p>
+            <p className="mb-4 text-sm">{toBeatLine}</p>
             <div className="flex flex-wrap items-center gap-3">
               <Link to="/world/claim" className={worldButtonClass('primary', 'lg')}>
                 Claim your own plot — from $5
                 <ChevronRight className="h-5 w-5" aria-hidden />
               </Link>
-              <p className="text-[0.6875rem] text-[var(--w-muted)]">
+              <p className="text-[11px] text-muted-foreground">
                 No prize, no payout, no refund.
               </p>
             </div>
@@ -606,7 +608,7 @@ export default function WorldPlotPage() {
                 <WorldButton size="lg" onClick={() => setTopUpOpen(true)}>
                   Top up stake
                 </WorldButton>
-                <p className="text-[0.6875rem] text-[var(--w-muted)]">
+                <p className="text-[11px] text-muted-foreground">
                   No prize, no payout, no refund.
                 </p>
               </div>
@@ -638,16 +640,16 @@ export default function WorldPlotPage() {
           <DialogPrimitive.Overlay className="fixed inset-0 z-[1001] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none" />
           {/* `world-root` re-declared here: Radix portals this to document.body,
               outside the page tree, so the tokens would otherwise be lost. */}
-          <DialogPrimitive.Content className="world-root fixed left-1/2 top-1/2 z-[1001] flex max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-[var(--w-border)] focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none">
+          <DialogPrimitive.Content className="world-root fixed left-1/2 top-1/2 z-[1001] flex max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-sm border border-border focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none">
             {/* Header pinned, body scrolled — same split as the boards sheet, so
                 the close control can never scroll out of reach on a short
                 viewport. */}
             <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3 sm:p-6 sm:pb-3">
               <div className="min-w-0">
-                <DialogPrimitive.Title className="world-tokens world-heading world-heading--3">
+                <DialogPrimitive.Title className="font-mono text-base font-bold sm:text-lg">
                   Top up {plot.name}
                 </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-[0.8125rem] text-[var(--w-muted)]">
+                <DialogPrimitive.Description className="text-xs text-muted-foreground">
                   Every dollar counts for {plot.country_name}. No prize, no payout, no refund.
                 </DialogPrimitive.Description>
               </div>
@@ -661,7 +663,7 @@ export default function WorldPlotPage() {
               {topUpOpen && (
                 <Suspense
                   fallback={
-                    <p role="status" className="py-6 text-center text-sm text-[var(--w-muted)]">
+                    <p role="status" className="py-6 text-center text-sm text-muted-foreground">
                       Loading the claim flow…
                     </p>
                   }

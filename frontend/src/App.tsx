@@ -87,7 +87,7 @@ const APP_CHROME_FALLBACK_PX = 84;
 function WorldFallback() {
   return (
     <div className="world-root flex h-full min-h-[16rem] items-center justify-center">
-      <p className="text-[0.9375rem] font-semibold text-[color:var(--w-muted)]" role="status">
+      <p className="text-sm font-semibold text-muted-foreground" role="status">
         Loading the World…
       </p>
     </div>
@@ -254,7 +254,7 @@ function LayoutContent() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center max-w-md">
-          <div className="w-20 h-20 mx-auto bg-red-600/10 rounded-2xl flex items-center justify-center mb-6">
+          <div className="w-20 h-20 mx-auto bg-red-600/10 rounded-sm flex items-center justify-center mb-6">
             <span className="text-4xl">⚠️</span>
           </div>
           <h2 className="text-2xl font-bold mb-2">Error Loading Data</h2>

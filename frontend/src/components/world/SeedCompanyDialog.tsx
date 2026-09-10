@@ -73,11 +73,11 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
         <DialogPrimitive.Content
           className={
             'world-root fixed inset-x-0 bottom-0 z-[1001] flex max-h-[85vh] flex-col ' +
-            'rounded-t-2xl border-t border-[var(--w-border)] focus:outline-none ' +
+            'rounded-t-sm border-t border-border focus:outline-none ' +
             'pb-[env(safe-area-inset-bottom)] ' +
             'sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-w-md ' +
-            'sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:pb-0 ' +
-            'shadow-[var(--w-shadow)] ' +
+            'sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-sm sm:border sm:pb-0 ' +
+            'shadow-lg ' +
             'data-[state=open]:animate-in data-[state=open]:fade-in-0 ' +
             'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none'
           }
@@ -85,13 +85,13 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
           <div className="flex items-start gap-3 p-5 pb-3">
             <WorldLogo src={company?.small_logo_thumb_url} name={pin?.name ?? '?'} size={48} />
             <div className="min-w-0 flex-1">
-              <DialogPrimitive.Title className="world-tokens world-heading world-heading--3 min-w-0">
+              <DialogPrimitive.Title className="font-mono text-base font-bold sm:text-lg min-w-0">
                 {pin?.name ?? 'Unclaimed spot'}
               </DialogPrimitive.Title>
               {/* The one honest sentence about what a seed pin IS. Nothing is
                   staked here, so there is no figure to show and none is
                   invented. */}
-              <DialogPrimitive.Description className="mt-0.5 text-[0.875rem] text-[var(--w-muted)]">
+              <DialogPrimitive.Description className="mt-0.5 text-sm text-muted-foreground">
                 On the globe, unclaimed. Nobody has staked a thing.
               </DialogPrimitive.Description>
             </div>
@@ -101,7 +101,7 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
             {company ? (
               <>
                 {company.one_liner ? (
-                  <p className="text-[0.9375rem] leading-snug text-[var(--w-ink)]">
+                  <p className="text-sm leading-snug text-foreground">
                     {company.one_liner}
                   </p>
                 ) : null}
@@ -122,12 +122,12 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
                 </div>
               </>
             ) : companyQuery.isError ? (
-              <p role="status" className="text-[0.875rem] text-[var(--w-muted)]">
+              <p role="status" className="text-sm text-muted-foreground">
                 Could not load this company&apos;s profile right now — the spot is still
                 claimable.
               </p>
             ) : (
-              <p role="status" className="text-[0.875rem] text-[var(--w-muted)]">
+              <p role="status" className="text-sm text-muted-foreground">
                 Looking this one up…
               </p>
             )}
@@ -151,7 +151,7 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
               <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
             </Link>
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[0.6875rem] leading-tight text-[var(--w-muted)]">
+              <p className="text-[11px] leading-tight text-muted-foreground">
                 No prize, no payout, no refund.
               </p>
               <DialogPrimitive.Close asChild>

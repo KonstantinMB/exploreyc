@@ -100,7 +100,7 @@ export function AuthStep() {
       <div className="flex items-start gap-3.5">
         <span
           aria-hidden="true"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--w-tint)] text-[color:var(--w-accent-text)]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border border-[#FB651E]/30 bg-[#FB651E]/[0.08] text-[#FB651E]"
         >
           <KeyRound className="h-5 w-5" />
         </span>

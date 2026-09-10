@@ -226,10 +226,10 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
           {counterMax !== undefined ? (
             <span
               className={cn(
-                'world-num text-[0.75rem]',
+                'world-num text-xs',
                 value[key].length > counterMax
-                  ? 'font-bold text-[color:var(--w-accent-text)]'
-                  : 'text-[color:var(--w-muted)]',
+                  ? 'font-bold text-[#FB651E]'
+                  : 'text-muted-foreground',
               )}
             >
               {value[key].length}/{counterMax}
@@ -284,10 +284,10 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
           </label>
           <span
             className={cn(
-              'world-num text-[0.75rem]',
+              'world-num text-xs',
               value.tagline.length > TAGLINE_MAX
-                ? 'font-bold text-[color:var(--w-accent-text)]'
-                : 'text-[color:var(--w-muted)]',
+                ? 'font-bold text-[#FB651E]'
+                : 'text-muted-foreground',
             )}
           >
             {value.tagline.length}/{TAGLINE_MAX}
@@ -332,12 +332,12 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
             <img
               src={value.logoDataUrl}
               alt="Your logo, as it will appear"
-              className="h-14 w-14 shrink-0 rounded-[10px] border border-[color:var(--w-border)] object-cover"
+              className="h-14 w-14 shrink-0 rounded-sm border border-border object-cover"
             />
           ) : (
             <div
               aria-hidden="true"
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[10px] border border-dashed border-[color:var(--w-border)] text-[color:var(--w-muted)]"
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-sm border border-dashed border-border text-muted-foreground"
             >
               <Camera className="h-5 w-5" />
             </div>
@@ -396,7 +396,7 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
       </div>
 
       {/* ---- founder (optional group) ------------------------------------- */}
-      <fieldset className="flex flex-col gap-4 rounded-[16px] border border-[color:var(--w-border)] p-4">
+      <fieldset className="flex flex-col gap-4 rounded-sm border border-border p-4">
         <legend className={cn(LABEL, 'px-1.5')}>Founder — optional</legend>
         {field(
           'founderName',

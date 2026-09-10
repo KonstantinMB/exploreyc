@@ -183,14 +183,14 @@ export function AmountPicker({
             className={cn(
               INPUT,
               'flex w-36 items-center gap-1 py-0 pr-3',
-              'focus-within:border-[color:var(--w-accent)] focus-within:[box-shadow:var(--w-focus-ring)]',
-              amountError && 'border-[color:var(--w-accent)] bg-[color:var(--w-tint)]',
+              'focus-within:border-[#FB651E]/40 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[#FB651E]',
+              amountError && 'border-[#FB651E]/40 bg-[#FB651E]/[0.05]',
             )}
           >
             {/* Real text rather than a pseudo-element, so a screen reader
                 still hears the unit. */}
             <span
-              className="world-num text-[1.0625rem] font-bold text-[color:var(--w-accent-text)]"
+              className="world-num text-base font-bold text-[#FB651E]"
               aria-hidden="true"
             >
               $
@@ -199,7 +199,7 @@ export function AmountPicker({
               id={amountId}
               inputMode="decimal"
               autoComplete="off"
-              className="w-full min-w-0 bg-transparent text-right text-[1.0625rem] font-semibold text-[color:var(--w-ink)] outline-none"
+              className="w-full min-w-0 bg-transparent text-right text-base font-semibold text-foreground outline-none"
               style={TABULAR}
               value={focused ? draft : dollarsString(valueCents)}
               aria-invalid={amountError !== null}
@@ -241,7 +241,7 @@ export function AmountPicker({
               aria-valuetext={formatDollars(sliderDollars * 100)}
               onChange={(event) => onChange(Number(event.target.value) * 100)}
               className="world-focus relative z-10 w-full cursor-pointer"
-              style={{ accentColor: 'var(--w-accent)' }}
+              style={{ accentColor: '#FB651E' }}
             />
 
             {/* Where the two ranks sit on the track. Drawn OVER the native
@@ -252,13 +252,13 @@ export function AmountPicker({
               <span
                 key={mark.key}
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 bg-[color:var(--w-accent)] opacity-40"
+                className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 bg-[#FB651E] opacity-40"
                 style={{ left: `${position(mark.cents)}%` }}
               />
             ))}
           </div>
 
-          <div className="flex items-center justify-between text-[0.75rem] text-[color:var(--w-muted)]">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
             <Money cents={MIN_STAKE_CENTS} />
             <Money cents={maxCents} />
           </div>
@@ -283,7 +283,7 @@ export function AmountPicker({
         </div>
 
         {amountError ? (
-          <p id={amountHintId} role="alert" className="text-[0.8125rem] font-semibold leading-snug text-[color:var(--w-accent-text)]">
+          <p id={amountHintId} role="alert" className="text-xs font-semibold leading-snug text-[#FB651E]">
             {amountError}
           </p>
         ) : (
@@ -315,7 +315,7 @@ interface ScopeRowProps {
 }
 
 const SCOPE_LABEL =
-  'w-[4.5rem] shrink-0 text-[0.8125rem] font-bold text-[color:var(--w-muted)]'
+  'w-[4.5rem] shrink-0 text-xs font-bold text-muted-foreground'
 
 function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) {
   // No place, or a place whose current leader we do not know. Either way this
@@ -324,9 +324,9 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
   // <Money cents={null}> is what prints the word "unknown".
   if (!place || needed === null) {
     return (
-      <div className="flex items-start gap-3 rounded-[10px] px-3.5 py-3.5">
+      <div className="flex items-start gap-3 rounded-sm px-3.5 py-3.5">
         <span className={cn(SCOPE_LABEL, 'pt-0.5')}>{scope}</span>
-        <p className="flex min-w-0 flex-1 items-start gap-2 text-[0.875rem] leading-snug text-[color:var(--w-muted)]">
+        <p className="flex min-w-0 flex-1 items-start gap-2 text-sm leading-snug text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
           {place ? (
             <span>
@@ -345,12 +345,12 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
 
   if (takesIt) {
     return (
-      <div className="flex items-start gap-3 rounded-[10px] bg-[color:var(--w-tint)] px-3.5 py-3.5 shadow-[inset_3px_0_0_var(--w-accent)]">
+      <div className="flex items-start gap-3 rounded-sm bg-[#FB651E]/[0.05] px-3.5 py-3.5 shadow-[inset_3px_0_0_#FB651E]">
         <span className={cn(SCOPE_LABEL, 'pt-1')}>{scope}</span>
         <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 leading-snug">
-          <Crown aria-hidden="true" className="h-[1.125rem] w-[1.125rem] self-center text-[color:var(--w-accent-text)]" />
-          <span className="text-[1.0625rem] font-bold text-[color:var(--w-ink)]">#1 in {place}</span>
-          <span className="text-[0.875rem] text-[color:var(--w-muted)]">
+          <Crown aria-hidden="true" className="h-[1.125rem] w-[1.125rem] self-center text-[#FB651E]" />
+          <span className="text-base font-bold text-foreground">#1 in {place}</span>
+          <span className="text-sm text-muted-foreground">
             at <Money cents={amountCents} />
           </span>
         </p>
@@ -365,8 +365,8 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
       aria-label={`Set the amount to ${formatDollars(needed)} — takes first place in ${place}`}
       className={cn(
         PRESSABLE,
-        'group flex w-full items-center gap-3 rounded-[10px] px-3.5 py-3.5 text-left',
-        'hover:bg-[color:var(--w-tint)]',
+        'group flex w-full items-center gap-3 rounded-sm px-3.5 py-3.5 text-left',
+        'hover:bg-[#FB651E]/[0.05]',
       )}
     >
       <span className={SCOPE_LABEL}>{scope}</span>
@@ -375,10 +375,10 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
         {/* The largest thing on the screen, and the reason it exists. */}
         <Money
           cents={needed}
-          className="text-[1.75rem] font-bold leading-none tracking-tight text-[color:var(--w-accent-text)]"
+          className="text-3xl font-bold leading-none tracking-tight text-[#FB651E]"
         />
-        <span className="text-[0.875rem] leading-snug text-[color:var(--w-muted)]">
-          takes #1 in <span className="font-semibold text-[color:var(--w-ink)]">{place}</span>
+        <span className="text-sm leading-snug text-muted-foreground">
+          takes #1 in <span className="font-semibold text-foreground">{place}</span>
         </span>
       </span>
 
@@ -387,10 +387,10 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
       <span
         aria-hidden="true"
         className={cn(
-          'flex shrink-0 items-center rounded-full border border-[color:var(--w-border)] px-3 py-1.5',
-          'text-[0.8125rem] font-bold text-[color:var(--w-muted)]',
+          'flex shrink-0 items-center rounded-sm border border-border px-3 py-1.5',
+          'font-mono text-xs font-semibold text-muted-foreground',
           'transition-colors duration-150 motion-reduce:transition-none',
-          'group-hover:border-[color:var(--w-accent)] group-hover:text-[color:var(--w-accent-text)]',
+          'group-hover:border-[#FB651E]/40 group-hover:text-[#FB651E]',
         )}
       >
         Use this

@@ -23,7 +23,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { AlertCircle, ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Check, Loader2, Terminal } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
 
@@ -346,9 +346,9 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
       <div className="flex items-center justify-center gap-2.5 p-10" role="status" style={SANS}>
         <Loader2
           aria-hidden="true"
-          className="h-5 w-5 animate-spin text-[color:var(--w-accent-text)] motion-reduce:animate-none"
+          className="h-5 w-5 animate-spin text-[#FB651E] motion-reduce:animate-none"
         />
-        <span className="text-[0.9375rem] font-semibold text-[color:var(--w-muted)]">Loading…</span>
+        <span className="text-sm font-semibold text-muted-foreground">Loading…</span>
       </div>
     )
   }
@@ -358,7 +358,7 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
       <div className="flex items-start gap-3 p-6" role="alert" style={SANS}>
         <AlertCircle
           aria-hidden="true"
-          className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--w-accent-text)]"
+          className="mt-0.5 h-5 w-5 shrink-0 text-[#FB651E]"
         />
         <div className="flex flex-col gap-1.5">
           <WorldHeading level={3}>Cannot top up this plot</WorldHeading>
@@ -379,6 +379,17 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
   return (
     <div className="flex h-full min-h-0 flex-col" style={SANS}>
       <header className="shrink-0 px-5 pb-2.5 pt-4 sm:pb-3 sm:pt-5">
+        {/* /world/claim is a full-bleed picker with no room for a <PageHeader>,
+            so THIS is the route's one terminal eyebrow — the same `>_ $ command`
+            line every other ExploreYC page opens with, in the one panel the
+            page actually has. Suppressed in the top-up dialog, which is a modal
+            on a page that already has its own. */}
+        {!topUp ? (
+          <div className="mb-1.5 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+            <Terminal className="h-3.5 w-3.5 text-[#FB651E]" aria-hidden />
+            <span className="truncate">$ world --claim</span>
+          </div>
+        ) : null}
         <WorldHeading level={2}>{topUp ? 'Add to your plot' : 'Claim your plot'}</WorldHeading>
         <p className={cn(HINT, 'mt-1')}>
           {topUp
@@ -415,28 +426,31 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
                   // 375px phone leaves 335px inside the sheet, so they wrapped
                   // onto a second row and cost ~50px of the step below. One
                   // notch down on padding and type puts them at 323px.
-                  'px-2.5 text-[0.8125rem] sm:px-3 sm:text-[0.875rem]',
-                  'rounded-full',
-                  'border font-bold',
+                  'px-2.5 text-xs sm:px-3 sm:text-sm',
+                  // The platform's segmented cell, same as the leaderboard's
+                  // metric switcher: square-ish `rounded-sm`, monospace, and an
+                  // orange-on-orange-tint selected state rather than a solid
+                  // pill. A wizard's step indicator is a tab row, so it should
+                  // look like every other tab row in ExploreYC.
+                  'rounded-sm border font-mono font-semibold',
                   // 0.6 is the same dimming the primitives use for inactive
                   // controls, which SC 1.4.3 exempts.
-                  'disabled:cursor-not-allowed disabled:opacity-60 disabled:active:translate-y-0',
+                  'disabled:cursor-not-allowed disabled:opacity-60',
                   current
-                    ? 'border-[color:var(--w-accent)] bg-[color:var(--w-accent)] text-[color:var(--w-accent-ink)]'
+                    ? 'border-[#FB651E]/50 bg-[#FB651E]/[0.12] text-[#FB651E]'
                     : cn(
-                        'border-[color:var(--w-border)] bg-[color:var(--w-card)] text-[color:var(--w-muted)]',
-                        !blocked &&
-                          'hover:border-[color:var(--w-accent)] hover:text-[color:var(--w-ink)]',
+                        'border-border text-muted-foreground',
+                        !blocked && 'hover:border-border/80 hover:text-foreground',
                       ),
                 )}
               >
                 {done ? (
                   <Check
                     aria-hidden="true"
-                    className="h-4 w-4 shrink-0 text-[color:var(--w-accent-text)]"
+                    className="h-4 w-4 shrink-0 text-[#FB651E]"
                   />
                 ) : (
-                  <span aria-hidden="true" className="world-num shrink-0 text-[0.8125rem]">
+                  <span aria-hidden="true" className="world-num shrink-0 text-xs">
                     {index + 1}
                   </span>
                 )}
@@ -498,7 +512,7 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
                     context={amountContext}
                     existingStakeCents={topUp ? (plot?.total_cents ?? 0) : 0}
                   />
-                  <div aria-hidden="true" className="h-px w-full bg-[color:var(--w-border)]" />
+                  <div aria-hidden="true" className="h-px w-full bg-border" />
                   <ClaimSummary
                     amountCents={amountCents}
                     placeLabel={resolvedWhere ? placeLabel(resolvedWhere) : null}
@@ -519,7 +533,7 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
         </div>
 
         {/* ---- footer ------------------------------------------------------- */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--w-border)] bg-[color:var(--w-card)] px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-card px-5 py-4">
           {stepIndex > 0 ? (
             <WorldButton variant="secondary" size="md" disabled={submitting} onClick={goBack}>
               <ArrowLeft aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
@@ -554,13 +568,13 @@ export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
                separate screens. */
             <div className="ml-auto flex min-w-0 items-baseline gap-2">
               {resolvedWhere ? (
-                <span className="min-w-0 truncate text-[0.8125rem] text-[color:var(--w-muted)]">
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
                   {placeLabel(resolvedWhere)}
                 </span>
               ) : null}
               <Money
                 cents={amountCents}
-                className="shrink-0 text-[1.0625rem] font-bold text-[color:var(--w-accent-text)]"
+                className="shrink-0 text-base font-bold text-[#FB651E]"
               />
             </div>
           )}
