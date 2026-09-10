@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Megaphone } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi from '../../../lib/worldApi'
 import { WorldCard, WorldChip, WorldHeading, WorldLogo, WorldRowButton } from '../ui'
@@ -51,12 +51,15 @@ export function FeaturedRail({ scope = 'world', className }: FeaturedRailProps) 
       aria-label="Featured and sponsored placements"
       className={cn('overflow-hidden', className)}
     >
-      <div className="px-4 pb-1 pt-4">
+      <div className="border-b border-border px-4 py-3">
         <WorldHeading level={3} action="Paid placement">
-          Featured
+          <span className="inline-flex items-center gap-2">
+            <Megaphone className="h-4 w-4 text-[#FB651E]" aria-hidden />
+            Featured
+          </span>
         </WorldHeading>
       </div>
-      <ul className="flex flex-col gap-1.5 p-3">
+      <ul className="flex flex-col">
         {featured.map((f) => (
           <li key={`featured-${f.plot_id}`}>
             <WorldRowButton
@@ -75,28 +78,34 @@ export function FeaturedRail({ scope = 'world', className }: FeaturedRailProps) 
               so routing this through the primitive would silently drop
               rel="sponsored" from a paid link. That token is the machine-
               readable half of the same disclosure the visible chip makes, so
-              it is not optional. This is the documented world-row markup
-              (see world.css), just with the anchor built by hand.
+              it is not optional. This mirrors <WorldRowButton>'s markup by
+              hand — same hairline divider, same orange hover wash, same
+              leading edge — so a sponsor row is indistinguishable from a
+              featured one apart from the chip and the glyph.
 
-              No chevron either: an outbound link is not in-app navigation, so
+              No arrow either: an outbound link is not in-app navigation, so
               the external-link glyph is the honest affordance.
             */}
             <a
               href={s.url}
               target="_blank"
               rel="sponsored noopener noreferrer"
-              className="world-tokens world-row"
+              className="group relative flex w-full items-center gap-3 border-b border-border/50 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-[#FB651E]/[0.04] focus-visible:bg-[#FB651E]/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FB651E] sm:gap-4 sm:px-4"
             >
-              <span className="world-row__leading">
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 left-0 top-0 w-[3px] origin-center scale-y-0 bg-[#FB651E] transition-transform duration-200 group-hover:scale-y-100 group-focus-visible:scale-y-100 motion-reduce:transition-none"
+              />
+              <span className="flex flex-none items-center gap-2">
                 <Mark name={s.label} logoUrl={s.logo_url} />
               </span>
-              <span className="world-row__body">
-                <span className="world-row__title flex items-center gap-1">
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1 truncate text-sm font-semibold transition-colors group-hover:text-[#FB651E]">
                   <span className="truncate">{s.label}</span>
-                  <ExternalLink aria-hidden className="h-3 w-3 shrink-0 text-[var(--w-muted)]" />
+                  <ExternalLink aria-hidden className="h-3 w-3 shrink-0 text-muted-foreground" />
                 </span>
               </span>
-              <span className="world-row__trailing">
+              <span className="flex flex-none items-center gap-2">
                 <WorldChip tone="sponsor" />
               </span>
             </a>

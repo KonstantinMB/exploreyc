@@ -1,814 +1,122 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ExploreYC World — design foundation
+   ExploreYC World — the last few rules that have no platform equivalent
    ---------------------------------------------------------------------------
-   Bright & physical, NOT a terminal. Every world surface opts in by putting
-   `world-root` on its outermost element; the primitives in ./ui.tsx each carry
-   `world-tokens` as well, so they still resolve correctly when React portals
-   them outside the page tree (dialogs, tooltips).
+   This file used to be a whole second design system: a `--w-*` palette, a
+   rounded-sans type rule, 16px cards, full-pill buttons with a hard press edge,
+   medal discs, its own focus ring. All of it is gone. The World renders in the
+   PLATFORM's language now — `hsl(var(--background))`, `hsl(var(--border))`,
+   `hsl(var(--muted-foreground))`, IBM Plex / JetBrains Mono, `rounded-sm`
+   hairline cards, YC orange #FB651E — which src/index.css already declares for
+   both `:root` and `.dark`. See ./ui.tsx: every primitive is Tailwind against
+   those tokens, so there is one design system on the page again.
 
-   Dark mode piggybacks on the app's existing mechanism: AppContext toggles a
-   `dark` class on <html> (see src/contexts/AppContext.tsx), and tailwind.config
-   is `darkMode: ["class"]`. So `.dark .world-root` is the override hook — no new
-   mechanism, no media query.
+   What survives here is only what Tailwind utilities genuinely cannot express
+   or what belongs to the globe canvas:
 
-   TYPE RULE (non-negotiable #2): ONE face, --w-sans, for everything — prose,
-   headings, labels, buttons, money, ranks, dates. There is no monospace token
-   in this file and nothing in the feature may reintroduce one: a typewriter
-   face is the single loudest "this is a terminal" signal a UI can send, and
-   this is a board game, not a shell.
-   Numerals still have to line up in a column, and they do it the typographic
-   way instead: .world-num / .world-money / .world-rank set
-   `font-variant-numeric: tabular-nums` (plus the `tnum` feature for faces that
-   only expose it there), which locks every digit to the same advance width
-   inside the rounded sans. $5, $420 and $3,480 stack cleanly and none of it
-   looks typed.
+     .world-root         the page ground, so a World route matches `bg-background`
+     .world-focus        one focus ring for controls that aren't a primitive
+     .world-link         inline link — utilities can't set text-decoration-thickness
+     .world-num          tabular monospace figures
+     .world-scroll-list  a VISIBLE scrollbar, against index.css hiding them globally
+     .world-scroll-shade the paired "more below" scroll shadow
+     .world-pop / -ring / -confetti   the claimed-page celebration keyframes
 
-   ── MEASURED CONTRAST (WCAG 2.1 relative luminance; every figure below was
-      computed from these exact hex values, not estimated) ─────────────────────
-   LIGHT
-     ink #17212F on card #FFFFFF ............... 16.22:1   AA ✓ AAA ✓
-     ink #17212F on ground #F2F7FC ............. 15.05:1   AA ✓ AAA ✓
-     muted #56657E on card #FFFFFF .............. 5.90:1   AA ✓
-     muted #56657E on ground #F2F7FC ............ 5.48:1   AA ✓
-     press #C2410C on card #FFFFFF .............. 5.18:1   AA ✓   (= accent-as-text)
-     press #C2410C on ground #F2F7FC ............ 4.80:1   AA ✓
-     press-ink #FFFFFF on press #C2410C ......... 5.18:1   AA ✓   (promoted chip)
-     #FFFFFF on ink #17212F .................... 16.22:1   AA ✓   (sponsor chip)
-     accent-ink #180A00 on accent #FB651E ....... 6.45:1   AA ✓   (primary button)
-     accent #FB651E on card #FFFFFF ............. 3.01:1   non-text / large only
-     accent #FB651E on ground #F2F7FC ........... 2.79:1   ✗ see FOCUS RING note
-   DARK
-     ink #EAF0F7 on ground #151A22 ............. 15.22:1   AA ✓ AAA ✓
-     ink #EAF0F7 on card #1E2631 ............... 13.30:1   AA ✓ AAA ✓
-     muted #9FB0C4 on ground #151A22 ............ 7.88:1   AA ✓ AAA ✓
-     muted #9FB0C4 on card #1E2631 .............. 6.89:1   AA ✓ AAA ✓
-     accent #FB651E on card #1E2631 ............. 5.07:1   AA ✓   (= accent-as-text)
-     accent #FB651E on ground #151A22 ........... 5.81:1   AA ✓
-     press-ink #FFFFFF on press #9A3412 ......... 7.31:1   AA ✓   (promoted chip)
-     #1E2631 on ink #EAF0F7 .................... 13.30:1   AA ✓   (sponsor chip)
-     accent-ink #180A00 on accent #FB651E ....... 6.45:1   AA ✓   (primary button)
-   (The SUB-PAGE NAV BAR figures that used to sit here are gone with the bar.
-   `.world-nav` was a World-only nav for the sub-pages back when they rendered
-   outside the app's <Layout>; they are inside it now and wear the real
-   ExploreYC <Navbar>, whose contrast is the main theme's business.)
-   MEDALS (top-3 ranks — deliberately NOT re-themed, a gold medal is gold on
-   any ground, so one set of figures covers both themes)
-     medal-ink #17212F on gold #F0B429 .......... 8.70:1   AA ✓
-     medal-ink #17212F on silver #C3CCD9 ....... 10.01:1   AA ✓ AAA ✓
-     medal-ink #17212F on bronze #D98B4A ........ 5.98:1   AA ✓
-     gold-edge #B07D05 on card ......... 3.63:1 L / 4.20:1 D   ✓ SC 1.4.11
-     silver-edge #7A889C on card ....... 3.60:1 L / 4.23:1 D   ✓ SC 1.4.11
-     bronze-edge #A4622F on card ....... 4.81:1 L / 3.17:1 D   ✓ SC 1.4.11
-     (the edge is the medal's 1px border, i.e. its boundary against the card —
-      the FILLS themselves are 1.5–2.7:1 on the light card, which is why the
-      boundary is a real border and not a tinted haze. The rank digit sits
-      inside the disc at 6–10:1, so the rank is never carried by hue: it is
-      carried by the numeral, and the medal only says "top three".)
-
-   ── TEXT ON ORANGE: two tokens, not one ─────────────────────────────────────
-     The brief's palette said "accent text on orange = #FFFFFF". White on
-     #FB651E measures 3.01:1, which clears SC 1.4.11 (non-text) and SC 1.4.3
-     for LARGE text only (>=18.66px bold) — so a 15px `--sm` primary button
-     would have shipped below AA, and non-negotiable #6 says AA in both themes.
-     --w-accent-ink is therefore #180A00 (6.45:1), which is not an invented
-     colour: it is startupworld's own --primary-foreground.
-
-     The catch, and the reason there are two tokens: --w-press is a much darker
-     orange than --w-accent, so one ink cannot serve both. Measured on --w-press,
-     #180A00 is 3.75:1 in light and 2.66:1 in dark — the Promoted chip would
-     have failed AA in both themes, and that chip is a disclosure the product
-     promises is always legible. So text on --w-press uses --w-press-ink
-     (#FFFFFF: 5.18:1 light, 7.31:1 dark).
-
-     Rule for anyone extending this file: --w-accent-ink goes on --w-accent,
-     --w-press-ink goes on --w-press. They are not interchangeable.
-
-   ── FOCUS RING ─────────────────────────────────────────────────────────────
-     Pure --w-accent is only 2.79:1 against the LIGHT ground, i.e. below the
-     3:1 that SC 1.4.11 wants from a focus indicator. --w-focus-ring therefore
-     ends in a 1px hairline of --w-accent-text, which is #C2410C in light
-     (4.80:1 on ground / 5.18:1 on card) and #FB651E in dark (5.81:1 / 5.07:1).
-     One declaration, compliant on every surface in both themes. In dark the
-     hairline and the ring are the same orange, so it simply reads as a 4px
-     ring; in light it reads as orange with a crisp darker edge.
-
-   Colour derived, not invented: --w-accent-text resolves to --w-press in light
-   and --w-accent in dark. Both values already exist in the token set; this is
-   an alias so "orange as TEXT" passes AA in light mode, not a second hue.
+   Everything in here is scoped to a `world-*` class, so it changes nothing
+   outside the World feature.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Tokens ───────────────────────────────────────────────────────────────── */
-
-.world-root,
-.world-tokens {
-  --w-ground: #f2f7fc;
-  --w-card: #ffffff;
-  --w-ink: #17212f;
-  --w-muted: #56657e;
-  --w-border: #e4ebf3;
-  --w-accent: #fb651e;
-  /* Near-black on orange, not white: #fff on #fb651e is 3.01:1 and fails
-     SC 1.4.3 below 18.66px bold, which would rule out small primary buttons.
-     #180a00 measures 6.45:1 on the same fill, so every button size passes
-     without darkening the brand orange. Value is startupworld's own
-     --primary-foreground. */
-  --w-accent-ink: #180a00;
-  --w-press: #c2410c;
-  /* Text on --w-press is a SEPARATE token, and must stay separate.
-     --w-press is much darker than --w-accent, so the ink that works on one is
-     wrong on the other: #180a00 on --w-press measures 3.75:1 in light and
-     2.66:1 in dark — both fail AA, and the Promoted chip is a legibility
-     guarantee, not decoration. White measures 5.18:1 light / 7.31:1 dark. */
-  --w-press-ink: #ffffff;
-  --w-shadow: 0 1px 2px rgba(23, 43, 77, 0.06), 0 8px 24px rgba(23, 43, 77, 0.08);
-
-  /* Medals. NOT re-declared in the dark block on purpose: a gold medal is the
-     same gold on any table, and the measured figures in the header hold on
-     both cards. `--w-medal-ink` is the same near-black as the light `--w-ink`
-     rather than `var(--w-ink)`, precisely so it does NOT flip to off-white in
-     dark mode and vanish into the fill. */
-  --w-gold: #f0b429;
-  --w-gold-edge: #b07d05;
-  --w-silver: #c3ccd9;
-  --w-silver-edge: #7a889c;
-  --w-bronze: #d98b4a;
-  --w-bronze-edge: #a4622f;
-  --w-medal-ink: #17212f;
-
-  /* Derived aliases — composed only from the tokens above. */
-  --w-accent-text: var(--w-press);
-  --w-tint: rgba(251, 101, 30, 0.1);
-  --w-edge-soft: rgba(23, 33, 47, 0.16);
-  /* Shared focus indicator. Card halo, then the accent ring, then a 1px
-     hairline of --w-accent-text so the indicator clears 3:1 against the page
-     ground as well as the card — plain --w-accent is only 2.79:1 on the light
-     ground. See FOCUS RING in the header. */
-  --w-focus-ring: 0 0 0 2px var(--w-card), 0 0 0 5px var(--w-accent),
-    0 0 0 6px var(--w-accent-text);
-
-  /* Non-colour scales */
-  --w-radius-card: 16px;
-  --w-radius-chip: 10px;
-  --w-radius-pill: 9999px;
-  /* The only face in the feature. There is deliberately no --w-mono to reach
-     for; see TYPE RULE in the header. */
-  --w-sans: ui-rounded, "SF Pro Rounded", "Segoe UI Variable", Inter, system-ui, sans-serif;
-}
-
-.dark .world-root,
-.dark .world-tokens {
-  --w-ground: #151a22;
-  --w-card: #1e2631;
-  --w-ink: #eaf0f7;
-  --w-muted: #9fb0c4;
-  --w-border: #2b3644;
-  --w-press: #9a3412;
-  --w-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35);
-
-  /* Orange is legible as text on the dark surfaces (5.07:1), so it stays. */
-  --w-accent-text: var(--w-accent);
-  --w-tint: rgba(251, 101, 30, 0.14);
-  --w-edge-soft: rgba(234, 240, 247, 0.22);
-
-  /* Deliberately NOT re-declared here:
-     --w-accent-ink  — #180a00 sits on --w-accent, which is the same orange in
-                       both themes, so the 6.45:1 measurement is theme-independent.
-     --w-press-ink   — white clears AA on --w-press in both themes (5.18 / 7.31).
-     --w-focus-ring  — its var()s resolve against this element's own tokens, so
-                       overriding --w-card / --w-accent-text above is enough to
-                       re-theme the ring. Re-declaring it would just duplicate. */
-}
-
-/* ── Root surface ─────────────────────────────────────────────────────────── */
+/* ── Root surface ─────────────────────────────────────────────────────────────
+   Same pair of declarations a platform page gets from `bg-background
+   text-foreground`. Present as a class rather than as utilities because several
+   World surfaces are portalled (Radix dialogs, the filter sheet) and re-declare
+   `world-root` on the portalled node to re-establish the ground. */
 
 .world-root {
-  background-color: var(--w-ground);
-  color: var(--w-ink);
-  font-family: var(--w-sans);
-  font-size: 15px;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
-.world-muted {
-  color: var(--w-muted);
+/* ── Focus ring ───────────────────────────────────────────────────────────────
+   The platform's `--ring` (YC orange), as an outline so it follows whatever
+   radius the control already declares. Deliberately does NOT set a radius: it
+   used to, and because a pseudo-class beats a plain `rounded-*` utility on
+   specificity, every pill or circle wearing this class visibly snapped to a
+   square the moment it was tabbed to. */
+
+.world-focus:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
-/* ── Numerals — same face as everything else, but tabular ─────────────────────
-   These used to be set in a monospace token, which is the one typographic tell
-   that made the whole feature read as a terminal. The column alignment they
-   were there for is a font FEATURE, not a font: `tabular-nums` locks every
-   digit to one advance width inside the rounded sans, so a leaderboard of
-   $5 / $420 / $3,480 still stacks in a clean right-aligned column and none of
-   it looks typed. `font-feature-settings: "tnum"` is the belt to that braces —
-   a couple of the fallback faces expose tnum only through the low-level
-   property. */
+/* ── Inline link ──────────────────────────────────────────────────────────────
+   Orange, underlined, and the underline thickens on hover. `text-decoration-
+   thickness` and `text-underline-offset` are the two properties this needs that
+   the app's Tailwind build has no utility for. */
 
-.world-num,
-.world-money,
-.world-rank {
-  font-family: var(--w-sans);
+.world-link {
+  color: #fb651e;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.world-link:hover {
+  text-decoration-thickness: 2px;
+}
+.world-link:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* ── Numerals ─────────────────────────────────────────────────────────────────
+   Monospace with tabular figures, so a column of counts, dates and amounts
+   lines up. Same face as the rest of the platform — this is only the `tnum`
+   feature, which a couple of the fallback faces expose exclusively through the
+   low-level property. */
+
+.world-num {
+  font-family: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1;
-  letter-spacing: -0.01em;
-}
-
-.world-money {
-  font-weight: 700;
-  color: inherit;
-}
-
-/* Score type. A number on a board is not a data point, it is the score — so on
-   the surfaces where the amount IS the row (leaderboards, the staked readout,
-   the win screen) it is set bigger and heavier than the name beside it.
-   Composed with .world-money, never instead of it. */
-.world-score {
-  font-size: 1.0625rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-
-.world-score--xl {
-  font-size: clamp(2.25rem, 1.4rem + 3.2vw, 3.25rem);
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 1.05;
-}
-
-/* "unknown" is prose, so it drops the tabular treatment and the weight and
-   reads as the honest absence of a number rather than a suspicious zero. */
-.world-unknown {
-  font-family: var(--w-sans);
-  font-weight: 500;
-  color: var(--w-muted);
-}
-
-.world-rank {
-  display: inline-block;
-  min-width: 2.25ch;
-  text-align: right;
-  font-weight: 700;
-  color: var(--w-muted);
-}
-
-/* ── Medals — the top three ──────────────────────────────────────────────────
-   Rank 1, 2 and 3 get a physical little disc instead of a bare numeral. Two
-   things make this safe under SC 1.4.1 (use of colour):
-     1. the DIGIT is still inside the disc, so the rank itself is never carried
-        by hue — a monochrome print, a colour-blind reader and a screen reader
-        all get "2";
-     2. the SHAPE is the top-three signal, not the colour — ranks 4+ are a
-        plain numeral, so "is this a medal position" survives with no colour
-        perception at all.
-   The visually-hidden "Rank 2" / "Joint rank 2" string that ui.tsx puts inside
-   is the third channel.
-   The disc borrows the button's physicality — a 1px metal border plus a 2px
-   hard edge under it — because the fills themselves are pale on a white card
-   (1.5–2.7:1) and a fill that faint needs a real boundary, not a hint of one.
-   Figures for every pair are in the header table. */
-
-.world-rank--medal {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.625rem;
-  height: 1.625rem;
-  padding: 0 0.3125rem;
-  border: 1px solid var(--_medal-edge);
-  border-radius: var(--w-radius-pill);
-  background-color: var(--_medal-fill);
-  box-shadow: 0 2px 0 var(--_medal-edge);
-  color: var(--w-medal-ink);
-  font-size: 0.8125rem;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  text-align: center;
-}
-
-.world-rank--gold {
-  --_medal-fill: var(--w-gold);
-  --_medal-edge: var(--w-gold-edge);
-}
-.world-rank--silver {
-  --_medal-fill: var(--w-silver);
-  --_medal-edge: var(--w-silver-edge);
-}
-.world-rank--bronze {
-  --_medal-fill: var(--w-bronze);
-  --_medal-edge: var(--w-bronze-edge);
-}
-
-/* Forced-colours mode flattens every fill to the system palette, which would
-   erase the three medals into one identical box. The digit inside still says
-   which is which, and the border keeps the "top three" shape. */
-@media (forced-colors: active) {
-  .world-rank--medal {
-    border: 2px solid CanvasText;
-    box-shadow: none;
-  }
-}
-
-/* ── Card ─────────────────────────────────────────────────────────────────── */
-
-.world-card {
-  background-color: var(--w-card);
-  color: var(--w-ink);
-  border: 1px solid var(--w-border);
-  border-radius: var(--w-radius-card);
-  box-shadow: var(--w-shadow);
-  font-family: var(--w-sans);
-}
-
-.world-card--flat {
-  box-shadow: none;
-}
-
-/* ── Heading ──────────────────────────────────────────────────────────────── */
-
-.world-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  font-family: var(--w-sans);
-  color: var(--w-ink);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
-
-.world-heading__text {
-  min-width: 0;
-  font: inherit;
-  color: inherit;
-  margin: 0;
-}
-
-.world-heading__action {
-  flex: none;
-  align-self: center;
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--w-muted);
-}
-
-.world-heading--1 {
-  font-size: clamp(1.75rem, 1.15rem + 2.2vw, 2.5rem);
-}
-.world-heading--2 {
-  font-size: 1.375rem;
-}
-.world-heading--3 {
-  font-size: 1.125rem;
-}
-.world-heading--4 {
-  font-size: 1rem;
-}
-
-/* ── Chip ─────────────────────────────────────────────────────────────────── */
-
-.world-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.1875rem 0.5rem;
-  border: 1px solid transparent;
-  border-radius: var(--w-radius-chip);
-  font-family: var(--w-sans);
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-
-.world-chip--neutral {
-  background-color: var(--w-ground);
-  color: var(--w-muted);
-  border-color: var(--w-border);
-}
-
-.world-chip--accent {
-  background-color: var(--w-card);
-  color: var(--w-accent-text);
-  border-color: var(--w-accent);
-}
-
-/* Paid-placement labels. Solid fills so they survive any backdrop — the
-   honesty rule says these are always rendered and always legible. */
-.world-chip--promoted {
-  background-color: var(--w-press);
-  color: var(--w-press-ink); /* NOT --w-accent-ink; see the token comment. */
-  border-color: var(--w-press);
-}
-
-.world-chip--sponsor {
-  background-color: var(--w-ink);
-  color: var(--w-card);
-  border-color: var(--w-ink);
-}
-
-/* ── Physical button ──────────────────────────────────────────────────────── */
-
-.world-btn {
-  --_edge: var(--w-press);
-  --_press-y: 4px;
-  --_lift: 0 4px 0 var(--_edge);
-  --_ring: 0 0 0 0 rgba(0, 0, 0, 0);
-
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 1px solid transparent;
-  border-radius: var(--w-radius-pill);
-  font-family: var(--w-sans);
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-  text-align: center;
-  text-decoration: none;
-  /* Labels wrap rather than refuse to. `nowrap` here shipped a real bug: a
-     button's min-content width became its whole label, and because these sit in
-     flex rows (`flex-1` CTA bars, `--block` inside a card) that minimum pushed
-     the row wider than a 375px viewport. Measured before this change:
-     /world/c/XX overflowed by 31px, /world/p/N by 33px, /world's mobile CTA bar
-     by 30px — clipping the chevrons and the "Paid placement" label off-screen.
-     `min-width: 0` lets the button shrink; wrapping keeps the label whole while
-     it does. Single-line buttons are unchanged: min-height still wins. */
-  white-space: normal;
-  text-wrap: balance;
-  min-width: 0;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transform: translateY(0);
-  box-shadow: var(--_ring), var(--_lift);
-  transition: transform 60ms ease-out, box-shadow 60ms ease-out,
-    background-color 120ms ease-out, color 120ms ease-out, filter 120ms ease-out;
-}
-
-.world-btn--block {
-  display: flex;
-  width: 100%;
-}
-
-/* Sizes carry no contrast caveat: --w-accent-ink on --w-accent is 6.45:1, which
-   passes SC 1.4.3 at normal size, so every size is compliant.
-   The block padding only does anything once a label wraps — on one line the
-   min-height is larger and wins, so nothing moved for existing buttons. */
-.world-btn--lg {
-  min-height: 3.25rem;
-  padding: 0.5rem 1.5rem;
-  font-size: 1.3125rem; /* 21px @700 */
-}
-.world-btn--md {
-  min-height: 2.75rem;
-  padding: 0.45rem 1.15rem;
-  font-size: 1.1875rem; /* 19px @700 */
-}
-.world-btn--sm {
-  min-height: 2.25rem;
-  padding: 0.35rem 0.875rem;
-  font-size: 0.9375rem; /* 15px @700 */
-}
-
-.world-btn--primary {
-  background-color: var(--w-accent);
-  color: var(--w-accent-ink);
-  --_edge: var(--w-press);
-}
-
-.world-btn--secondary {
-  background-color: var(--w-card);
-  color: var(--w-ink);
-  border-color: var(--w-border);
-  /* A neutral edge derived from --w-ink so the physicality reads without
-     adding a second hue. --w-border alone is too faint to look pressable. */
-  --_edge: var(--w-edge-soft);
-}
-
-.world-btn--ghost {
-  background-color: transparent;
-  color: var(--w-accent-text);
-  --_press-y: 1px;
-  --_lift: 0 0 0 rgba(0, 0, 0, 0);
-}
-
-.world-btn:hover:not(:disabled):not([aria-disabled="true"]) {
-  filter: brightness(1.05);
-}
-.dark .world-btn:hover:not(:disabled):not([aria-disabled="true"]) {
-  filter: brightness(1.1);
-}
-.world-btn--secondary:hover:not(:disabled):not([aria-disabled="true"]) {
-  filter: none;
-  border-color: var(--w-accent);
-  color: var(--w-accent-text);
-}
-.world-btn--ghost:hover:not(:disabled):not([aria-disabled="true"]) {
-  filter: none;
-  background-color: var(--w-tint);
-}
-
-/* Keyboard focus. The ring is layered into the same box-shadow as the press
-   edge, so focusing a button never erases its physicality and pressing a
-   focused button never erases its ring. */
-.world-btn:focus-visible {
-  outline: none;
-  --_ring: var(--w-focus-ring);
-}
-
-/* The press: the 4px edge collapses and the face drops into it. */
-.world-btn:active:not(:disabled):not([aria-disabled="true"]) {
-  transform: translateY(var(--_press-y));
-  --_lift: 0 0 0 rgba(0, 0, 0, 0);
-}
-
-.world-btn:disabled,
-.world-btn[aria-disabled="true"] {
-  cursor: not-allowed;
-  opacity: 0.6; /* SC 1.4.3 exempts inactive controls */
-  --_lift: 0 2px 0 var(--_edge);
-  filter: none;
-}
-
-/* Ghost has no edge to shrink, so it must stay flat when disabled — otherwise
-   the rule above would hand it a 2px orange edge it never has when enabled. */
-.world-btn--ghost:disabled,
-.world-btn--ghost[aria-disabled="true"] {
-  --_lift: 0 0 0 rgba(0, 0, 0, 0);
-}
-
-/* ── Row button (leaderboard primitive) ───────────────────────────────────── */
-
-.world-row {
-  /* Same two-slot box-shadow trick as .world-btn: elevation and focus ring are
-     independent layers, so pressing a keyboard-focused row cannot erase its
-     ring (a plain `box-shadow: none` on :active would). */
-  --_elev: 0 0 0 rgba(0, 0, 0, 0);
-  --_ring: 0 0 0 0 rgba(0, 0, 0, 0);
-
-  position: relative;
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6875rem 0.875rem 0.6875rem 1.0625rem;
-  background-color: var(--w-card);
-  color: var(--w-ink);
-  border: 1px solid var(--w-border);
-  border-radius: var(--w-radius-chip);
-  font-family: var(--w-sans);
-  font-size: 0.9375rem;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-  /* Clips the ::before leading edge to the rounded corner. The element's own
-     box-shadow (ring + elevation) is unaffected by overflow. */
-  overflow: hidden;
-  transform: translateY(0);
-  box-shadow: var(--_ring), var(--_elev);
-  transition: transform 120ms ease-out, box-shadow 120ms ease-out,
-    border-color 120ms ease-out, background-color 120ms ease-out;
-}
-
-/* The leading edge — 3px of orange that appears on hover/focus so there is
-   never a doubt about which row is under the cursor. */
-.world-row::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background-color: var(--w-accent);
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 120ms ease-out;
-}
-
-/* Three simultaneous signals on hover/focus — lift, orange border, orange
-   leading edge — plus the chevron nudge below. "What am I clicking" is never
-   a question. */
-.world-row:hover,
-.world-row:focus-visible {
-  transform: translateY(-2px);
-  border-color: var(--w-accent);
-  --_elev: var(--w-shadow);
-}
-
-.world-row:hover::before,
-.world-row:focus-visible::before {
-  transform: scaleX(1);
-}
-
-.world-row:focus-visible {
-  outline: none;
-  --_ring: var(--w-focus-ring);
-}
-
-/* Press: the row drops back onto the surface and the elevation goes, but the
-   focus ring stays put. */
-.world-row:active {
-  transform: translateY(0);
-  --_elev: 0 0 0 rgba(0, 0, 0, 0);
-}
-
-/* A disabled row still takes focus if the author made it focusable, so drop the
-   elevation but keep the ring slot live. */
-.world-row[aria-disabled="true"],
-.world-row:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-  transform: none;
-  --_elev: 0 0 0 rgba(0, 0, 0, 0);
-  border-color: var(--w-border);
-}
-.world-row[aria-disabled="true"]::before,
-.world-row:disabled::before {
-  transform: scaleX(0);
-}
-
-.world-row__leading {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--w-muted);
-}
-
-.world-row__body {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.world-row__title {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--w-ink);
-}
-
-.world-row__subtitle {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  color: var(--w-muted);
-}
-
-.world-row__trailing {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--w-ink);
-}
-
-/* NARROW SCREENS: give the name column its pixels back.
-   The medal disc and the bigger score type each took a few pixels off the one
-   part of a board row that cannot afford them, and at 375px that was the
-   difference between "United States" and "United Stat…". Nothing here changes
-   what a row SAYS — it trims the gaps, the row's own side padding and 1px off
-   the score's type — and it buys back about 20px, which is enough for the two
-   longest country names in the set. The medal keeps a 24px disc, still a
-   comfortable touch target inside a 44px+ row.
-   Measured at 375px: with these, "United States" and "United Kingdom" both
-   render whole again; without them both ellipsed. */
-@media (max-width: 26.25rem) {
-  .world-row {
-    gap: 0.5rem;
-    padding-left: 0.75rem;
-    padding-right: 0.625rem;
-  }
-
-  .world-row__leading {
-    gap: 0.375rem;
-  }
-
-  .world-rank--medal {
-    min-width: 1.5rem;
-    height: 1.5rem;
-    padding: 0 0.25rem;
-  }
-
-  .world-score {
-    font-size: 1rem;
-  }
-}
-
-/* Affordance glyph — says "this navigates", not just "this is highlighted". */
-.world-row__chevron {
-  flex: none;
-  width: 1.125rem;
-  height: 1.125rem;
-  color: var(--w-muted);
-  transition: transform 120ms ease-out, color 120ms ease-out;
-}
-
-.world-row:hover .world-row__chevron,
-.world-row:focus-visible .world-row__chevron {
-  color: var(--w-accent-text);
-  transform: translateX(2px);
+  font-feature-settings: 'tnum' 1;
 }
 
 /* ── Scrollable list ──────────────────────────────────────────────────────────
    A capped list needs to LOOK capped. The board lists stop on a whole row
-   boundary (nothing is ever sliced through its middle) and fade their bottom
-   edge, but on macOS the overlay scrollbar is invisible until you already
-   started scrolling — so the fade was the only clue, and a fade alone reads as
-   decoration. This adds a real, always-drawn thumb while the region overflows.
+   boundary and fade their bottom edge, but on macOS the overlay scrollbar is
+   invisible until you already started scrolling — so the fade was the only
+   clue, and a fade alone reads as decoration.
 
-   The gutter costs width only when there is something to scroll: `overflow-y:
-   auto` reserves nothing while the content fits, and no `scrollbar-gutter` is
-   asked for here precisely so short boards keep every pixel for their names. */
-
-/* THE STANDARD PROPERTIES, and it has to be these two.
-   src/index.css hides scrollbars app-wide with `* { scrollbar-width: none }`,
-   and in Chromium a specified `scrollbar-width` switches the element to the
-   standard scrollbar model and makes it ignore EVERY ::-webkit-scrollbar rule.
-   So a ::-webkit-scrollbar block here would parse, cascade, and draw nothing —
-   which is how this list ended up with no affordance but a sliced row. Naming
+   IT HAS TO BE THESE TWO STANDARD PROPERTIES. src/index.css hides scrollbars
+   app-wide with `* { scrollbar-width: none }`, and in Chromium a specified
+   `scrollbar-width` switches the element to the standard scrollbar model and
+   makes it ignore EVERY ::-webkit-scrollbar rule. So a ::-webkit-scrollbar
+   block here would parse, cascade, and draw nothing. Naming
    `scrollbar-width`/`scrollbar-color` on the element is the only override that
    reaches the paint, and it is also what Firefox reads.
 
-   The colour is --w-muted, not --w-border: the border token is #e4ebf3, a
-   1.1:1 thumb against the #ffffff card — drawn and invisible. --w-muted is
-   5.9:1 in light and 6.9:1 in dark, so this bar is the one element of the
-   board that says outright "the list keeps going".
+   The colour is the muted foreground, not the border token: a border-coloured
+   thumb on a card is ~1.1:1, i.e. drawn and invisible.
 
    The gutter costs width only when there is something to scroll: no
    `scrollbar-gutter: stable` is asked for, so short boards keep every pixel
    for their names. */
+
 .world-scroll-list {
   scrollbar-width: thin;
-  scrollbar-color: var(--w-muted) transparent;
+  scrollbar-color: hsl(var(--muted-foreground)) transparent;
 }
 
-/* The scroll shade that goes with it.
-   This started life as a gradient in --w-card fading to transparent, i.e. a
-   white veil over a white card — perfectly invisible, which is how a board
-   came to rely on a half-sliced row as its only "there is more" signal. A
-   shade has to be DARKER than the surface to read as one; in dark mode that
-   means black, not a lighter grey. Alphas are low enough that the row beneath
-   keeps its AA contrast (the strongest point is 0.10 / 0.34 and it sits below
-   the last row's text). */
+/* The scroll shade that goes with it. A shade has to be DARKER than the
+   surface to read as one; in dark mode that means black, not a lighter grey.
+   Alphas are low enough that the row beneath keeps its AA contrast. */
 .world-scroll-shade {
   background-image: linear-gradient(to top, rgba(23, 33, 47, 0.1), rgba(23, 33, 47, 0));
 }
 
 .dark .world-scroll-shade {
   background-image: linear-gradient(to top, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0));
-}
-
-/* ── Inline link ──────────────────────────────────────────────────────────── */
-
-.world-link {
-  color: var(--w-accent-text);
-  font-weight: 600;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.world-link:hover {
-  text-decoration-thickness: 3px;
-}
-.world-link:focus-visible {
-  outline: none;
-  box-shadow: var(--w-focus-ring);
-}
-
-/* ── Company logo tile ───────────────────────────────────────────────────────
-   Every place the World shows a real ExploreYC company — a seed pin's card,
-   a leaderboard row, the plot page — uses this one tile, so an imported logo
-   and a letter fallback occupy exactly the same box and a board never reflows
-   because one row happens to have artwork. `object-fit: cover` because YC
-   thumbs are not a consistent aspect ratio. */
-
-.world-logo {
-  display: grid;
-  place-items: center;
-  flex: none;
-  overflow: hidden;
-  background-color: var(--w-ground);
-  border: 1px solid var(--w-border);
-  border-radius: 8px;
-  color: var(--w-muted);
-  font-weight: 800;
-  line-height: 1;
-  object-fit: cover;
 }
 
 /* ── Celebration (the claimed page) ──────────────────────────────────────────
@@ -863,8 +171,8 @@
 .world-ring {
   position: absolute;
   inset: 0;
-  border-radius: var(--w-radius-pill);
-  border: 3px solid var(--w-accent);
+  border-radius: 9999px;
+  border: 3px solid #fb651e;
   animation: world-ring 900ms ease-out 120ms both;
   pointer-events: none;
 }
@@ -894,74 +202,12 @@
   }
 }
 
-/* ── Focus utility ────────────────────────────────────────────────────────────
-   For clickables that aren't one of the primitives above. Put `world-focus` on
-   any custom control so the whole feature focuses identically — please don't
-   hand-roll a ring, the layered one here is what clears 3:1 on both grounds. */
-
-/* Deliberately does NOT set border-radius. It used to, and because a
-   pseudo-class beats a plain `rounded-*` utility on specificity, every pill or
-   circle wearing this class visibly snapped to a 10px square the moment it was
-   tabbed to. The ring follows whatever radius the control already has. */
-.world-focus:focus-visible {
-  outline: none;
-  box-shadow: var(--w-focus-ring);
-}
-
-/* ── Reduced motion ───────────────────────────────────────────────────────── */
-/* Every state above stays legible without movement: the button's 4px edge still
-   collapses on press, the row still gains its orange leading edge and border —
-   they just arrive instantly and without translation. */
-
-@media (prefers-reduced-motion: reduce) {
-  .world-btn,
-  .world-row,
-  .world-row::before,
-  .world-row__chevron {
-    transition-duration: 1ms;
-  }
-
-  .world-btn:active:not(:disabled):not([aria-disabled="true"]) {
-    transform: none;
-    filter: brightness(0.94);
-  }
-
-  .world-row:hover,
-  .world-row:focus-visible {
-    transform: none;
-  }
-
-  .world-row:hover::before,
-  .world-row:focus-visible::before {
-    width: 5px;
-    transform: scaleX(1);
-  }
-
-  .world-row:hover .world-row__chevron,
-  .world-row:focus-visible .world-row__chevron {
-    transform: none;
-  }
-}
-
 /* ── Forced colours (Windows high contrast) ───────────────────────────────── */
 
 @media (forced-colors: active) {
-  .world-btn,
-  .world-row,
-  .world-card,
-  .world-chip {
-    border: 1px solid ButtonBorder;
-  }
-  /* box-shadow is dropped entirely in forced-colours mode, so every focus ring
-     in this file has to fall back to a real outline. */
-  .world-btn:focus-visible,
-  .world-row:focus-visible,
-  .world-link:focus-visible,
-  .world-focus:focus-visible {
+  .world-focus:focus-visible,
+  .world-link:focus-visible {
     outline: 3px solid Highlight;
     outline-offset: 2px;
-  }
-  .world-row::before {
-    background-color: Highlight;
   }
 }

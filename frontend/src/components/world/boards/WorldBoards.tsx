@@ -3,7 +3,18 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  Sprout,
+  TrendingUp,
+  Trophy,
+  Users,
+} from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi, {
   type BoardKind,
@@ -22,6 +33,7 @@ import {
   worldButtonClass,
 } from '../ui'
 import { CountUp } from './CountUp'
+import { WorldPodium, type PodiumEntry } from './WorldPodium'
 import { countryDisplayName, isoFlag, shortDate } from './format'
 
 const BOARD_POLL_MS = 15_000
@@ -70,7 +82,7 @@ function MoveArrow({ move }: { move: Move | undefined }) {
       aria-label={move.dir === 'up' ? 'moved up' : 'moved down'}
       className={cn(
         'h-3.5 w-3.5 shrink-0',
-        move.dir === 'up' ? 'text-[var(--w-accent-text)]' : 'text-[var(--w-muted)]'
+        move.dir === 'up' ? 'text-[#FB651E]' : 'text-muted-foreground'
       )}
     />
   )
@@ -92,7 +104,7 @@ function RowValue({ kind, row }: { kind: BoardKind; row: BoardRow }) {
       <CountUp
         value={row.delta_cents}
         format={(n) => `+${formatDollars(n)}`}
-        className="world-tokens world-money world-score text-[var(--w-accent-text)]"
+        className="font-mono text-sm font-bold tabular-nums text-[#FB651E] sm:text-base"
       />
     )
   }
@@ -100,7 +112,7 @@ function RowValue({ kind, row }: { kind: BoardKind; row: BoardRow }) {
     <CountUp
       value={row.total_cents}
       format={formatDollars}
-      className="world-tokens world-money world-score"
+      className="font-mono text-sm font-bold tabular-nums text-[#FB651E] sm:text-base"
     />
   )
 }
@@ -108,14 +120,19 @@ function RowValue({ kind, row }: { kind: BoardKind; row: BoardRow }) {
 /** Shared shell for the non-row states so they all sit on the same padding. */
 function BoardNote({ children, role }: { children: ReactNode; role?: 'status' | 'alert' }) {
   return (
-    <p role={role} className="px-4 py-5 text-sm text-[var(--w-muted)]">
+    <p role={role} className="px-4 py-5 text-sm text-muted-foreground">
       {children}
     </p>
   )
 }
 
-const LIST_CLASS =
-  'world-scroll-list flex flex-col gap-1.5 overflow-y-auto overscroll-contain px-3 py-3'
+/**
+ * Rows are hairline-divided list items now, not floating cards, so the list
+ * carries no gap and no side padding — the row owns both. Same construction as
+ * the founders leaderboard, where the whole board is one bordered card and the
+ * rows are `border-b` inside it.
+ */
+const LIST_CLASS = 'world-scroll-list flex flex-col overflow-y-auto overscroll-contain'
 
 /**
  * The tallest a board list may grow before it starts scrolling, in CSS pixels.
@@ -269,7 +286,7 @@ function ScrollShade({ show }: { show: boolean }) {
           that is invisible until you are already scrolling — which is exactly
           when you no longer need telling. A shade plus a glyph reads as "more
           below" in a still frame, on every platform, in both themes. */}
-      <ChevronDown className="mb-0.5 h-3.5 w-3.5 text-[var(--w-muted)]" />
+      <ChevronDown className="mb-0.5 h-3.5 w-3.5 text-muted-foreground" />
     </div>
   )
 }
@@ -307,14 +324,42 @@ function CountryBoardList({
     )
   }
 
+  // The top three come out of the list and onto a podium — crowned #1, medal
+  // rings, gold/silver/bronze plinths — exactly as /founders/leaderboard does
+  // it. This is the centrepiece of the board, so it only stands down when there
+  // are fewer than three rows to put on it.
+  const showPodium = data.rows.length >= 3
+  const podium: PodiumEntry[] = showPodium
+    ? data.rows.slice(0, 3).map((row) => ({
+        key: row.plot_id ?? row.iso,
+        rank: row.rank,
+        to: row.plot_id ? `/world/p/${row.plot_id}` : `/world/c/${row.iso}`,
+        name: row.plot_id ? row.name : countryDisplayName(row.iso, row.name),
+        caption: row.plot_id ? row.iso : undefined,
+        // Plain formatted text: the podium sets the figure's own type and
+        // colour, and a delta board still shows a delta.
+        value:
+          kind === 'rising'
+            ? row.delta_cents == null
+              ? 'unknown'
+              : `+${formatDollars(row.delta_cents)}`
+            : formatDollars(row.total_cents),
+        valueLabel: kind === 'rising' ? 'Last 24 hours' : 'Total staked',
+        flag: row.plot_id ? undefined : isoFlag(row.iso),
+        logoUrl: row.logo_url,
+      }))
+    : []
+  const listRows = showPodium ? data.rows.slice(3) : data.rows
+
   return (
     <div>
+      {showPodium ? <WorldPodium entries={podium} /> : null}
       <div className="relative">
       <ol ref={listRef} className={LIST_CLASS} style={{ maxHeight }}>
         <AnimatePresence initial={false}>
-          {data.rows.map((row, i) => {
+          {listRows.map((row, i) => {
             const id = row.plot_id ?? row.iso
-            const joint = i > 0 && data.rows[i - 1].rank === row.rank
+            const joint = i > 0 && listRows[i - 1].rank === row.rank
             const to = row.plot_id ? `/world/p/${row.plot_id}` : `/world/c/${row.iso}`
             // Country rows carry no plot_id; those are the ones whose stored
             // name can overflow the column, and the only ones it is ours to
@@ -361,7 +406,7 @@ function CountryBoardList({
         <ScrollShade show={more} />
       </div>
 
-      <div className="border-t border-[var(--w-border)] p-3">
+      <div className="border-t border-border p-3">
         {kind === 'richest' &&
           (data.cents_to_beat != null ? (
             // The conversion line is the point of the board, so it is a real
@@ -375,7 +420,7 @@ function CountryBoardList({
             // and still offer the way in — we do not invent a number to put on
             // a button.
             <div className="flex flex-col gap-2">
-              <p className="text-[0.8125rem] text-[var(--w-muted)]">
+              <p className="text-xs text-muted-foreground">
                 Price to take #1: <Money cents={null} />
               </p>
               <Link
@@ -388,12 +433,12 @@ function CountryBoardList({
             </div>
           ))}
         {kind === 'planted' && (
-          <p className="text-[0.8125rem] text-[var(--w-muted)]">
+          <p className="text-xs text-muted-foreground">
             One plot, one point. Small countries win this one.
           </p>
         )}
         {kind === 'rising' && (
-          <p className="text-[0.8125rem] text-[var(--w-muted)]">
+          <p className="text-xs text-muted-foreground">
             Who moved in the last 24 hours.
           </p>
         )}
@@ -416,11 +461,30 @@ function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: nu
     return <BoardNote>Nobody is on this board yet. Plant something and it is yours.</BoardNote>
   }
 
+  // Same podium as the countries board and as /founders/leaderboard — the top
+  // three founders get the crown, the medals and the big orange figure.
+  const showPodium = data.rows.length >= 3
+  const podium: PodiumEntry[] = showPodium
+    ? data.rows.slice(0, 3).map((row) => ({
+        key: row.plot_id,
+        rank: row.rank,
+        to: `/world/p/${row.plot_id}`,
+        name: row.founder_name || row.name,
+        caption: row.name,
+        value: kind === 'pioneers' ? shortDate(row.created_at) : formatDollars(row.total_cents),
+        valueLabel: kind === 'pioneers' ? 'Planted' : 'Total staked',
+        logoUrl: row.logo_url,
+      }))
+    : []
+  const listRows = showPodium ? data.rows.slice(3) : data.rows
+
   return (
+    <div>
+      {showPodium ? <WorldPodium entries={podium} /> : null}
     <div className="relative">
     <ol ref={listRef} className={LIST_CLASS} style={{ maxHeight }}>
-      {data.rows.map((row: FounderRow, i: number) => {
-        const joint = i > 0 && data.rows[i - 1].rank === row.rank
+      {listRows.map((row: FounderRow, i: number) => {
+        const joint = i > 0 && listRows[i - 1].rank === row.rank
         return (
           <li key={row.plot_id}>
             <WorldRowButton
@@ -435,14 +499,14 @@ function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: nu
               subtitle={row.name}
               trailing={
                 kind === 'pioneers' ? (
-                  <span className="world-tokens world-num text-[0.8125rem] text-[var(--w-muted)]">
+                  <span className="world-num text-xs text-muted-foreground">
                     {shortDate(row.created_at)}
                   </span>
                 ) : (
                   <CountUp
                     value={row.total_cents}
                     format={formatDollars}
-                    className="world-tokens world-money world-score"
+                    className="font-mono text-sm font-bold tabular-nums text-[#FB651E] sm:text-base"
                   />
                 )
               }
@@ -453,41 +517,57 @@ function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: nu
     </ol>
       <ScrollShade show={more} />
     </div>
+    </div>
   )
 }
 
 const COUNTRY_TABS = [
-  { id: 'richest', label: 'Richest' },
-  { id: 'planted', label: 'Planted' },
+  { id: 'richest', label: 'Richest', icon: DollarSign },
+  { id: 'planted', label: 'Planted', icon: Sprout },
   // "Rising", not "Rising 24h": the window is spelled out in the note under the
   // board itself, and the shorter label is what lets all three country tabs sit
   // on one line in the 368px globe rail.
-  { id: 'rising', label: 'Rising' },
+  { id: 'rising', label: 'Rising', icon: TrendingUp },
 ] as const
 
 const FOUNDER_TABS = [
-  { id: 'staked', label: 'Staked' },
-  { id: 'pioneers', label: 'Pioneers' },
+  { id: 'staked', label: 'Staked', icon: Users },
+  { id: 'pioneers', label: 'Pioneers', icon: Clock },
 ] as const
 
 type TabId = (typeof COUNTRY_TABS)[number]['id'] | (typeof FOUNDER_TABS)[number]['id']
 
-/** One captioned row of the segmented control. `label` null = no caption. */
-function TabRow({ label, children }: { label: string | null; children: ReactNode }) {
+/**
+ * One captioned row of the segmented control.
+ *
+ * The tabs themselves are the platform's segmented control, lifted verbatim
+ * from the metric switcher on /founders/leaderboard: an equal-width grid of
+ * bordered `rounded-sm` cells with a lucide glyph, muted until selected, and
+ * orange-on-orange-tint when it is.
+ */
+function TabRow({
+  label,
+  cols,
+  children,
+}: {
+  label: string | null
+  cols: 2 | 3
+  children: ReactNode
+}) {
   return (
-    <div className="flex items-center gap-2">
+    <div>
       {label ? (
         // aria-hidden: the group is a visual affordance, and the tabs already
         // name themselves. Announcing "Countries" between tabs would break the
         // "tab 1 of 5" reading a tablist is supposed to give.
         <span
           aria-hidden="true"
-          className="w-[4.25rem] shrink-0 text-[0.75rem] font-semibold text-[var(--w-muted)]"
+          className="mb-1 block font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
         >
           {label}
         </span>
       ) : null}
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">{children}</div>
+      <div className={cn('grid gap-2', cols === 3 ? 'grid-cols-3' : 'grid-cols-2')}>{children}</div>
     </div>
   )
 }
@@ -509,10 +589,9 @@ export interface WorldBoardsProps {
  * Leaderboard panel: countries (richest / planted / rising 24h) and, when
  * global, founders (staked / pioneers).
  *
- * The tabs are a segmented control built from the same physical pill as every
- * other button in the World — selected is a filled orange pill sitting on its
- * press edge, unselected is a flat ghost. That is a much louder "you are here"
- * than the underline it replaced, and it costs no new CSS.
+ * The tabs are the platform's own segmented control — the one on
+ * /founders/leaderboard — so the two leaderboards switch metrics with the same
+ * gesture and the same glyph vocabulary.
  */
 export function WorldBoards({
   scope = 'world',
@@ -528,50 +607,47 @@ export function WorldBoards({
   const isFounderTab = FOUNDER_TABS.some((t) => t.id === tab)
   const active: TabId = !includeFounders && isFounderTab ? 'richest' : tab
 
-  // px-2.5 rather than the sm pill's default 0.875rem: measured, the three
-  // country pills come to 255px against the 250px the 368px globe rail leaves
-  // beside the caption, so the default padding wraps "Rising" onto its own
-  // line. Trimming 4px a side buys 24px and lands the row at 219px.
+  // The platform's segmented cell, verbatim from FounderLeaderboardPage.
   const tabClass = (id: TabId) =>
-    id === active
-      ? worldButtonClass('primary', 'sm', { className: 'px-2.5' })
-      : worldButtonClass('ghost', 'sm', {
-          className: 'px-2.5 text-[var(--w-muted)] hover:text-[var(--w-ink)]',
-        })
+    cn(
+      'relative flex h-10 items-center justify-center gap-1.5 overflow-hidden rounded-sm border px-2 font-mono text-xs transition-colors sm:gap-2 sm:px-3 sm:text-sm',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FB651E] focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+      id === active
+        ? 'border-[#FB651E]/50 bg-[#FB651E]/[0.12] font-semibold text-[#FB651E]'
+        : 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground'
+    )
 
   return (
     <WorldCard as="section" aria-label="World leaderboards" className={cn('overflow-hidden', className)}>
       <TabsPrimitive.Root value={active} onValueChange={(v) => setTab(v as TabId)}>
-        <div className="flex flex-col gap-3 px-4 pb-1 pt-4">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-4">
           {/* A trophy, because this is a scoreboard and it should say so at a
               glance. aria-hidden: the word "Leaderboard" is right there. */}
           <WorldHeading level={3}>
             <span className="inline-flex items-center gap-2">
-              <Trophy className="h-[1.125rem] w-[1.125rem] text-[var(--w-accent-text)]" aria-hidden />
+              <Trophy className="h-[1.125rem] w-[1.125rem] text-[#FB651E]" aria-hidden />
               Leaderboard
             </span>
           </WorldHeading>
-          {/* Five pills in a 368px rail have to occupy two rows. Left to
-              `flex-wrap` alone that read as an accident — a ragged remainder of
-              "Staked, Pioneers" hanging under the country tabs. Captioning the
-              two rows turns the wrap into structure and, more usefully, says
-              what the tabs rank: countries and founders are different things,
-              which the flat strip never admitted. Radix keeps its roving arrow
-              keys across both rows because every trigger is still a descendant
-              of the one List. */}
-          <TabsPrimitive.List aria-label="Choose a leaderboard" className="flex flex-col gap-1.5">
-            <TabRow label={includeFounders ? 'Countries' : null}>
+          {/* Two captioned grids rather than one flat strip: countries and
+              founders rank different things, which the flat strip never
+              admitted. Radix keeps its roving arrow keys across both rows
+              because every trigger is still a descendant of the one List. */}
+          <TabsPrimitive.List aria-label="Choose a leaderboard" className="flex flex-col gap-2">
+            <TabRow label={includeFounders ? 'Countries' : null} cols={3}>
               {COUNTRY_TABS.map((t) => (
                 <TabsPrimitive.Trigger key={t.id} value={t.id} className={tabClass(t.id)}>
-                  {t.label}
+                  <t.icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="truncate">{t.label}</span>
                 </TabsPrimitive.Trigger>
               ))}
             </TabRow>
             {includeFounders ? (
-              <TabRow label="Founders">
+              <TabRow label="Founders" cols={2}>
                 {FOUNDER_TABS.map((t) => (
                   <TabsPrimitive.Trigger key={t.id} value={t.id} className={tabClass(t.id)}>
-                    {t.label}
+                    <t.icon className="h-4 w-4 shrink-0" aria-hidden />
+                    <span className="truncate">{t.label}</span>
                   </TabsPrimitive.Trigger>
                 ))}
               </TabRow>

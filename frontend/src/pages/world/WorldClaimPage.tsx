@@ -131,11 +131,11 @@ export default function WorldClaimPage() {
           <div className="absolute inset-0 flex items-center justify-center">
             <p
               role="status"
-              className="flex items-center gap-2.5 text-[0.9375rem] font-semibold text-[color:var(--w-muted)]"
+              className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground"
             >
               <Loader2
                 aria-hidden="true"
-                className="h-5 w-5 animate-spin text-[color:var(--w-accent-text)] motion-reduce:animate-none"
+                className="h-5 w-5 animate-spin text-[#FB651E] motion-reduce:animate-none"
               />
               Loading the globe…
             </p>
@@ -174,9 +174,9 @@ export default function WorldClaimPage() {
 
           <WorldCard
             aria-hidden="true"
-            className="flex items-center gap-2.5 px-3 py-2.5 text-[0.9375rem] font-semibold leading-snug text-[color:var(--w-ink)]"
+            className="flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold leading-snug text-foreground"
           >
-            <MousePointerClick className="h-[1.125rem] w-[1.125rem] shrink-0 text-[color:var(--w-accent-text)]" />
+            <MousePointerClick className="h-[1.125rem] w-[1.125rem] shrink-0 text-[#FB651E]" />
             Click anywhere to drop your pin
           </WorldCard>
         </div>
@@ -200,14 +200,14 @@ export default function WorldClaimPage() {
       <div
         className={
           'absolute inset-x-0 bottom-0 z-10 flex max-h-[60vh] flex-col overflow-hidden ' +
-          'rounded-t-[16px] border-t border-[color:var(--w-border)] bg-[color:var(--w-card)] ' +
-          'pb-[env(safe-area-inset-bottom)] shadow-[var(--w-shadow)] ' +
+          'rounded-t-sm border-t border-border bg-card ' +
+          'pb-[env(safe-area-inset-bottom)] shadow-lg ' +
           'lg:inset-x-auto lg:bottom-auto lg:right-4 lg:top-4 lg:w-[26rem] ' +
-          'lg:max-h-[calc(100vh-2rem)] lg:rounded-[16px] lg:border lg:pb-0'
+          'lg:max-h-[calc(100vh-2rem)] lg:rounded-sm lg:border lg:pb-0'
         }
       >
         {company ? (
-          <p className="mx-4 mt-4 shrink-0 rounded-[10px] border border-[color:var(--w-accent)] bg-[color:var(--w-tint)] px-3 py-2 text-[0.8125rem] leading-snug text-[color:var(--w-ink)]">
+          <p className="mx-4 mt-4 shrink-0 rounded-sm border border-[#FB651E]/40 bg-[#FB651E]/[0.05] px-3 py-2 text-xs leading-snug text-foreground">
             <span className="font-bold">{company.name}</span> is already on the globe as a seed pin
             — claim it to make it yours.
           </p>
@@ -218,11 +218,11 @@ export default function WorldClaimPage() {
             fallback={
               <p
                 role="status"
-                className="flex items-center justify-center gap-2.5 py-8 text-[0.875rem] font-semibold text-[color:var(--w-muted)]"
+                className="flex items-center justify-center gap-2.5 py-8 text-sm font-semibold text-muted-foreground"
               >
                 <Loader2
                   aria-hidden="true"
-                  className="h-4 w-4 animate-spin text-[color:var(--w-accent-text)] motion-reduce:animate-none"
+                  className="h-4 w-4 animate-spin text-[#FB651E] motion-reduce:animate-none"
                 />
                 Loading the claim steps…
               </p>
@@ -232,7 +232,7 @@ export default function WorldClaimPage() {
           </Suspense>
         </div>
 
-        <p className="shrink-0 border-t border-[color:var(--w-border)] px-5 py-3 text-center text-[0.8125rem] leading-snug text-[color:var(--w-muted)]">
+        <p className="shrink-0 border-t border-border px-5 py-3 text-center text-xs leading-snug text-muted-foreground">
           No prize, no payout, no refund. Minimum stake $5.
         </p>
       </div>

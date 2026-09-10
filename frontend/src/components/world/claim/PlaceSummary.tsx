@@ -62,7 +62,7 @@ export interface PlaceSummaryProps {
 }
 
 const ICON_WELL =
-  'flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--w-tint)] text-[color:var(--w-accent-text)]'
+  'flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border border-[#FB651E]/30 bg-[#FB651E]/[0.08] text-[#FB651E]'
 
 export function PlaceSummary({ place, onPickCity }: PlaceSummaryProps) {
   return (
@@ -89,7 +89,7 @@ export function PlaceSummary({ place, onPickCity }: PlaceSummaryProps) {
       {place.kind === 'none' ? (
         <p
           aria-live="polite"
-          className="flex items-center gap-2.5 text-[0.9375rem] font-semibold text-[color:var(--w-muted)]"
+          className="flex items-center gap-2.5 text-sm font-semibold text-muted-foreground"
         >
           <MapPin aria-hidden="true" className="h-[1.125rem] w-[1.125rem] shrink-0" />
           No spot chosen yet
@@ -110,22 +110,22 @@ export function PlaceSummary({ place, onPickCity }: PlaceSummaryProps) {
           {place.kind === 'locating' ? (
             <span
               role="status"
-              className="text-[1.0625rem] font-bold leading-tight text-[color:var(--w-ink)]"
+              className="text-base font-bold leading-tight text-foreground"
             >
               Checking that spot…
             </span>
           ) : place.kind === 'ocean' ? (
             <>
-              <span className="text-[1.0625rem] font-bold leading-tight text-[color:var(--w-ink)]">
+              <span className="text-base font-bold leading-tight text-foreground">
                 That is open water
               </span>
-              <span className={cn(HINT, 'font-semibold text-[color:var(--w-accent-text)]')}>
+              <span className={cn(HINT, 'font-semibold text-[#FB651E]')}>
                 Plots only go on land — try again inside a country.
               </span>
             </>
           ) : place.kind === 'error' ? (
             <>
-              <span className="text-[1.0625rem] font-bold leading-tight text-[color:var(--w-ink)]">
+              <span className="text-base font-bold leading-tight text-foreground">
                 A point on Earth
               </span>
               <span className={HINT}>
@@ -135,7 +135,7 @@ export function PlaceSummary({ place, onPickCity }: PlaceSummaryProps) {
             </>
           ) : (
             <>
-              <span className="truncate text-[1.25rem] font-bold leading-tight text-[color:var(--w-ink)]">
+              <span className="truncate text-[1.25rem] font-bold leading-tight text-foreground">
                 {placeLabel(place.where)}
               </span>
               {/* Whether the pin is close enough to a city to compete on a

@@ -135,7 +135,7 @@ function Notice({ children }: { children: ReactNode }) {
   return (
     <div className="absolute inset-0 grid place-items-center p-8">
       <WorldCard className="max-w-xs px-6 py-5 text-center">
-        <p className="world-muted text-sm leading-relaxed">{children}</p>
+        <p className="text-muted-foreground text-sm leading-relaxed">{children}</p>
       </WorldCard>
     </div>
   )

@@ -37,7 +37,7 @@ export interface GlobeControlsProps {
 
 /** Tabular integer, so the counts in the hub card do not jitter between stops. */
 function Count({ n }: { n: number }) {
-  return <span className="world-tokens world-num">{n.toLocaleString('en-US')}</span>
+  return <span className="world-num">{n.toLocaleString('en-US')}</span>
 }
 
 export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) {
@@ -46,7 +46,7 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
       <div
         role="group"
         aria-label="Jump to a region"
-        className="world-tokens world-card flex items-center gap-0.5 p-1"
+        className="flex items-center gap-0.5 rounded-sm border border-border/80 bg-card/80 p-1 backdrop-blur-sm dark:border-white/10"
       >
         {GLOBE_REGIONS.map((r) => (
           <button
@@ -60,9 +60,9 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
               onFocus(focusRegion(r))
             }}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1.5',
-              'text-[0.8125rem] font-semibold text-[var(--w-ink)]',
-              'transition-colors hover:bg-[var(--w-tint)] motion-reduce:transition-none',
+              'inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5',
+              'text-xs font-semibold text-foreground',
+              'transition-colors hover:bg-[#FB651E]/[0.05] motion-reduce:transition-none',
               WORLD_FOCUS_CLASS
             )}
           >
@@ -81,10 +81,10 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
           <WorldChip tone="accent" className="mb-1.5">
             Stop {tour.index + 1} of {tour.hubs.length}
           </WorldChip>
-          <p className="truncate text-[0.9375rem] font-extrabold leading-tight tracking-[-0.02em] text-[var(--w-ink)]">
+          <p className="truncate text-sm font-bold leading-tight tracking-tight text-foreground">
             {tour.hub.name}
           </p>
-          <p className="mt-0.5 text-[0.75rem] leading-snug text-[var(--w-muted)]">
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
             <Count n={tour.hub.count} /> companies · <Count n={tour.hub.hiringCount} /> hiring
             {tour.hub.topIndustry === '—' ? null : <> · mostly {tour.hub.topIndustry}</>}
           </p>

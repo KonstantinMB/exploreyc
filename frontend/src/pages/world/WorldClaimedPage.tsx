@@ -29,7 +29,6 @@ import {
   WorldLogo,
   worldButtonClass,
 } from '../../components/world/ui'
-import WorldChrome from '../../components/world/WorldChrome'
 import CountUp from '../../components/world/boards/CountUp'
 import { formatDollars } from '../../components/world/constants'
 
@@ -52,7 +51,7 @@ const CONFETTI = Array.from({ length: 14 }, (_, i) => {
     // Biased upward: confetti thrown at a party goes up before it goes down.
     y: `${Math.round(Math.sin(angle) * reach - 26)}px`,
     rotate: `${(i % 2 ? 1 : -1) * (160 + i * 23)}deg`,
-    colour: ['var(--w-accent)', 'var(--w-gold)', 'var(--w-silver)', 'var(--w-bronze)'][i % 4],
+    colour: ['#FB651E', '#FFC93C', '#C7CCD1', '#E08A4B'][i % 4],
     delay: `${(i % 5) * 26}ms`,
   }
 })
@@ -83,7 +82,6 @@ function Confetti() {
 function ClaimedShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="world-root min-h-screen">
-      <WorldChrome />
       <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4">
         <WorldCard className="w-full max-w-md p-6">{children}</WorldCard>
       </div>
@@ -192,9 +190,9 @@ export default function WorldClaimedPage() {
           <WorldHeading level={3} className="mb-2">
             Missing session id
           </WorldHeading>
-          <p className="mb-5 text-[0.875rem] text-[var(--w-muted)]">
+          <p className="mb-5 text-sm text-muted-foreground">
             This page confirms a checkout and needs the{' '}
-            <span className="world-tokens world-num">session_id</span> Stripe sends back. If you
+            <span className="world-num">session_id</span> Stripe sends back. If you
             just paid, use the link Stripe redirected you to.
           </p>
           <Link to="/world" className={worldButtonClass('secondary', 'md')}>
@@ -222,7 +220,7 @@ export default function WorldClaimedPage() {
             {!reduced && <Confetti />}
             {!reduced && <span className="world-ring" />}
             <span
-              className={`relative grid h-20 w-20 place-items-center rounded-full border border-[var(--w-gold-edge)] bg-[var(--w-gold)] text-[var(--w-medal-ink)] shadow-[0_3px_0_var(--w-gold-edge)] ${
+              className={`relative grid h-20 w-20 place-items-center rounded-full border border-[#E0A800] bg-[#FFC93C] text-zinc-900 shadow-md ${
                 reduced ? '' : 'world-pop'
               }`}
             >
@@ -231,7 +229,7 @@ export default function WorldClaimedPage() {
                   src={plot.logo_url ?? plot.company?.logo_url}
                   name={plot.name}
                   size={52}
-                  className="rounded-full border-0 bg-transparent text-[var(--w-medal-ink)]"
+                  className="rounded-full border-0 bg-transparent text-zinc-900"
                 />
               ) : (
                 <Sprout className="h-8 w-8" aria-hidden />
@@ -242,7 +240,7 @@ export default function WorldClaimedPage() {
           <WorldHeading level={1} className="mb-1 justify-center text-center">
             {plot ? `${plot.name} is planted.` : 'Planted.'}
           </WorldHeading>
-          <p className="text-[0.9375rem] text-[var(--w-muted)]">
+          <p className="text-sm text-muted-foreground">
             {plot
               ? `On the globe at ${plot.city_name ? `${plot.city_name}, ` : ''}${plot.country_name} — and every dollar of it counts for the country.`
               : 'Payment confirmed and the plot is planted. Every dollar you staked now counts for your country on the world boards.'}
@@ -258,10 +256,10 @@ export default function WorldClaimedPage() {
                   value={plot.total_cents}
                   format={formatDollars}
                   duration={900}
-                  className="world-tokens world-money world-score world-score--xl text-[var(--w-accent-text)]"
+                  className="block font-mono text-4xl font-black tabular-nums tracking-tight text-[#FB651E] sm:text-5xl"
                 />
               </p>
-              <p className="text-[0.8125rem] font-semibold text-[var(--w-muted)]">staked</p>
+              <p className="text-xs font-semibold text-muted-foreground">staked</p>
 
               {/* Where that lands. Both ranks come straight from the plot
                   payload; a null one (a plot still pending review has no
@@ -269,24 +267,24 @@ export default function WorldClaimedPage() {
               {plot.rank_country != null || plot.rank_world != null ? (
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                   {plot.rank_country != null && (
-                    <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] px-2.5 py-1.5 text-[0.8125rem]">
-                      <span className="text-[var(--w-muted)]">{plot.country_name}</span>
+                    <span className="inline-flex items-center gap-2 rounded-sm border border-border px-2.5 py-1.5 text-xs">
+                      <span className="text-muted-foreground">{plot.country_name}</span>
                       {plot.rank_country <= 3 ? (
                         <Rank n={plot.rank_country} />
                       ) : (
-                        <span className="world-tokens world-num text-[0.9375rem] font-extrabold text-[var(--w-ink)]">
+                        <span className="world-num text-sm font-bold text-foreground">
                           #{plot.rank_country}
                         </span>
                       )}
                     </span>
                   )}
                   {plot.rank_world != null && (
-                    <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] px-2.5 py-1.5 text-[0.8125rem]">
-                      <span className="text-[var(--w-muted)]">World</span>
+                    <span className="inline-flex items-center gap-2 rounded-sm border border-border px-2.5 py-1.5 text-xs">
+                      <span className="text-muted-foreground">World</span>
                       {plot.rank_world <= 3 ? (
                         <Rank n={plot.rank_world} />
                       ) : (
-                        <span className="world-tokens world-num text-[0.9375rem] font-extrabold text-[var(--w-ink)]">
+                        <span className="world-num text-sm font-bold text-foreground">
                           #{plot.rank_world}
                         </span>
                       )}
@@ -298,7 +296,7 @@ export default function WorldClaimedPage() {
           ) : null}
 
           {logoNote && (
-            <p role="status" className="mt-4 text-[0.875rem] text-[var(--w-muted)]">
+            <p role="status" className="mt-4 text-sm text-muted-foreground">
               {logoNote}
             </p>
           )}
@@ -336,14 +334,14 @@ export default function WorldClaimedPage() {
           </div>
 
           {shareNote && (
-            <p role="status" className="mt-3 break-all text-[0.8125rem] text-[var(--w-muted)]">
+            <p role="status" className="mt-3 break-all text-xs text-muted-foreground">
               {shareNote}
             </p>
           )}
 
           {/* Unchanged, and it stays on the happiest screen in the product
               precisely because that is where it matters most. */}
-          <p className="mt-4 text-[0.6875rem] text-[var(--w-muted)]">
+          <p className="mt-4 text-[11px] text-muted-foreground">
             No prize, no payout, no refund.
           </p>
         </div>
@@ -361,7 +359,7 @@ export default function WorldClaimedPage() {
           <WorldHeading level={3} className="mb-2">
             Can&apos;t reach the confirmation service
           </WorldHeading>
-          <p className="mb-5 text-[0.875rem] text-[var(--w-muted)]">
+          <p className="mb-5 text-sm text-muted-foreground">
             Your payment is safe with Stripe — this page just can&apos;t check its status right
             now. It keeps retrying automatically; you can also come back later via &ldquo;my
             plots&rdquo;.
@@ -383,12 +381,12 @@ export default function WorldClaimedPage() {
         <WorldHeading level={3} className="mb-2">
           Planting…
         </WorldHeading>
-        <p className="mb-2 text-[0.875rem] text-[var(--w-muted)]">
+        <p className="mb-2 text-sm text-muted-foreground">
           Payment received by Stripe. We&apos;re waiting for the confirmation webhook to plant
           your plot — this usually takes a few seconds. This page checks every 2 seconds.
         </p>
         {slow && (
-          <p className="text-[0.875rem] text-[var(--w-muted)]">
+          <p className="text-sm text-muted-foreground">
             Still confirming — webhooks can take a minute or two. Your payment is safe and this
             page keeps checking; the plot will also appear under your account once it lands.
           </p>

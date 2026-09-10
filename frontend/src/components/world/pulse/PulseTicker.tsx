@@ -30,7 +30,7 @@ function EventIcon({ type }: { type: PulseEvent['type'] }) {
   return (
     <span
       aria-hidden
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--w-tint)] text-[var(--w-accent-text)]"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FB651E]/[0.05] text-[#FB651E]"
     >
       <Icon className="h-3.5 w-3.5" />
     </span>
@@ -39,7 +39,7 @@ function EventIcon({ type }: { type: PulseEvent['type'] }) {
 
 function EventLine({ event, now }: { event: PulseEvent; now: number }) {
   return (
-    <span className="flex min-w-0 items-center gap-2.5 text-[0.8125rem]">
+    <span className="flex min-w-0 items-center gap-2.5 text-xs">
       <EventIcon type={event.type} />
       <span aria-hidden className="shrink-0 text-base leading-none">
         {isoFlag(event.country_iso)}
@@ -49,17 +49,17 @@ function EventLine({ event, now }: { event: PulseEvent; now: number }) {
           the one part of this line that has to stay honest and readable. Now
           the name gives way instead. */}
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-semibold text-[var(--w-ink)]">{event.name}</span>{' '}
-        <span className="text-[var(--w-muted)]">
+        <span className="font-semibold text-foreground">{event.name}</span>{' '}
+        <span className="text-muted-foreground">
           {VERB[event.type]} {event.country_iso}
         </span>
       </span>
       <Money
         cents={event.amount_cents}
         plus
-        className="shrink-0 text-[var(--w-accent-text)]"
+        className="shrink-0 text-[#FB651E]"
       />
-      <span className="world-tokens world-num shrink-0 text-[var(--w-muted)]">
+      <span className="world-num shrink-0 text-muted-foreground">
         {timeAgo(event.at, now)}
       </span>
     </span>
@@ -135,7 +135,7 @@ export function PulseList({ className, rows = 6 }: { className?: string; rows?: 
 
   if (isLoading) {
     return (
-      <p role="status" className={cn('text-sm text-[var(--w-muted)]', className)}>
+      <p role="status" className={cn('text-sm text-muted-foreground', className)}>
         Loading recent activity…
       </p>
     )
@@ -143,7 +143,7 @@ export function PulseList({ className, rows = 6 }: { className?: string; rows?: 
   const events = data?.events?.slice(0, rows) ?? []
   if (events.length === 0) {
     return (
-      <p className={cn('text-sm text-[var(--w-muted)]', className)}>
+      <p className={cn('text-sm text-muted-foreground', className)}>
         Nothing planted yet. The first plot takes its country.
       </p>
     )
@@ -154,7 +154,7 @@ export function PulseList({ className, rows = 6 }: { className?: string; rows?: 
       {events.map((event, i) => (
         <li
           key={`${event.at}-${i}`}
-          className="min-w-0 border-b border-[var(--w-border)] py-2 last:border-b-0"
+          className="min-w-0 border-b border-border py-2 last:border-b-0"
         >
           <EventLine event={event} now={now} />
         </li>

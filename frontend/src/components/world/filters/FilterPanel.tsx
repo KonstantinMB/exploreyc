@@ -30,7 +30,7 @@ import { YC_LAYER_AUTO_THRESHOLD, type WorldLayers } from './layers'
 /** Tabular integers, so counts in a column do not wobble. */
 function Count({ n, className }: { n: number; className?: string }) {
   return (
-    <span className={cn('world-tokens world-num', className)}>{n.toLocaleString('en-US')}</span>
+    <span className={cn('world-num', className)}>{n.toLocaleString('en-US')}</span>
   )
 }
 
@@ -59,7 +59,7 @@ function CheckOption({
   count?: number
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-[var(--w-ground)] motion-reduce:transition-none">
+    <label className="flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 transition-colors hover:bg-background motion-reduce:transition-none">
       <input
         type="checkbox"
         checked={checked}
@@ -69,26 +69,26 @@ function CheckOption({
       <span
         aria-hidden="true"
         className={cn(
-          'grid h-[1.125rem] w-[1.125rem] shrink-0 place-items-center rounded-[6px]',
-          'border-2 border-[var(--w-border)] bg-[var(--w-card)] text-transparent',
+          'grid h-[1.125rem] w-[1.125rem] shrink-0 place-items-center rounded-sm',
+          'border-2 border-border bg-card text-transparent',
           'transition-colors motion-reduce:transition-none',
-          'peer-checked:border-[var(--w-accent)] peer-checked:bg-[var(--w-accent)]',
-          'peer-checked:text-[var(--w-accent-ink)]',
+          'peer-checked:border-[#FB651E]/40 peer-checked:bg-[#FB651E]',
+          'peer-checked:text-white',
           // An arbitrary PROPERTY, not `shadow-[…]`. Tailwind cannot tell
           // whether a bare `var()` in `shadow-[…]` is a colour or a shadow, and
           // it guesses colour: `shadow-[var(--w-focus-ring)]` compiles to
           // `--tw-shadow-color`, which draws nothing at all here. Verified in
           // the built CSS — this is the form that emits `box-shadow`.
-          'peer-focus-visible:[box-shadow:var(--w-focus-ring)]'
+          'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#FB651E]'
         )}
       >
         <Check className="h-3 w-3" strokeWidth={3.5} />
       </span>
-      <span className="min-w-0 flex-1 truncate text-[0.875rem] font-semibold text-[var(--w-ink)]">
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
         {label}
       </span>
       {count != null ? (
-        <Count n={count} className="shrink-0 text-[0.75rem] text-[var(--w-muted)]" />
+        <Count n={count} className="shrink-0 text-xs text-muted-foreground" />
       ) : null}
     </label>
   )
@@ -108,10 +108,10 @@ function FilterGroup({
 }) {
   return (
     <fieldset className="min-w-0">
-      <legend className="mb-1 text-[0.75rem] font-extrabold uppercase tracking-[0.06em] text-[var(--w-muted)]">
+      <legend className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
         {legend}
       </legend>
-      {hint ? <p className="mb-1 text-[0.75rem] text-[var(--w-muted)]">{hint}</p> : null}
+      {hint ? <p className="mb-1 text-xs text-muted-foreground">{hint}</p> : null}
       <div
         className={cn(
           '-mx-2',
@@ -141,37 +141,37 @@ function CompaniesSwitch({ layers }: { layers: WorldLayers }) {
       onClick={() => layers.setCompaniesOn(!on)}
       className={cn(
         WORLD_FOCUS_CLASS,
-        'flex w-full items-center gap-3 rounded-[12px] border px-3 py-2.5 text-left',
+        'flex w-full items-center gap-3 rounded-sm border px-3 py-2.5 text-left',
         'transition-colors motion-reduce:transition-none',
         on
-          ? 'border-[var(--w-border)] bg-[var(--w-card)]'
-          : 'border-[var(--w-border)] bg-[var(--w-ground)]'
+          ? 'border-border bg-card'
+          : 'border-border bg-background'
       )}
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-[0.9375rem] font-bold text-[var(--w-ink)]">
+        <span className="block text-sm font-bold text-foreground">
           YC &amp; imported companies
         </span>
-        <span className="block text-[0.8125rem] text-[var(--w-muted)]">
+        <span className="block text-xs text-muted-foreground">
           <Count n={layers.seedCount} /> unclaimed pins — context, not placements
         </span>
       </span>
       <span aria-hidden="true" className="flex shrink-0 items-center gap-2">
-        <span className="text-[0.75rem] font-bold text-[var(--w-muted)]">{on ? 'On' : 'Off'}</span>
+        <span className="text-xs font-bold text-muted-foreground">{on ? 'On' : 'Off'}</span>
         <span
           className={cn(
             'relative block h-6 w-11 rounded-full border transition-colors motion-reduce:transition-none',
             on
-              ? 'border-[var(--w-press)] bg-[var(--w-accent)]'
-              : 'border-[var(--w-border)] bg-[var(--w-ground)]'
+              ? 'border-[#E65C00] bg-[#FB651E]'
+              : 'border-border bg-background'
           )}
         >
           <span
             className={cn(
               'absolute top-[0.1875rem] h-[1.125rem] w-[1.125rem] rounded-full transition-[left] duration-150 motion-reduce:transition-none',
               on
-                ? 'left-[1.4375rem] bg-[var(--w-accent-ink)]'
-                : 'left-[0.1875rem] bg-[var(--w-muted)]'
+                ? 'left-[1.4375rem] bg-white'
+                : 'left-[0.1875rem] bg-muted-foreground'
             )}
           />
         </span>
@@ -190,12 +190,12 @@ function PanelBody({ layers }: { layers: WorldLayers }) {
 
   return (
     <>
-      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--w-border)] px-4 pb-3 pt-4">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 pb-3 pt-4">
         <div className="min-w-0">
-          <DialogPrimitive.Title className="world-tokens world-heading world-heading--3">
+          <DialogPrimitive.Title className="font-mono text-base font-bold sm:text-lg">
             Layers
           </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="text-[0.8125rem] text-[var(--w-muted)]">
+          <DialogPrimitive.Description className="text-xs text-muted-foreground">
             Paid plots are always on the globe. Everything else is optional.
           </DialogPrimitive.Description>
         </div>
@@ -210,10 +210,10 @@ function PanelBody({ layers }: { layers: WorldLayers }) {
         {/* The paid layer, stated rather than offered. There is no control here
             because there is no choice here — and saying so out loud is part of
             the pitch to whoever is thinking about buying a plot. */}
-        <div className="flex items-center gap-3 rounded-[12px] border border-[var(--w-accent)] bg-[var(--w-tint)] px-3 py-2.5">
+        <div className="flex items-center gap-3 rounded-sm border border-[#FB651E]/40 bg-[#FB651E]/[0.05] px-3 py-2.5">
           <span className="min-w-0 flex-1">
-            <span className="block text-[0.9375rem] font-bold text-[var(--w-ink)]">Paid plots</span>
-            <span className="block text-[0.8125rem] text-[var(--w-muted)]">
+            <span className="block text-sm font-bold text-foreground">Paid plots</span>
+            <span className="block text-xs text-muted-foreground">
               <Count n={layers.paidCount} /> on the globe
             </span>
           </span>
@@ -225,7 +225,7 @@ function PanelBody({ layers }: { layers: WorldLayers }) {
         {/* Why the switch starts where it starts. Two sentences, and both of
             them are true of the number in YC_LAYER_AUTO_THRESHOLD. */}
         {!layers.companiesChoiceMade ? (
-          <p className="text-[0.75rem] leading-snug text-[var(--w-muted)]">
+          <p className="text-xs leading-snug text-muted-foreground">
             {layers.companiesDefaultOn
               ? `Imported companies show by default until ${YC_LAYER_AUTO_THRESHOLD} plots have been claimed, so the globe is never empty.`
               : `Off by default: ${YC_LAYER_AUTO_THRESHOLD}+ plots have been claimed, so the paid layer owns the map.`}{' '}
@@ -233,9 +233,9 @@ function PanelBody({ layers }: { layers: WorldLayers }) {
           </p>
         ) : null}
 
-        <div className="space-y-4 border-t border-[var(--w-border)] pt-4">
+        <div className="space-y-4 border-t border-border pt-4">
           <div className="flex items-baseline justify-between gap-2">
-            <p className="text-[0.8125rem] font-bold text-[var(--w-ink)]">Filter companies</p>
+            <p className="text-xs font-bold text-foreground">Filter companies</p>
             {anyFilters ? (
               <WorldButton variant="ghost" size="sm" onClick={layers.clearFilters}>
                 Clear filters
@@ -285,11 +285,11 @@ function PanelBody({ layers }: { layers: WorldLayers }) {
       {/* The live outcome of everything above, pinned where it can be read
           without scrolling back. One way out, not two: the "Done" button is
           pinned in the header, and Escape and a tap outside both work. */}
-      <div className="shrink-0 border-t border-[var(--w-border)] px-4 py-3">
-        <p className="text-[0.8125rem] text-[var(--w-muted)]" aria-live="polite">
+      <div className="shrink-0 border-t border-border px-4 py-3">
+        <p className="text-xs text-muted-foreground" aria-live="polite">
           {layers.companiesOn ? (
             <>
-              Showing <Count n={layers.matchedSeedCount} className="text-[var(--w-ink)]" /> of{' '}
+              Showing <Count n={layers.matchedSeedCount} className="text-foreground" /> of{' '}
               <Count n={layers.seedCount} /> companies
             </>
           ) : (
@@ -335,7 +335,7 @@ export function WorldFilterPanel({ layers, className }: WorldFilterPanelProps) {
           {active > 0 ? (
             <span
               aria-hidden="true"
-              className="world-tokens world-num grid h-5 min-w-5 place-items-center rounded-full bg-[var(--w-accent)] px-1 text-[0.6875rem] font-extrabold text-[var(--w-accent-ink)]"
+              className="world-num grid h-5 min-w-5 place-items-center rounded-full bg-[#FB651E] px-1 text-[11px] font-bold text-white"
             >
               {active}
             </span>
@@ -361,10 +361,10 @@ export function WorldFilterPanel({ layers, className }: WorldFilterPanelProps) {
         <DialogPrimitive.Content
           className={cn(
             // `[box-shadow:…]` for the same reason as the focus ring above.
-            'world-root fixed z-[1001] flex flex-col border-[var(--w-border)] [box-shadow:var(--w-shadow)] focus:outline-none',
-            'inset-x-0 bottom-0 max-h-[85svh] rounded-t-2xl border-t',
+            'world-root fixed z-[1001] flex flex-col border-border shadow-lg focus:outline-none',
+            'inset-x-0 bottom-0 max-h-[85svh] rounded-t-sm border-t',
             'data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom motion-reduce:animate-none',
-            'sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[23rem] sm:max-h-[min(34rem,calc(100svh-7rem))] sm:rounded-2xl sm:border'
+            'sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[23rem] sm:max-h-[min(34rem,calc(100svh-7rem))] sm:rounded-sm sm:border'
           )}
         >
           <PanelBody layers={layers} />

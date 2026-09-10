@@ -20,6 +20,8 @@ import { Helmet } from 'react-helmet-async'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ChevronRight } from 'lucide-react'
 import worldApi from '../../lib/worldApi'
+import { PageHeader } from '../../components/ui/PageHeader'
+import { DotPattern } from '../../components/ui/dot-pattern'
 import {
   Money,
   Rank,
@@ -48,14 +50,14 @@ import { centsToBeat, formatDollars, MIN_STAKE_CENTS } from '../../components/wo
  */
 function RankChip({ label, rank }: { label: string; rank: number | null }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-ground)] px-2.5 py-1.5 text-[0.8125rem]">
-      <span className="text-[var(--w-muted)]">{label}</span>
+    <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-background px-2.5 py-1.5 text-xs">
+      <span className="text-muted-foreground">{label}</span>
       {rank == null ? (
-        <span className="font-semibold text-[var(--w-muted)]">unranked</span>
+        <span className="font-semibold text-muted-foreground">unranked</span>
       ) : rank <= 3 ? (
         <Rank n={rank} />
       ) : (
-        <span className="world-tokens world-num text-[0.9375rem] font-extrabold text-[var(--w-ink)]">
+        <span className="world-num text-sm font-bold text-foreground">
           #{rank}
         </span>
       )}
@@ -81,7 +83,7 @@ function standingsLine(name: string, rank: number | null): string {
 /** The one line of legal honesty that has to survive every layout. */
 function NoPrizeNote({ className }: { className?: string }) {
   return (
-    <p className={className ?? 'text-[0.6875rem] leading-tight text-[var(--w-muted)]'}>
+    <p className={className ?? 'text-[11px] leading-tight text-muted-foreground'}>
       No prize, no payout, no refund.
     </p>
   )
@@ -102,7 +104,7 @@ function BackToGlobe() {
   return (
     <Link
       to="/world"
-      className={`${WORLD_FOCUS_CLASS} -m-1 mb-5 inline-flex items-center gap-1.5 rounded-[10px] p-1 text-[0.8125rem] font-semibold text-[var(--w-muted)] transition-colors hover:text-[var(--w-accent-text)]`}
+      className={`${WORLD_FOCUS_CLASS} -m-1 mb-5 inline-flex items-center gap-1.5 rounded-sm p-1 text-xs font-semibold text-muted-foreground transition-colors hover:text-[#FB651E]`}
     >
       <ArrowLeft className="h-4 w-4" aria-hidden />
       Back to the globe
@@ -135,7 +137,7 @@ export default function WorldCountryPage() {
         <WorldHeading level={3} className="mb-2 justify-center">
           Country not found
         </WorldHeading>
-        <p role="alert" className="mb-5 text-sm text-[var(--w-muted)]">
+        <p role="alert" className="mb-5 text-sm text-muted-foreground">
           We don&apos;t have a country at <strong>{iso || '??'}</strong>.
         </p>
         <Link to="/world" className={worldButtonClass('secondary', 'md')}>
@@ -148,7 +150,7 @@ export default function WorldCountryPage() {
   if (countryQuery.isLoading || !country) {
     return (
       <CountryMessage>
-        <p role="status" className="text-sm text-[var(--w-muted)]">
+        <p role="status" className="text-sm text-muted-foreground">
           Loading {iso}…
         </p>
       </CountryMessage>
@@ -169,9 +171,9 @@ export default function WorldCountryPage() {
   const ogImage = `${window.location.origin}/og-world.png`
 
   return (
-    <div className="world-root">
+    <div className="world-root relative min-h-screen overflow-x-hidden">
       <Helmet>
-        <title>{`${country.name} — ExploreYC World`}</title>
+        <title>{` — ExploreYC World`}</title>
         <meta
           name="description"
           content={`${country.name} on ExploreYC World: ${formatDollars(country.total_cents)} staked across ${country.plots_count} plots.`}
@@ -186,35 +188,45 @@ export default function WorldCountryPage() {
         <meta name="twitter:image" content={ogImage} />
       </Helmet>
 
+      <DotPattern color="hsl(var(--primary) / 0.12)" size={24} radius={0.5} />
+
       {/* ── Masthead: who this place is, what it is worth, and the way in ── */}
       <section
         aria-label={`${country.name} overview`}
-        className="border-b border-[var(--w-border)] bg-[var(--w-card)]"
+        className="relative border-b border-border"
       >
-        <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
           <BackToGlobe />
 
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
-            <div className="min-w-0">
-              <WorldHeading level={1} className="mb-1">
-                <span aria-hidden className="mr-3 text-[0.9em]">
+          {/* The page's one `$ command`, exactly as every other ExploreYC
+              route opens. Nothing below this line carries a prompt. */}
+          <PageHeader
+            command={`$ world --country ${iso}`}
+            title={
+              <>
+                <span aria-hidden className="mr-2">
                   {isoFlag(iso)}
                 </span>
                 {country.name}
-              </WorldHeading>
+              </>
+            }
+            subtitle={`Plots planted in ${country.name}, ranked by what is staked on them.`}
+          />
 
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+            <div className="min-w-0">
               {/* The score, set as a score. This is the number the whole page
                   is about, and it used to be the same size as the sentence it
                   sat in. The count-up is unchanged; tabular numerals mean it no
                   longer wobbles the line while it runs. */}
-              <p className="mt-3">
+              <p>
                 <CountUp
                   value={country.total_cents}
                   format={formatDollars}
-                  className="world-tokens world-money world-score world-score--xl text-[var(--w-ink)]"
+                  className="block font-mono text-4xl font-black tabular-nums tracking-tight text-[#FB651E] sm:text-5xl"
                 />
               </p>
-              <p className="text-[0.9375rem] text-[var(--w-muted)]">
+              <p className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
                 staked across {country.plots_count} plot
                 {country.plots_count === 1 ? '' : 's'}
               </p>
@@ -225,7 +237,7 @@ export default function WorldCountryPage() {
               </div>
 
               {/* Says the standing out loud, in the product's voice. */}
-              <p className="mt-4 max-w-xl text-[1.0625rem] font-semibold leading-snug text-[var(--w-ink)]">
+              <p className="mt-4 max-w-xl text-base font-semibold leading-snug text-foreground">
                 {standingsLine(country.name, country.rank_richest)}
               </p>
             </div>
@@ -241,22 +253,22 @@ export default function WorldCountryPage() {
                 ground it is the documented 4.80:1 / 5.81:1 pair from
                 world.css. The orange border and the orange button are what
                 make this block read as the ask; the fill does not have to. */}
-            <WorldCard className="w-full border-[var(--w-accent)] bg-[var(--w-ground)] p-5">
-              <p className="mb-1.5 text-[0.75rem] font-extrabold uppercase tracking-[0.06em] text-[var(--w-muted)]">
+            <WorldCard className="w-full border-[#FB651E]/40 bg-background p-5">
+              <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                 Take this country
               </p>
-              <p className="mb-4 text-[1.0625rem] leading-snug">
+              <p className="mb-4 text-base leading-snug">
                 {hasPrice ? (
                   <>
-                    <Money cents={priceCents} className="text-[var(--w-accent-text)]" />{' '}
-                    <span className="text-[var(--w-muted)]">
+                    <Money cents={priceCents} className="text-[#FB651E]" />{' '}
+                    <span className="text-muted-foreground">
                       {country.plots_count === 0
                         ? `claims the first plot in ${country.name} — and #1 with it.`
                         : `takes #1 in ${country.name}.`}
                     </span>
                   </>
                 ) : (
-                  <span className="text-[var(--w-muted)]">
+                  <span className="text-muted-foreground">
                     Price to take #1 in {country.name}: <Money cents={null} />
                   </span>
                 )}
@@ -268,20 +280,20 @@ export default function WorldCountryPage() {
                 Claim a plot here — from $5
                 <ChevronRight className="h-5 w-5" aria-hidden />
               </Link>
-              <NoPrizeNote className="mt-2 text-center text-[0.6875rem] leading-tight text-[var(--w-muted)]" />
+              <NoPrizeNote className="mt-2 text-center text-[11px] leading-tight text-muted-foreground" />
             </WorldCard>
           </div>
         </div>
       </section>
 
       {/* ── The board, centred ───────────────────────────────────────────── */}
-      <section aria-label={`Leaderboards for ${country.name}`} className="border-b border-[var(--w-border)]">
+      <section aria-label={`Leaderboards for ${country.name}`} className="border-b border-border">
         <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
           <div className="mb-5 text-center">
             <WorldHeading level={2} className="justify-center">
               Who is winning in {country.name}
             </WorldHeading>
-            <p className="mx-auto mt-2 max-w-lg text-[0.9375rem] text-[var(--w-muted)]">
+            <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
               Plots here, ranked by what is staked on them.
             </p>
           </div>
@@ -298,7 +310,7 @@ export default function WorldCountryPage() {
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-10 sm:py-14 lg:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-4">
           <WorldCard as="section" aria-label={`Plots in ${country.name}`}>
-            <div className="px-4 pb-1 pt-4">
+            <div className="border-b border-border px-4 py-3">
               <WorldHeading level={3}>Planted here</WorldHeading>
             </div>
             {country.plots.length === 0 ? (
@@ -306,9 +318,9 @@ export default function WorldCountryPage() {
               // and taking #1 in an empty country is a true statement about
               // an empty board — not a promise of anything else.
               <div className="flex flex-col items-start gap-3 px-4 pb-4 pt-2">
-                <p className="text-[0.9375rem] text-[var(--w-ink)]">
+                <p className="text-sm text-foreground">
                   Nobody has planted in {country.name} yet —{' '}
-                  <Money cents={MIN_STAKE_CENTS} className="text-[var(--w-accent-text)]" /> takes
+                  <Money cents={MIN_STAKE_CENTS} className="text-[#FB651E]" /> takes
                   #1.
                 </p>
                 <Link to="/world/claim" className={worldButtonClass('primary', 'md')}>
@@ -317,7 +329,7 @@ export default function WorldCountryPage() {
                 </Link>
               </div>
             ) : (
-              <ul className="flex flex-col gap-1.5 p-3">
+              <ul className="flex flex-col">
                 {country.plots.slice(0, 20).map((plot, i, list) => (
                   <li key={plot.id}>
                     <WorldRowButton
@@ -349,15 +361,15 @@ export default function WorldCountryPage() {
 
         <div className="flex min-w-0 flex-col gap-4">
           <WorldCard as="section" aria-label={`Cities in ${country.name}`}>
-            <div className="px-4 pb-1 pt-4">
+            <div className="border-b border-border px-4 py-3">
               <WorldHeading level={3}>Cities</WorldHeading>
             </div>
             {country.cities.length === 0 ? (
-              <p className="px-4 py-5 text-sm text-[var(--w-muted)]">
+              <p className="px-4 py-5 text-sm text-muted-foreground">
                 Every city here is empty. First one in takes it.
               </p>
             ) : (
-              <ul className="flex flex-col gap-1.5 p-3">
+              <ul className="flex flex-col">
                 {country.cities.map((city) => {
                   // Two different nulls, two different meanings: no leader at
                   // all has a real price (the minimum stake), while a leader
@@ -377,8 +389,8 @@ export default function WorldCountryPage() {
                         trailing={
                           <span className="flex flex-col items-end">
                             <Money cents={city.total_cents} score />
-                            <span className="text-[0.6875rem] text-[var(--w-muted)]">
-                              <Money cents={cityPrice} className="text-[var(--w-accent-text)]" />{' '}
+                            <span className="text-[11px] text-muted-foreground">
+                              <Money cents={cityPrice} className="text-[#FB651E]" />{' '}
                               takes #1
                             </span>
                           </span>
@@ -396,7 +408,7 @@ export default function WorldCountryPage() {
       {/* ── The ask, one more time ───────────────────────────────────────── */}
       <section
         aria-label={`Claim a plot in ${country.name}`}
-        className="border-t border-[var(--w-border)] bg-[var(--w-tint)]"
+        className="border-t border-border bg-[#FB651E]/[0.05]"
       >
         <div className="mx-auto max-w-3xl px-4 py-12 text-center sm:py-16">
           <WorldHeading level={2} className="justify-center">
@@ -405,7 +417,7 @@ export default function WorldCountryPage() {
           {/* Deliberately not the conversion line again: it is stated once, at
               the top, next to the button that acts on it. Repeating a price two
               screens later is how a page starts sounding like a pitch. */}
-          <p className="mx-auto mb-6 mt-2 max-w-lg text-[1.0625rem] text-[var(--w-muted)]">
+          <p className="mx-auto mb-6 mt-2 max-w-lg text-base text-muted-foreground">
             Pick a coordinate in {country.name}, put your logo on it, and hold it against anyone
             who wants it more.
           </p>
@@ -413,7 +425,7 @@ export default function WorldCountryPage() {
             Claim a plot here — from $5
             <ChevronRight className="h-5 w-5" aria-hidden />
           </Link>
-          <NoPrizeNote className="mt-3 text-[0.75rem] text-[var(--w-muted)]" />
+          <NoPrizeNote className="mt-3 text-xs text-muted-foreground" />
         </div>
       </section>
     </div>
