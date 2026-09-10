@@ -1,8 +1,8 @@
-import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, Sparkles } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi from '../../../lib/worldApi'
+import { WorldCard, WorldChip, WorldHeading, WorldRowButton } from '../ui'
 
 const PROMOTIONS_POLL_MS = 60_000
 
@@ -13,7 +13,7 @@ function Mark({ name, logoUrl }: { name: string; logoUrl: string | null }) {
       <img
         src={logoUrl}
         alt=""
-        className="h-8 w-8 shrink-0 rounded-sm border border-border object-cover"
+        className="h-8 w-8 shrink-0 rounded-[8px] border border-[var(--w-border)] object-cover"
         loading="lazy"
       />
     )
@@ -21,21 +21,9 @@ function Mark({ name, logoUrl }: { name: string; logoUrl: string | null }) {
   return (
     <span
       aria-hidden
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-secondary font-mono text-xs font-bold text-muted-foreground"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] border border-[var(--w-border)] bg-[var(--w-ground)] text-sm font-bold text-[var(--w-muted)]"
     >
       {(name || '?').slice(0, 1).toUpperCase()}
-    </span>
-  )
-}
-
-/**
- * Honesty labels are non-negotiable: paid placement always says so, plainly.
- * "Promoted" for self-serve featured plots, "Sponsor" for admin sponsor slots.
- */
-function PaidLabel({ kind }: { kind: 'Promoted' | 'Sponsor' }) {
-  return (
-    <span className="shrink-0 rounded-sm border border-[#FB651E]/40 bg-[#FB651E]/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[#FB651E]">
-      {kind}
     </span>
   )
 }
@@ -50,6 +38,10 @@ export interface FeaturedRailProps {
  * Featured rail: active promoted plots + sponsor slots for a scope.
  * Renders nothing at all when the scope has no active promotions — an empty
  * ad rail is dead weight on a globe overlay.
+ *
+ * Disclosure is structural, not a call-site convention: <WorldChip> supplies
+ * its own "Promoted"/"Sponsor" copy, so there is no way to render one of these
+ * rows without the label appearing on it.
  */
 export function FeaturedRail({ scope = 'world', className }: FeaturedRailProps) {
   const { data } = useQuery({
@@ -63,51 +55,64 @@ export function FeaturedRail({ scope = 'world', className }: FeaturedRailProps) 
   if (featured.length === 0 && sponsors.length === 0) return null
 
   return (
-    <section
+    <WorldCard
+      as="section"
       aria-label="Featured and sponsored placements"
-      className={cn(
-        'overflow-hidden rounded-sm border border-border bg-card/90 backdrop-blur-sm dark:bg-black/70',
-        className
-      )}
+      className={cn('overflow-hidden', className)}
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 font-mono text-xs text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5 text-[#FB651E]" />
-        <span className="truncate">$ exploreyc --world --featured</span>
+      <div className="px-4 pb-1 pt-4">
+        <WorldHeading level={3} action="Paid placement">
+          Featured
+        </WorldHeading>
       </div>
-      <ul className="flex flex-col">
+      <ul className="flex flex-col gap-1.5 p-3">
         {featured.map((f) => (
           <li key={`featured-${f.plot_id}`}>
-            <Link
+            <WorldRowButton
               to={`/world/p/${f.plot_id}`}
-              className="flex items-center gap-2.5 border-b border-border/50 px-3 py-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <Mark name={f.name} logoUrl={f.logo_url} />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-foreground">
-                {f.name}
-              </span>
-              <PaidLabel kind="Promoted" />
-            </Link>
+              leading={<Mark name={f.name} logoUrl={f.logo_url} />}
+              title={f.name}
+              trailing={<WorldChip tone="promoted" />}
+            />
           </li>
         ))}
         {sponsors.map((s, i) => (
           <li key={`sponsor-${i}`}>
+            {/*
+              Deliberately not <WorldRowButton>. Its props are HTMLAttributes,
+              which has no `rel`, and it hardcodes rel="noopener noreferrer" —
+              so routing this through the primitive would silently drop
+              rel="sponsored" from a paid link. That token is the machine-
+              readable half of the same disclosure the visible chip makes, so
+              it is not optional. This is the documented world-row markup
+              (see world.css), just with the anchor built by hand.
+
+              No chevron either: an outbound link is not in-app navigation, so
+              the external-link glyph is the honest affordance.
+            */}
             <a
               href={s.url}
               target="_blank"
               rel="sponsored noopener noreferrer"
-              className="flex items-center gap-2.5 border-b border-border/50 px-3 py-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="world-tokens world-row"
             >
-              <Mark name={s.label} logoUrl={s.logo_url} />
-              <span className="min-w-0 flex-1 items-center truncate font-mono text-xs font-semibold text-foreground">
-                {s.label}
-                <ExternalLink aria-hidden className="ml-1 inline h-3 w-3 text-muted-foreground" />
+              <span className="world-row__leading">
+                <Mark name={s.label} logoUrl={s.logo_url} />
               </span>
-              <PaidLabel kind="Sponsor" />
+              <span className="world-row__body">
+                <span className="world-row__title flex items-center gap-1">
+                  <span className="truncate">{s.label}</span>
+                  <ExternalLink aria-hidden className="h-3 w-3 shrink-0 text-[var(--w-muted)]" />
+                </span>
+              </span>
+              <span className="world-row__trailing">
+                <WorldChip tone="sponsor" />
+              </span>
             </a>
           </li>
         ))}
       </ul>
-    </section>
+    </WorldCard>
   )
 }
 

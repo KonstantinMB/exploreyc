@@ -21,6 +21,7 @@ import * as THREE from 'three'
 import type { GlobePin } from '../../../lib/worldApi'
 import {
   GLOBE_RADIUS,
+  YC_ORANGE,
   vector3ToLatLng,
   type GlobePalette,
 } from './geo'
@@ -461,6 +462,193 @@ function Rig({ focus, reducedMotion, zoomToCursor = true }: RigProps) {
   )
 }
 
+// --- pick target -----------------------------------------------------------
+
+const TARGET_VERT = /* glsl */ `
+  uniform float uScale;
+  varying vec2 vQuad;
+
+  void main() {
+    vQuad = position.xy;
+    vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    mv.xy += position.xy * uScale;
+    gl_Position = projectionMatrix * mv;
+  }
+`
+
+const TARGET_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uTime;
+  uniform float uStatic;
+
+  varying vec2 vQuad;
+
+  void main() {
+    float d = length(vQuad);
+    if (d > 1.0) discard;
+
+    // The steady part: a small ring around the exact point that will be
+    // claimed. This is the bit that carries the information, so it is present
+    // in both motion modes.
+    float core = 1.0 - smoothstep(0.0, 0.07, abs(d - 0.30));
+
+    float outer;
+    if (uStatic > 0.5) {
+      // Reduced motion: a second, fixed ring instead of a travelling one.
+      outer = (1.0 - smoothstep(0.0, 0.08, abs(d - 0.74))) * 0.85;
+    } else {
+      float t = fract(uTime * 0.9);
+      float r = 0.34 + 0.62 * t;
+      outer = (1.0 - smoothstep(0.0, 0.10, abs(d - r))) * (1.0 - t);
+    }
+
+    float a = clamp(max(core, outer), 0.0, 1.0) * 0.95;
+    if (a < 0.01) discard;
+
+    gl_FragColor = vec4(uColor, a);
+    #include <colorspace_fragment>
+  }
+`
+
+/**
+ * The crosshair's other half: a target ring that follows the point under the
+ * cursor while the claim flow is asking for a coordinate.
+ *
+ * A crosshair cursor says "you are about to place something". It does not say
+ * *where* on a sphere that something lands, and on a globe those are different
+ * questions — the cursor is a flat overlay, the answer is a point on a curved
+ * surface being lit at a grazing angle. So the ring is drawn in the scene, at
+ * the exact coordinate a click would send, and it pulses outward so the eye
+ * finds it without being told to look.
+ *
+ * Under reduced motion the pulse becomes a second static ring: the target is
+ * information and survives; the travelling front is decoration and does not.
+ */
+function PickTarget({ reducedMotion }: { reducedMotion: boolean }) {
+  const gl = useThree((s) => s.gl)
+  const camera = useThree((s) => s.camera)
+  const pointer = useThree((s) => s.pointer)
+
+  const meshRef = useRef<THREE.Mesh>(null)
+  const geometry = useMemo(() => new THREE.PlaneGeometry(2, 2, 1, 1), [])
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: TARGET_VERT,
+        fragmentShader: TARGET_FRAG,
+        uniforms: {
+          uScale: { value: 0.06 },
+          uColor: { value: new THREE.Color(YC_ORANGE) },
+          uTime: { value: 0 },
+          uStatic: { value: reducedMotion ? 1 : 0 },
+        },
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      }),
+    // The motion flag is a uniform write below, not a shader rebuild.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
+  useEffect(() => {
+    material.uniforms.uStatic.value = reducedMotion ? 1 : 0
+  }, [material, reducedMotion])
+
+  useEffect(
+    () => () => {
+      geometry.dispose()
+      material.dispose()
+    },
+    [geometry, material],
+  )
+
+  const raycaster = useMemo(() => new THREE.Raycaster(), [])
+  const hit = useMemo(() => new THREE.Vector3(), [])
+  const inside = useRef(false)
+
+  useEffect(() => {
+    const el = gl.domElement
+    // pointermove, not pointerenter: a pointer already sitting over the canvas
+    // when pick mode turns on never fires an enter.
+    const move = () => {
+      inside.current = true
+    }
+    const leave = () => {
+      inside.current = false
+    }
+    el.addEventListener('pointermove', move, { passive: true })
+    el.addEventListener('pointerleave', leave)
+    return () => {
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerleave', leave)
+    }
+  }, [gl])
+
+  useFrame((state) => {
+    material.uniforms.uTime.value = state.clock.elapsedTime
+
+    const mesh = meshRef.current
+    if (!mesh) return
+    if (!inside.current) {
+      mesh.visible = false
+      return
+    }
+
+    raycaster.setFromCamera(pointer, camera)
+    if (!raycaster.ray.intersectSphere(SPHERE, hit)) {
+      mesh.visible = false
+      return
+    }
+
+    mesh.position.copy(hit).normalize().multiplyScalar(GLOBE_RADIUS + 0.004)
+    mesh.visible = true
+    // Same screen-size compensation the pins use, so the target is the same
+    // size to aim at from orbit as it is from a rooftop.
+    const d = camera.position.length()
+    material.uniforms.uScale.value =
+      0.06 * Math.min(1, Math.max(0.42, d / 2.9))
+  })
+
+  return (
+    <mesh
+      ref={meshRef}
+      geometry={geometry}
+      material={material}
+      visible={false}
+      renderOrder={10}
+      frustumCulled={false}
+    />
+  )
+}
+
+// --- cursor ----------------------------------------------------------------
+
+/**
+ * One owner for the canvas cursor.
+ *
+ * Three things have an opinion about it — pick mode, a hovered country, a
+ * hovered pin — and when they each wrote it themselves they fought: leaving a
+ * pin over land cleared the cursor the country hover had just set, so the
+ * pointer flickered back to an arrow over something that was still clickable.
+ * Everything now reports upward and this writes the resolved answer once.
+ */
+function CanvasCursor({ cursor }: { cursor: string }) {
+  const gl = useThree((s) => s.gl)
+
+  useEffect(() => {
+    const el = gl.domElement
+    el.style.cursor = cursor
+    return () => {
+      el.style.cursor = ''
+    }
+  }, [gl, cursor])
+
+  return null
+}
+
 // --- hover -----------------------------------------------------------------
 
 /**
@@ -498,7 +686,6 @@ function CountryHoverPicker({
     const leave = () => {
       state.current.inside = false
       state.current.last = null
-      el.style.cursor = ''
       onHover(null)
     }
     el.addEventListener('pointerenter', enter)
@@ -506,7 +693,6 @@ function CountryHoverPicker({
     return () => {
       el.removeEventListener('pointerenter', enter)
       el.removeEventListener('pointerleave', leave)
-      el.style.cursor = ''
     }
   }, [gl, onHover])
 
@@ -528,9 +714,8 @@ function CountryHoverPicker({
 
     if (iso2 === s.last) return
     s.last = iso2
-    // A country is clickable; open water is not. Saying so with the cursor is
-    // the cheapest affordance there is.
-    gl.domElement.style.cursor = iso2 ? 'pointer' : ''
+    // A country is clickable; open water is not. The cursor says so — but it
+    // is `CanvasCursor` that writes it, because a pin hover has an opinion too.
     onHover(iso2)
   })
 
@@ -552,6 +737,11 @@ export interface GlobeSceneProps {
   onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
   onSelectCountry?: (iso: string) => void
+  /**
+   * The pin under the cursor, or null. Fires on change only — never per frame —
+   * so the wrapper can put a tooltip beside it.
+   */
+  onHoverPin?: (pin: GlobePin | null) => void
   /** Raised when the frame rate will not hold; the wrapper drops pixel ratio. */
   onPerformanceDecline?: () => void
   /** Level-of-detail telemetry, throttled to ~4Hz. For a dev harness. */
@@ -567,12 +757,21 @@ export function GlobeScene({
   onPick,
   onSelectPlot,
   onSelectCountry,
+  onHoverPin,
   onPerformanceDecline,
   onLodSample,
 }: GlobeSceneProps) {
   const reducedMotion = usePrefersReducedMotion()
 
   const [hoveredIso2, setHoveredIso2] = useState<string | null>(null)
+  /**
+   * Whether a pin is under the cursor — the cursor shape depends on it.
+   *
+   * State rather than a ref because it feeds a render, and cheap because it
+   * changes only when the hovered pin CHANGES: the scan underneath runs at
+   * 16Hz but reports on transitions.
+   */
+  const [pinHovered, setPinHovered] = useState(false)
   const lookupRef = useRef<((lat: number, lng: number) => string | null) | null>(
     null,
   )
@@ -595,6 +794,14 @@ export function GlobeScene({
   const handleHover = useCallback((iso2: string | null) => {
     setHoveredIso2((prev) => (prev === iso2 ? prev : iso2))
   }, [])
+
+  const handleHoverPin = useCallback(
+    (pin: GlobePin | null) => {
+      setPinHovered(Boolean(pin))
+      onHoverPin?.(pin)
+    },
+    [onHoverPin],
+  )
 
   // ---- derived country data ------------------------------------------------
 
@@ -702,11 +909,26 @@ export function GlobeScene({
   const clickable =
     pickMode || Boolean(onSelectCountry) || Boolean(onSelectPlot)
 
+  /**
+   * The one cursor, resolved from every opinion at once.
+   *
+   * Pick mode wins outright — a crosshair over the canvas is half of how
+   * "choose a spot" is discoverable, the target ring is the other half — and
+   * below it, anything the click would open makes a pointer.
+   */
+  const cursor = pickMode
+    ? 'crosshair'
+    : pinHovered || (hoveredIso2 && onSelectCountry)
+      ? 'pointer'
+      : ''
+
   return (
     <>
       {onPerformanceDecline && (
         <PerformanceMonitor onDecline={onPerformanceDecline} />
       )}
+
+      <CanvasCursor cursor={cursor} />
 
       <GlobeBody palette={palette} onPick={clickable ? handlePick : undefined} />
       <CountryHoverPicker
@@ -734,12 +956,18 @@ export function GlobeScene({
         pins={pins}
         palette={palette}
         pendingPick={pickMode ? pendingPick : null}
+        // In pick mode every pixel is a valid answer, so ringing the nearest
+        // existing pin would promise an action the click will not perform.
+        hoverEnabled={!pickMode}
+        onHoverPin={handleHoverPin}
         onHitTestReady={handlePinHitReady}
         reducedMotion={reducedMotion}
       />
 
+      {pickMode && <PickTarget reducedMotion={reducedMotion} />}
+
       <Shockwave at={pendingPick} reducedMotion={reducedMotion} />
-      <Atmosphere color={palette.oceanDeep} />
+      <Atmosphere color={palette.halo} />
 
       <Rig focus={resolvedFocus} reducedMotion={reducedMotion} />
 
@@ -759,6 +987,10 @@ export function GlobeScene({
           countries={countries}
           counts={countryAgg.counts}
           onActivate={pickMode ? undefined : onSelectCountry}
+          // The pill covers the canvas while the cursor is on it, so without
+          // this the country would go dark exactly as its label is being aimed
+          // at. Off in pick mode, where the pills are not pressable at all.
+          onHover={pickMode ? undefined : handleHover}
         />
         <CityLabels plots={paidPins} />
         <PlotLabels pins={pins} palette={palette} />

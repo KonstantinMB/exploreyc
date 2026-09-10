@@ -11,10 +11,13 @@ import * as THREE from 'three'
 import { flagEmoji } from './countries'
 import { latLngToVector3 } from './geo'
 import type { CountryInfo } from './CountryBorders'
-import { countryLabelBudget } from './labelLayout'
+import { clampLabelSpan, countryLabelBudget } from './labelLayout'
 import {
+  LABEL_BORDER,
+  LABEL_CHEVRON,
   LABEL_GAP,
   LABEL_HEIGHT,
+  LABEL_PAD_COUNTRY,
   createBoxPool,
   createLabelPool,
   useLabelLayer,
@@ -54,6 +57,21 @@ const OFFSCREEN_SLACK = 80
  */
 const CLAIMED_PRIORITY_BASE = 1e9
 
+/**
+ * How much of the pill must still sit over the country's centroid after the
+ * pill has been pushed away from a viewport edge.
+ *
+ * A country pill is centred on its centroid rather than offset beside it — the
+ * label *is* the mark, and there is no dot or leader line saying which country
+ * it belongs to. Slide it far enough and it stops being a label for that
+ * country and becomes a caption floating in the ocean, so the pill is allowed
+ * to move only while the centroid stays this far inside it. Past that the label
+ * is dropped, which on a phone is what happens to a country whose centre is
+ * within half a pill of the screen edge — correct, because the alternative is
+ * naming a country the visitor cannot see.
+ */
+const ANCHOR_KEEP = 10
+
 export interface CountryLabelsProps {
   /** Every country in the current topology, from `CountryBorders`. */
   countries: readonly CountryInfo[]
@@ -67,6 +85,14 @@ export interface CountryLabelsProps {
    * every node inert until a handler exists.
    */
   onActivate?: (iso2: string) => void
+  /**
+   * Fired with the ISO-3166 alpha-2 the cursor is over, or null on leave.
+   *
+   * The pill covers the canvas while the cursor is on it, so the globe's own
+   * hover picker goes blind exactly then; forwarding this keeps the territory
+   * lit while its label is being aimed at.
+   */
+  onHover?: (iso2: string | null) => void
 }
 
 export function CountryLabels({
@@ -74,6 +100,7 @@ export function CountryLabels({
   counts,
   enabled = true,
   onActivate,
+  onHover,
 }: CountryLabelsProps) {
   const surface = useLabelSurface()
 
@@ -157,6 +184,17 @@ export function CountryLabels({
     return () => pool.setActivate(null)
   }, [onActivate, surface])
 
+  /** Same contract as above, for the pill's own hover. */
+  useLayoutEffect(() => {
+    const pool = poolRef.current
+    if (!pool) return undefined
+
+    pool.setHover(
+      onHover ? (id) => onHover(id ? id.replace(/^k/, '') : null) : null,
+    )
+    return () => pool.setHover(null)
+  }, [onHover, surface])
+
   const slotCountry = useMemo(() => new Int32Array(COUNTRY_POOL).fill(-1), [])
 
   const scratch = useMemo(
@@ -164,12 +202,23 @@ export function CountryLabels({
       boxes: createBoxPool(),
       idx: [] as number[],
       alpha: [] as number[],
+      /** Final top-left of each candidate, already clamped to the frame. */
       x: [] as number[],
       y: [] as number[],
-      w: [] as number[],
     }),
     [],
   )
+
+  /**
+   * The chevron's contribution to a pill's width, or zero.
+   *
+   * `onActivate` is the same condition the pool uses to add `is-pressable`,
+   * which is the class that reveals the glyph — so this is the one flag that
+   * decides both whether the affordance is drawn and whether the layout is
+   * told about it. Read fresh each render: `useLabelLayer` mirrors the latest
+   * layer object into a ref every render, so this closure never goes stale.
+   */
+  const chevronWidth = onActivate ? LABEL_CHEVRON : 0
 
   useLabelLayer({
     collect(out, frame) {
@@ -179,7 +228,6 @@ export function CountryLabels({
       s.alpha.length = 0
       s.x.length = 0
       s.y.length = 0
-      s.w.length = 0
 
       if (!enabled || data.count === 0 || !poolRef.current) return
 
@@ -216,20 +264,50 @@ export function CountryLabels({
           continue
         }
 
-        // 9px of padding, matching `.world-lod--country`.
+        /*
+         * Padding, text, meta — and the chevron, when there is one.
+         *
+         * The chevron only exists on a pressable pill (`.is-pressable` is what
+         * reveals it), and it is drawn in CSS, so it has no text width for
+         * `measure` to find. Leaving it out of this sum would make every
+         * country pill LABEL_CHEVRON pixels wider than the rectangle the layout
+         * resolved, which is how the edge clamp starts letting pills hang off
+         * the frame again.
+         */
         const pillWidth =
-          9 * 2 +
+          LABEL_BORDER * 2 +
+          LABEL_PAD_COUNTRY * 2 +
           frame.measure(data.names[i], 'title') +
           LABEL_GAP +
-          frame.measure(data.metas[i], 'meta')
+          frame.measure(data.metas[i], 'meta') +
+          chevronWidth
 
-        // Centred on the centroid rather than offset beside it. A country has
-        // no dot to sit next to; the label *is* the mark.
+        /*
+         * Centred on the centroid rather than offset beside it — a country has
+         * no dot to sit next to; the label *is* the mark — and then pulled back
+         * inside the frame if that centre is close enough to an edge to hang the
+         * pill over it.
+         *
+         * The clamp happens here, before the box is offered, so collision
+         * resolution sees where the pill will actually be drawn. Clamping in
+         * `commit` instead would let two pills that were resolved as disjoint
+         * end up stacked in the corner they were both pushed into.
+         */
+        const left = clampLabelSpan(
+          px - pillWidth / 2,
+          pillWidth,
+          width,
+          pillWidth / 2 - ANCHOR_KEEP,
+        )
+        if (left === null) continue
+        const top = clampLabelSpan(py - halfH, pillH, height, halfH - 4)
+        if (top === null) continue
+
         out.push(
           s.boxes.take(
             data.ids[i],
-            px - pillWidth / 2,
-            py - halfH,
+            left,
+            top,
             pillWidth,
             pillH,
             data.priority[i],
@@ -237,9 +315,8 @@ export function CountryLabels({
         )
         s.idx.push(i)
         s.alpha.push(alpha)
-        s.x.push(px)
-        s.y.push(py)
-        s.w.push(pillWidth)
+        s.x.push(left)
+        s.y.push(top)
         taken += 1
       }
     },
@@ -251,17 +328,13 @@ export function CountryLabels({
       pool.begin()
 
       const s = scratch
-      const halfH = LABEL_HEIGHT.country / 2
       for (let k = 0; k < s.idx.length; k += 1) {
         const i = s.idx[k]
         if (!placed.has(data.ids[i])) continue
 
-        const slot = pool.show(
-          data.ids[i],
-          s.x[k] - s.w[k] / 2,
-          s.y[k] - halfH,
-          s.alpha[k],
-        )
+        // `collect` already resolved the final top-left, edge clamp included,
+        // so `commit` places exactly the rectangle the layout agreed to.
+        const slot = pool.show(data.ids[i], s.x[k], s.y[k], s.alpha[k])
         if (slot < 0) continue
 
         if (slotCountry[slot] !== i) {

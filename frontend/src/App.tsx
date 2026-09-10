@@ -52,12 +52,15 @@ const WorldPlotPage = React.lazy(() => import('./pages/world/WorldPlotPage'));
 const WorldClaimPage = React.lazy(() => import('./pages/world/WorldClaimPage'));
 const WorldClaimedPage = React.lazy(() => import('./pages/world/WorldClaimedPage'));
 
-// Minimal chrome-less fallback shown while a /world chunk loads.
+// Minimal chrome-less fallback shown while a /world chunk loads. It carries
+// `world-root` so the first paint of /world is already on the World's own
+// tokens (bright ground, rounded sans) rather than flashing the app's shell —
+// and so this is a sentence, not a fake shell prompt.
 function WorldFallback() {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center font-mono">
-      <p className="text-sm text-muted-foreground" role="status">
-        $ exploreyc --world <span className="animate-pulse">loading…</span>
+    <div className="world-root flex min-h-screen items-center justify-center">
+      <p className="text-[0.9375rem] font-semibold text-[color:var(--w-muted)]" role="status">
+        Loading the World…
       </p>
     </div>
   );

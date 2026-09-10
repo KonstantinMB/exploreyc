@@ -1,29 +1,80 @@
 // /world/p/:id — plot permalink (share target). Owner sees manage controls.
-import { Suspense, useRef, useState, type ChangeEvent } from 'react'
+import { Suspense, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { ArrowLeft, ExternalLink, ImagePlus, Megaphone, Pencil, TrendingUp } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ExternalLink, ImagePlus, Megaphone } from 'lucide-react'
 import worldApi, { type PlotPatchRequest, type WorldPlot } from '../../lib/worldApi'
-import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
-import { Label } from '../../components/ui/label'
-import { PageHeader } from '../../components/ui/PageHeader'
-import { HackerCard } from '../../components/ui/hacker-card'
-import { DotPattern } from '../../components/ui/dot-pattern'
+import {
+  Money,
+  WorldButton,
+  WorldCard,
+  WorldChip,
+  WorldHeading,
+  worldButtonClass,
+  WORLD_FOCUS_CLASS,
+} from '../../components/world/ui'
 import CountUp from '../../components/world/boards/CountUp'
 import { isoFlag, shortDate } from '../../components/world/boards/format'
 import { formatDollars, PROMOTION_TIERS } from '../../components/world/constants'
 import { LazyClaimFlow } from './worldLazy'
 
+/**
+ * Text input styled from the World tokens. There is no world.css input class to
+ * reach for, so the rules live here — `world-focus` supplies the same compliant
+ * ring the primitives use rather than a hand-rolled one.
+ */
+const INPUT_CLASS =
+  'world-focus w-full rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-3 py-2 text-[0.9375rem] text-[var(--w-ink)] outline-none transition-colors duration-150 placeholder:text-[var(--w-muted)] focus:border-[var(--w-accent)]'
+
+/** A rank readout. `null` is "unranked", never a placeholder number. */
 function RankChip({ label, rank }: { label: string; rank: number | null }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-card px-2 py-1 font-mono text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-bold text-foreground">{rank != null ? `#${rank}` : 'unranked'}</span>
+    <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
+      <span className="text-[var(--w-muted)]">{label}</span>
+      {rank != null ? (
+        <span className="world-tokens world-num font-bold text-[var(--w-ink)]">#{rank}</span>
+      ) : (
+        <span className="font-semibold text-[var(--w-muted)]">unranked</span>
+      )}
     </span>
+  )
+}
+
+/** Centred single-message shell for the not-found / loading states. */
+function PlotMessage({ children }: { children: ReactNode }) {
+  return (
+    <div className="world-root flex min-h-screen items-center justify-center p-4">
+      <WorldCard className="w-full max-w-sm p-6 text-center">{children}</WorldCard>
+    </div>
+  )
+}
+
+/**
+ * One owner control per card, each with its own heading and explanation, so the
+ * manage area reads as three decisions rather than one wall of inputs.
+ */
+function OwnerSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <WorldCard as="section" className="p-5">
+      <WorldHeading level={3} className="mb-1">
+        {title}
+      </WorldHeading>
+      {description ? (
+        <p className="mb-4 text-[0.875rem] text-[var(--w-muted)]">{description}</p>
+      ) : null}
+      {children}
+    </WorldCard>
   )
 }
 
@@ -38,29 +89,47 @@ function PlotEditForm({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void 
     founder_link: plot.founder_link ?? '',
   })
   const [message, setMessage] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
 
   const mutation = useMutation({
     mutationFn: (patch: PlotPatchRequest) => worldApi.updatePlot(plot.id, patch),
     onSuccess: () => {
-      setMessage('saved — edits go through the same moderation check as new plots')
+      setFailed(false)
+      setMessage('Saved — edits go through the same moderation check as new plots.')
       onSaved()
     },
     onError: (err) => {
       const detail = isAxiosError(err) ? err.response?.data?.detail : null
-      setMessage(typeof detail === 'string' ? `error: ${detail}` : 'error: could not save — try again')
+      setFailed(true)
+      setMessage(typeof detail === 'string' ? detail : 'Could not save — try again.')
     },
   })
 
   const set = (key: keyof PlotPatchRequest) => (e: ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }))
 
-  const fields: { key: keyof PlotPatchRequest; label: string; required?: boolean }[] = [
-    { key: 'name', label: 'startup name', required: true },
-    { key: 'url', label: 'url' },
-    { key: 'tagline', label: 'tagline' },
-    { key: 'founder_name', label: 'founder name' },
-    { key: 'founder_title', label: 'founder title' },
-    { key: 'founder_link', label: 'founder link' },
+  // Grouped, because "what is this plot" and "who is behind it" are two
+  // different questions and the flat six-field list made them look like one.
+  const groups: {
+    legend: string
+    fields: { key: keyof PlotPatchRequest; label: string; required?: boolean }[]
+  }[] = [
+    {
+      legend: 'The startup',
+      fields: [
+        { key: 'name', label: 'Startup name', required: true },
+        { key: 'url', label: 'Website' },
+        { key: 'tagline', label: 'Tagline' },
+      ],
+    },
+    {
+      legend: 'The founder',
+      fields: [
+        { key: 'founder_name', label: 'Founder name' },
+        { key: 'founder_title', label: 'Founder title' },
+        { key: 'founder_link', label: 'Founder link' },
+      ],
+    },
   ]
 
   return (
@@ -70,29 +139,49 @@ function PlotEditForm({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void 
         setMessage(null)
         mutation.mutate(form)
       }}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-5"
     >
-      {fields.map((f) => (
-        <div key={f.key} className="flex flex-col gap-1">
-          <Label htmlFor={`plot-${f.key}`} className="font-mono text-xs text-muted-foreground">
-            {f.label}
-          </Label>
-          <Input
-            id={`plot-${f.key}`}
-            value={(form[f.key] as string) ?? ''}
-            onChange={set(f.key)}
-            required={f.required}
-            maxLength={200}
-            className="font-mono text-sm"
-          />
-        </div>
+      {groups.map((group) => (
+        <fieldset key={group.legend} className="min-w-0">
+          <legend className="mb-2 text-[0.8125rem] font-bold text-[var(--w-muted)]">
+            {group.legend}
+          </legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {group.fields.map((f) => (
+              <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                <label
+                  htmlFor={`plot-${f.key}`}
+                  className="text-[0.8125rem] font-semibold text-[var(--w-ink)]"
+                >
+                  {f.label}
+                  {f.required ? (
+                    <span className="ml-1 text-[var(--w-accent-text)]" aria-hidden>
+                      *
+                    </span>
+                  ) : null}
+                </label>
+                <input
+                  id={`plot-${f.key}`}
+                  value={(form[f.key] as string) ?? ''}
+                  onChange={set(f.key)}
+                  required={f.required}
+                  maxLength={200}
+                  className={INPUT_CLASS}
+                />
+              </div>
+            ))}
+          </div>
+        </fieldset>
       ))}
-      <div className="flex items-center gap-3">
-        <Button type="submit" size="sm" disabled={mutation.isPending}>
-          {mutation.isPending ? 'saving…' : 'save changes'}
-        </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <WorldButton type="submit" disabled={mutation.isPending}>
+          {mutation.isPending ? 'Saving…' : 'Save changes'}
+        </WorldButton>
         {message && (
-          <p role="status" className="font-mono text-xs text-muted-foreground">
+          <p
+            role={failed ? 'alert' : 'status'}
+            className="text-[0.8125rem] text-[var(--w-muted)]"
+          >
             {message}
           </p>
         )}
@@ -105,25 +194,32 @@ function PlotEditForm({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void 
 function LogoUpload({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
 
   const mutation = useMutation({
     mutationFn: (dataUrl: string) => worldApi.uploadPlotLogo(plot.id, dataUrl),
     onSuccess: () => {
-      setMessage('logo updated')
+      setFailed(false)
+      setMessage('Logo updated.')
       onSaved()
     },
-    onError: () => setMessage('error: upload failed — try a smaller image'),
+    onError: () => {
+      setFailed(true)
+      setMessage('Upload failed — try a smaller image.')
+    },
   })
 
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 2 * 1024 * 1024) {
-      setMessage('error: image must be under 2 MB')
+      setFailed(true)
+      setMessage('That image is over 2 MB — pick a smaller one.')
       return
     }
     const reader = new FileReader()
     reader.onload = () => {
+      setFailed(false)
       setMessage(null)
       mutation.mutate(String(reader.result))
     }
@@ -131,7 +227,7 @@ function LogoUpload({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void })
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       <input
         ref={inputRef}
         type="file"
@@ -140,18 +236,16 @@ function LogoUpload({ plot, onSaved }: { plot: WorldPlot; onSaved: () => void })
         className="sr-only"
         id="plot-logo-input"
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
+      <WorldButton
+        variant="secondary"
         disabled={mutation.isPending}
         onClick={() => inputRef.current?.click()}
       >
-        <ImagePlus className="mr-1.5 h-4 w-4" aria-hidden />
-        {mutation.isPending ? 'uploading…' : plot.logo_url ? 'replace logo' : 'upload logo'}
-      </Button>
+        <ImagePlus className="h-4 w-4" aria-hidden />
+        {mutation.isPending ? 'Uploading…' : plot.logo_url ? 'Replace logo' : 'Upload logo'}
+      </WorldButton>
       {message && (
-        <p role="status" className="font-mono text-xs text-muted-foreground">
+        <p role={failed ? 'alert' : 'status'} className="text-[0.8125rem] text-[var(--w-muted)]">
           {message}
         </p>
       )}
@@ -176,45 +270,46 @@ function PromotePanel({ plot }: { plot: WorldPlot }) {
         return
       }
       const detail = isAxiosError(err) ? err.response?.data?.detail : null
-      setError(typeof detail === 'string' ? detail : 'checkout failed — try again')
+      setError(typeof detail === 'string' ? detail : 'Checkout failed — try again.')
     },
   })
 
   if (slotsFull) {
     return (
-      <p role="status" className="font-mono text-xs text-muted-foreground">
-        All {plot.country_name} featured slots are taken right now. Slots free up when a
-        promotion ends — check back soon.
+      <p role="status" className="text-[0.875rem] text-[var(--w-muted)]">
+        All {plot.country_name} featured slots are taken right now. Slots free up when a promotion
+        ends — check back soon.
       </p>
     )
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <p className="font-mono text-xs text-muted-foreground">
-        Featured placement: orange beacon on the globe, a slot in the Featured rail, and a
-        visible “Promoted” label — always labeled as paid.
-      </p>
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
         {PROMOTION_TIERS.map((tier) => (
-          <Button
+          <WorldButton
             key={tier.id}
-            variant="outline"
-            size="sm"
+            variant="secondary"
             disabled={mutation.isPending}
             onClick={() => {
               setError(null)
               mutation.mutate(tier.id)
             }}
           >
-            <Megaphone className="mr-1.5 h-4 w-4 text-[#FB651E]" aria-hidden />
+            <Megaphone className="h-4 w-4 text-[var(--w-accent-text)]" aria-hidden />
             {tier.label} — {formatDollars(tier.price_cents)}
-          </Button>
+          </WorldButton>
         ))}
       </div>
       {error && (
-        <p role="alert" className="font-mono text-xs text-red-600 dark:text-red-400">
-          error: {error}
+        // With one hue in the system, an error can't be "the red one". It gets
+        // a distinct shape instead — a tinted, accent-bordered box — plus
+        // role="alert", so it never relies on colour to read as a problem.
+        <p
+          role="alert"
+          className="rounded-[10px] border border-[var(--w-accent)] bg-[var(--w-tint)] px-3 py-2 text-[0.8125rem] font-semibold text-[var(--w-ink)]"
+        >
+          {error}
         </p>
       )}
     </div>
@@ -250,39 +345,55 @@ export default function WorldPlotPage() {
 
   if (!id || plotQuery.isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background font-mono">
-        <div className="text-center">
-          <p role="alert" className="mb-3 text-sm text-muted-foreground">
-            $ exploreyc --world --plot {id || '??'} — not found
-          </p>
-          <Button asChild variant="outline">
-            <Link to="/world">back to the globe</Link>
-          </Button>
-        </div>
-      </div>
+      <PlotMessage>
+        <WorldHeading level={3} className="mb-2 justify-center">
+          Plot not found
+        </WorldHeading>
+        <p role="alert" className="mb-5 text-sm text-[var(--w-muted)]">
+          There is no plot at this address. It may have been removed.
+        </p>
+        <Link to="/world" className={worldButtonClass('secondary', 'md')}>
+          Back to the globe
+        </Link>
+      </PlotMessage>
     )
   }
 
   if (plotQuery.isLoading || !plot) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background font-mono">
-        <p role="status" className="text-sm text-muted-foreground">
-          $ exploreyc --world --plot {id} <span className="animate-pulse">loading…</span>
+      <PlotMessage>
+        <p role="status" className="text-sm text-[var(--w-muted)]">
+          Loading this plot…
         </p>
-      </div>
+      </PlotMessage>
     )
   }
 
-  const countryRank =
-    countryBoard.data?.rows.find((r) => r.plot_id === plot.id)?.rank ?? null
+  const countryRank = countryBoard.data?.rows.find((r) => r.plot_id === plot.id)?.rank ?? null
   const cityRank = cityBoard.data?.rows.find((r) => r.plot_id === plot.id)?.rank ?? null
   const toBeat = countryBoard.data?.cents_to_beat ?? null
   const isMine = plot.is_mine === true
   // Absolute: social crawlers do not resolve relative og:image paths.
   const ogImage = `${window.location.origin}/og-world.png`
 
+  /** The one conversion sentence, shared by the visitor and owner cards. */
+  const toBeatLine = (
+    <>
+      {toBeat != null ? (
+        <>
+          <Money cents={toBeat} className="text-[var(--w-accent-text)]" /> takes #1 in{' '}
+          {plot.country_name}.
+        </>
+      ) : (
+        <>
+          Price to take #1 in {plot.country_name}: <Money cents={null} />.
+        </>
+      )}
+    </>
+  )
+
   return (
-    <div className="relative min-h-screen bg-background font-mono">
+    <div className="world-root min-h-screen">
       <Helmet>
         <title>{`${plot.name} — ExploreYC World`}</title>
         <meta
@@ -298,95 +409,94 @@ export default function WorldPlotPage() {
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:image" content={ogImage} />
       </Helmet>
-      <DotPattern />
 
       <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
         <Link
           to="/world"
-          className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={`${WORLD_FOCUS_CLASS} mb-5 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-[var(--w-muted)] transition-colors hover:text-[var(--w-accent-text)]`}
         >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          back to the globe
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Back to the globe
         </Link>
 
-        <PageHeader
-          command={`$ exploreyc --world --plot ${plot.id}`}
-          title={
-            <span className="inline-flex items-center gap-3">
-              {plot.logo_url ? (
-                <img
-                  src={plot.logo_url}
-                  alt=""
-                  className="h-10 w-10 rounded-sm border border-border object-cover"
-                />
-              ) : (
-                <span
-                  aria-hidden
-                  className="grid h-10 w-10 place-items-center rounded-sm border border-border bg-secondary font-mono text-base font-bold text-muted-foreground"
-                >
-                  {plot.name.slice(0, 1).toUpperCase()}
-                </span>
-              )}
-              {plot.name}
-              {plot.promoted && (
-                <span className="rounded-sm border border-[#FB651E]/40 bg-[#FB651E]/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[#FB651E]">
-                  Promoted
-                </span>
-              )}
+        <WorldCard className="mb-4 p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            {plot.logo_url ? (
+              <img
+                src={plot.logo_url}
+                alt=""
+                className="h-14 w-14 shrink-0 rounded-[12px] border border-[var(--w-border)] object-cover"
+              />
+            ) : (
+              <span
+                aria-hidden
+                className="grid h-14 w-14 shrink-0 place-items-center rounded-[12px] border border-[var(--w-border)] bg-[var(--w-ground)] text-xl font-bold text-[var(--w-muted)]"
+              >
+                {plot.name.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {/* min-w-0: WorldHeading's wrapper is itself a flex box, so
+                    without this a long startup name refuses to shrink and
+                    pushes the Promoted chip off the card. */}
+                <WorldHeading level={1} className="min-w-0">
+                  {plot.name}
+                </WorldHeading>
+                {plot.promoted && <WorldChip tone="promoted" />}
+              </div>
+              {plot.tagline ? (
+                <p className="mt-1 text-[0.9375rem] text-[var(--w-muted)]">{plot.tagline}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <RankChip label={plot.country_name} rank={countryRank} />
+            {plot.city_name && <RankChip label={plot.city_name} rank={cityRank} />}
+            <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
+              <span className="text-[var(--w-muted)]">Staked</span>
+              <CountUp
+                value={plot.total_cents}
+                format={formatDollars}
+                className="world-tokens world-money text-[var(--w-accent-text)]"
+              />
             </span>
-          }
-          subtitle={plot.tagline || undefined}
-        />
+          </div>
+        </WorldCard>
 
         {plot.status === 'pending' && (
-          <p
-            role="status"
-            className="mb-4 rounded-sm border border-border bg-secondary px-3 py-2 text-xs text-muted-foreground"
-          >
-            This plot is pending review and stays off the public globe until approved.
-          </p>
+          <WorldCard className="mb-4 p-4" flat>
+            <p role="status" className="text-[0.875rem] text-[var(--w-muted)]">
+              This plot is pending review and stays off the public globe until approved.
+            </p>
+          </WorldCard>
         )}
 
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          <RankChip label={`${plot.country_name}`} rank={countryRank} />
-          {plot.city_name && <RankChip label={plot.city_name} rank={cityRank} />}
-          <span className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-card px-2 py-1 font-mono text-xs">
-            <span className="text-muted-foreground">staked</span>
-            <CountUp
-              value={plot.total_cents}
-              format={formatDollars}
-              className="font-bold text-[#FB651E]"
-            />
-          </span>
-        </div>
-
-        <HackerCard className="mb-4 p-4">
-          <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
-            <div className="flex gap-2">
-              <dt className="text-muted-foreground">location:</dt>
-              <dd>
-                <Link
-                  to={`/world/c/${plot.country_iso}`}
-                  className="text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
+        <WorldCard className="mb-4 p-5">
+          <dl className="grid gap-x-8 gap-y-3 text-[0.875rem] sm:grid-cols-2">
+            <div className="flex min-w-0 gap-2">
+              <dt className="shrink-0 text-[var(--w-muted)]">Location</dt>
+              <dd className="min-w-0">
+                <Link to={`/world/c/${plot.country_iso}`} className="world-link">
                   <span aria-hidden>{isoFlag(plot.country_iso)}</span> {plot.country_name}
                 </Link>
                 {plot.city_name ? ` · ${plot.city_name}` : ''}
               </dd>
             </div>
             <div className="flex gap-2">
-              <dt className="text-muted-foreground">planted:</dt>
-              <dd>{shortDate(plot.created_at)}</dd>
+              <dt className="shrink-0 text-[var(--w-muted)]">Planted</dt>
+              <dd className="world-tokens world-num">{shortDate(plot.created_at)}</dd>
             </div>
             {plot.url && (
-              <div className="flex gap-2">
-                <dt className="text-muted-foreground">url:</dt>
+              <div className="flex min-w-0 gap-2">
+                <dt className="shrink-0 text-[var(--w-muted)]">Website</dt>
                 <dd className="min-w-0">
                   <a
                     href={plot.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex max-w-full items-center gap-1 truncate text-[#FB651E] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="world-link inline-flex max-w-full items-center gap-1"
                   >
                     <span className="truncate">{plot.url}</span>
                     <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
@@ -395,15 +505,15 @@ export default function WorldPlotPage() {
               </div>
             )}
             {plot.founder_name && (
-              <div className="flex gap-2">
-                <dt className="text-muted-foreground">founder:</dt>
-                <dd>
+              <div className="flex min-w-0 gap-2">
+                <dt className="shrink-0 text-[var(--w-muted)]">Founder</dt>
+                <dd className="min-w-0">
                   {plot.founder_link ? (
                     <a
                       href={plot.founder_link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="world-link"
                     >
                       {plot.founder_name}
                     </a>
@@ -415,68 +525,59 @@ export default function WorldPlotPage() {
               </div>
             )}
           </dl>
-        </HackerCard>
+        </WorldCard>
 
         {!isMine && (
-          <HackerCard className="mb-4 p-4">
-            <p className="mb-2 font-mono text-xs text-muted-foreground">
-              {toBeat != null
-                ? `${formatDollars(toBeat)} takes #1 in ${plot.country_name}.`
-                : `Price to take #1 in ${plot.country_name}: unknown.`}
-            </p>
+          <WorldCard className="mb-4 p-5">
+            <p className="mb-4 text-[0.9375rem]">{toBeatLine}</p>
             <div className="flex flex-wrap items-center gap-3">
-              <Button asChild size="sm">
-                <Link to="/world/claim">claim your own plot — from $5</Link>
-              </Button>
-              <span className="font-mono text-[11px] text-muted-foreground">
+              <Link to="/world/claim" className={worldButtonClass('primary', 'lg')}>
+                Claim your own plot — from $5
+                <ChevronRight className="h-5 w-5" aria-hidden />
+              </Link>
+              <p className="text-[0.6875rem] text-[var(--w-muted)]">
                 No prize, no payout, no refund.
-              </span>
+              </p>
             </div>
-          </HackerCard>
+          </WorldCard>
         )}
 
         {isMine && (
           <div className="flex flex-col gap-4">
-            <HackerCard className="p-4">
-              <h2 className="mb-3 flex items-center gap-2 font-mono text-sm font-bold">
-                <TrendingUp className="h-4 w-4 text-[#FB651E]" aria-hidden />
-                <span>
-                  <span className="text-[#FB651E]">$</span> world --topup
-                </span>
-              </h2>
-              <p className="mb-2 font-mono text-xs text-muted-foreground">
-                Add stake to climb the boards.{' '}
-                {toBeat != null
-                  ? `${formatDollars(toBeat)} total takes #1 in ${plot.country_name}.`
-                  : `Price to take #1 in ${plot.country_name}: unknown.`}
-              </p>
-              <Button size="sm" onClick={() => setTopUpOpen(true)}>
-                top up stake
-              </Button>
-            </HackerCard>
+            <WorldHeading level={2} className="mt-2">
+              Manage your plot
+            </WorldHeading>
 
-            <HackerCard className="p-4">
-              <h2 className="mb-3 flex items-center gap-2 font-mono text-sm font-bold">
-                <Pencil className="h-4 w-4 text-[#FB651E]" aria-hidden />
-                <span>
-                  <span className="text-[#FB651E]">$</span> world --edit
-                </span>
-              </h2>
-              <div className="mb-4">
+            <OwnerSection
+              title="Add stake"
+              description={<>Climb the boards by topping up. {toBeatLine}</>}
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <WorldButton size="lg" onClick={() => setTopUpOpen(true)}>
+                  Top up stake
+                </WorldButton>
+                <p className="text-[0.6875rem] text-[var(--w-muted)]">
+                  No prize, no payout, no refund.
+                </p>
+              </div>
+            </OwnerSection>
+
+            <OwnerSection
+              title="Edit details"
+              description="Your logo, what you do, and who is behind it. Every edit is re-checked by moderation before it goes live."
+            >
+              <div className="mb-5">
                 <LogoUpload plot={plot} onSaved={invalidatePlot} />
               </div>
               <PlotEditForm key={plot.updated_at} plot={plot} onSaved={invalidatePlot} />
-            </HackerCard>
+            </OwnerSection>
 
-            <HackerCard className="p-4">
-              <h2 className="mb-3 flex items-center gap-2 font-mono text-sm font-bold">
-                <Megaphone className="h-4 w-4 text-[#FB651E]" aria-hidden />
-                <span>
-                  <span className="text-[#FB651E]">$</span> world --promote
-                </span>
-              </h2>
+            <OwnerSection
+              title="Promote"
+              description="An orange beacon on the globe, a slot in the Featured rail, and a visible “Promoted” label — paid placement is always labelled as paid."
+            >
               <PromotePanel plot={plot} />
-            </HackerCard>
+            </OwnerSection>
           </div>
         )}
       </div>
@@ -485,33 +586,40 @@ export default function WorldPlotPage() {
       <DialogPrimitive.Root open={topUpOpen} onOpenChange={setTopUpOpen}>
         <DialogPrimitive.Portal>
           <DialogPrimitive.Overlay className="fixed inset-0 z-[1001] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none" />
-          <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-[1001] max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-background p-4 font-mono focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none sm:p-6">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <DialogPrimitive.Title className="font-mono text-sm font-bold">
-                  <span className="text-[#FB651E]">$</span> world --topup {plot.name}
+          {/* `world-root` re-declared here: Radix portals this to document.body,
+              outside the page tree, so the tokens would otherwise be lost. */}
+          <DialogPrimitive.Content className="world-root fixed left-1/2 top-1/2 z-[1001] flex max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-[var(--w-border)] focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none">
+            {/* Header pinned, body scrolled — same split as the boards sheet, so
+                the close control can never scroll out of reach on a short
+                viewport. */}
+            <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3 sm:p-6 sm:pb-3">
+              <div className="min-w-0">
+                <DialogPrimitive.Title className="world-tokens world-heading world-heading--3">
+                  Top up {plot.name}
                 </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="font-mono text-xs text-muted-foreground">
+                <DialogPrimitive.Description className="text-[0.8125rem] text-[var(--w-muted)]">
                   Every dollar counts for {plot.country_name}. No prize, no payout, no refund.
                 </DialogPrimitive.Description>
               </div>
               <DialogPrimitive.Close asChild>
-                <Button variant="outline" size="sm">
-                  close
-                </Button>
+                <WorldButton variant="secondary" size="sm">
+                  Close
+                </WorldButton>
               </DialogPrimitive.Close>
             </div>
-            {topUpOpen && (
-              <Suspense
-                fallback={
-                  <p role="status" className="py-6 text-center font-mono text-xs text-muted-foreground">
-                    $ loading claim flow<span className="animate-pulse">…</span>
-                  </p>
-                }
-              >
-                <LazyClaimFlow initial={{ plotId: plot.id }} />
-              </Suspense>
-            )}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6 sm:pb-6">
+              {topUpOpen && (
+                <Suspense
+                  fallback={
+                    <p role="status" className="py-6 text-center text-sm text-[var(--w-muted)]">
+                      Loading the claim flow…
+                    </p>
+                  }
+                >
+                  <LazyClaimFlow initial={{ plotId: plot.id }} />
+                </Suspense>
+              )}
+            </div>
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>

@@ -1,16 +1,39 @@
-// Step one of the claim wizard: where the plot goes — as a SUMMARY.
+// Step one of the claim wizard: where the plot goes.
 //
-// Ported from startupworld's claim/PlacePicker.tsx, minus the typeahead: in
-// ExploreYC the actual picking happens on the globe page, which re-opens the
-// flow with coordinates. This component's job is to echo the chosen point back
-// IN WORDS (never a bare coordinate — "22.80°, 79.53°" tells a buyer nothing)
-// via the server's own `/api/world/where` resolver, so the label is a preview
-// of what will be stored rather than a browser's second opinion about it.
+// THIS IS THE ONLY SPOT-PICKING SURFACE. It used to be one of two: the page
+// floated a card over the top-left of the globe carrying its own heading, its
+// own "nothing chosen yet" readout, its own instruction AND its own city search
+// field, while this step showed the same heading, the same readout, the same
+// instruction and a big orange button whose entire job was to move focus back
+// into that other field. Two panels for one decision, and the loudest control
+// on the screen was a button competing with the input it pointed at.
+//
+// So the picking lives here now, in the wizard, because that is step 1 of the
+// flow and where the eye already is:
+//
+//   - the city search INLINE (the field itself, not a button that reveals one)
+//   - the chosen-spot readout, in words
+//
+// The globe keeps exactly one thing: a small, non-interactive hint saying it
+// can be clicked. That is the only other sentence about choosing anywhere on
+// the page.
+//
+// The search is not a convenience. You cannot click a WebGL sphere with a
+// keyboard, so this combobox is the only keyboard route into the whole claim
+// flow — it keeps its full ARIA 1.2 behaviour (arrow keys, Enter, Escape).
+//
+// The label is always resolved through the server's own /api/world/where, so it
+// previews what will actually be stored rather than offering a browser's second
+// opinion. Never a bare coordinate: "22.80°, 79.53°" tells a buyer nothing.
 
-import { Loader2, MapPin, Pencil } from 'lucide-react'
+import { AlertCircle, Loader2, MapPin } from 'lucide-react'
 
 import { cn } from '../../../lib/utils'
 import type { WhereResponse } from '../../../lib/worldApi'
+import { WorldCard, WorldHeading } from '../ui'
+import { HINT, SANS } from './styles'
+import { CitySearch } from './CitySearch'
+import type { City } from './cityIndex'
 
 export type PlaceState =
   | { kind: 'none' }
@@ -27,108 +50,107 @@ export function placeLabel(where: WhereResponse): string {
 
 export interface PlaceSummaryProps {
   place: PlaceState
-  /** The page owns the globe; this asks it to enter pick mode. */
-  onNeedPick?: () => void
-  /** Hidden for seed claims, where the point is the company's and fixed. */
-  canChange?: boolean
+  /**
+   * A city was chosen from the search. The page owns the globe and the
+   * coordinate, so it hears about it here and treats it exactly like a globe
+   * click — same geography check, same flight, same readout.
+   *
+   * Omitted for seed claims, where the coordinate is the company's and fixed;
+   * the search is then not rendered at all rather than rendered inert.
+   */
+  onPickCity?: (point: { lat: number; lng: number }) => void
 }
 
-const CARD =
-  'flex items-start gap-3 rounded-sm border border-border/80 bg-card/50 p-3 font-mono'
+const ICON_WELL =
+  'flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--w-tint)] text-[color:var(--w-accent-text)]'
 
-export function PlaceSummary({ place, onNeedPick, canChange = true }: PlaceSummaryProps) {
-  const changeButton =
-    canChange && onNeedPick ? (
-      <button
-        type="button"
-        onClick={onNeedPick}
-        className={cn(
-          'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3',
-          'font-mono text-xs transition-colors hover:border-[#FB651E]/60 hover:text-[#FB651E]',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-          'ring-offset-background',
-        )}
-      >
-        <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-        Change
-      </button>
-    ) : null
-
-  if (place.kind === 'none') {
-    return (
-      <div className="flex flex-col gap-2 font-mono">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">Where</span>
-        <div className={cn(CARD, 'flex-col items-stretch gap-3')}>
-          <p className="text-sm leading-snug text-muted-foreground">
-            No point chosen yet. Pick one by clicking anywhere on the globe.
-          </p>
-          {onNeedPick ? (
-            <button
-              type="button"
-              onClick={onNeedPick}
-              className={cn(
-                'inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#FB651E] px-4',
-                'font-mono text-sm font-medium text-white transition-colors hover:bg-[#E65C00]',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                'ring-offset-background',
-              )}
-            >
-              <MapPin aria-hidden="true" className="h-4 w-4" />
-              Pick a point on the globe
-            </button>
-          ) : null}
-        </div>
-      </div>
-    )
-  }
-
+export function PlaceSummary({ place, onPickCity }: PlaceSummaryProps) {
   return (
-    <div className="flex flex-col gap-2 font-mono">
-      <span className="text-xs uppercase tracking-wider text-muted-foreground">Your plot</span>
+    <div className="flex flex-col gap-4" style={SANS}>
+      <WorldHeading level={3}>Choose your spot</WorldHeading>
 
-      <div className={CARD}>
-        <MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[#FB651E]" />
+      {onPickCity ? (
+        <CitySearch
+          label="Search for a city"
+          resultsPlacement="inline"
+          onSelect={(city: City) => onPickCity({ lat: city.lat, lng: city.lng })}
+        />
+      ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col gap-1" aria-live="polite">
+      {/* The readout. State only — no instruction lives in here, because the
+          field above and the hint on the globe have already said everything
+          there is to say about how to choose.
+
+          Nothing chosen yet is a LINE, not a card. An empty state has no
+          business being the biggest object on the step, and on a 375px phone
+          the 78px card was what pushed this step past the bottom sheet and got
+          itself sliced in half by the footer. It grows into the card the moment
+          there is something to put in it. */}
+      {place.kind === 'none' ? (
+        <p
+          aria-live="polite"
+          className="flex items-center gap-2.5 text-[0.9375rem] font-semibold text-[color:var(--w-muted)]"
+        >
+          <MapPin aria-hidden="true" className="h-[1.125rem] w-[1.125rem] shrink-0" />
+          No spot chosen yet
+        </p>
+      ) : (
+      <WorldCard flat className="flex items-start gap-3.5 p-4" aria-live="polite">
+        <span className={ICON_WELL} aria-hidden="true">
           {place.kind === 'locating' ? (
-            <span role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-              Locating…
+            <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
+          ) : place.kind === 'ocean' ? (
+            <AlertCircle className="h-5 w-5" />
+          ) : (
+            <MapPin className="h-5 w-5" />
+          )}
+        </span>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {place.kind === 'locating' ? (
+            <span
+              role="status"
+              className="text-[1.0625rem] font-bold leading-tight text-[color:var(--w-ink)]"
+            >
+              Checking that spot…
             </span>
           ) : place.kind === 'ocean' ? (
             <>
-              <span className="text-sm font-medium text-foreground">Open water</span>
-              <span className="text-xs leading-snug text-red-500">
-                That point is at sea, and plots only go on land. Pick a point inside a country.
+              <span className="text-[1.0625rem] font-bold leading-tight text-[color:var(--w-ink)]">
+                That is open water
+              </span>
+              <span className={cn(HINT, 'font-semibold text-[color:var(--w-accent-text)]')}>
+                Plots only go on land — try again inside a country.
               </span>
             </>
           ) : place.kind === 'error' ? (
             <>
-              <span className="text-sm font-medium text-foreground">A point on Earth</span>
-              <span className="text-xs leading-snug text-muted-foreground">
-                We could not name this point right now. Its country is settled at checkout either
-                way.
+              <span className="text-[1.0625rem] font-bold leading-tight text-[color:var(--w-ink)]">
+                A point on Earth
+              </span>
+              <span className={HINT}>
+                We could not name this point right now. Its country is settled at checkout
+                either way.
               </span>
             </>
           ) : (
             <>
-              <span className="truncate text-sm font-medium text-foreground">
+              <span className="truncate text-[1.25rem] font-bold leading-tight text-[color:var(--w-ink)]">
                 {placeLabel(place.where)}
               </span>
               {/* Whether the pin is close enough to a city to compete on a
                   city board — the cheapest #1 in the product, and the whole
                   reason the 50 km snap radius exists. */}
-              <span className="text-xs leading-snug text-muted-foreground">
+              <span className={HINT}>
                 {place.where.city_name
                   ? 'Close enough to compete on this city’s board.'
-                  : 'No city within range — this one scores for the country.'}
+                  : 'No city within range — this one scores for its country.'}
               </span>
             </>
           )}
         </div>
-
-        {changeButton}
-      </div>
+      </WorldCard>
+      )}
     </div>
   )
 }

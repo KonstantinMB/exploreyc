@@ -23,6 +23,49 @@ export function timeAgo(at: string, now: number = Date.now()): string {
   return `${Math.floor(h / 24)}d`
 }
 
+/**
+ * Board rows are ~330px wide inside the globe rail, and the name column is what
+ * gets squeezed: "United States of America" shipped as "United States o…", the
+ * one row on the board a visitor is most likely to be looking for.
+ *
+ * The names themselves come from `world_countries`, which is already the
+ * Natural Earth short set ("Dem. Rep. Congo", not "Democratic Republic of the
+ * Congo"), so this is a small correction list rather than a second name table —
+ * every entry below is a name that still overflows a row after that. Keyed by
+ * ISO because the code is stable and the stored string is not.
+ *
+ * Nothing here renames a country: each value is the same country's ordinary
+ * short form, the one a map or a news bulletin would use.
+ */
+const SHORT_COUNTRY_NAME: Readonly<Record<string, string>> = {
+  US: 'United States',
+  AE: 'UAE',
+  ST: 'São Tomé & Príncipe',
+  TT: 'Trinidad & Tobago',
+  BA: 'Bosnia & Herz.',
+  AG: 'Antigua & Barb.',
+  KN: 'St. Kitts & Nevis',
+  VC: 'St. Vin. & Gren.',
+  PM: 'St. Pierre & Miquelon',
+  WF: 'Wallis & Futuna',
+  TC: 'Turks & Caicos',
+  HM: 'Heard & McDonald Is.',
+  UM: 'U.S. Outlying Is.',
+  TF: 'Fr. S. Antarctic',
+  IO: 'Br. Indian Ocean',
+  GS: 'S. Georgia & Is.',
+  CF: 'C. African Rep.',
+}
+
+/**
+ * The name to print for a country row. Falls back to whatever the API sent, so
+ * a country missing from the list above is still named — never blanked.
+ */
+export function countryDisplayName(iso: string | null | undefined, name: string): string {
+  const code = (iso ?? '').trim().toUpperCase()
+  return SHORT_COUNTRY_NAME[code] ?? name
+}
+
 /** "Mar 2026" style date for pioneer rows. */
 export function shortDate(at: string): string {
   const d = new Date(at)

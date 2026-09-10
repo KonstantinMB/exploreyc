@@ -10,8 +10,10 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { GlobePin } from '../../../lib/worldApi'
 import { latLngToVector3, markerColor, type GlobePalette } from './geo'
-import { plotLabelFade } from './labelLayout'
+import { anchoredLabelX, clampLabelSpan, plotLabelFade } from './labelLayout'
 import {
+  LABEL_BORDER,
+  LABEL_CHIP_PAD,
   LABEL_GAP,
   LABEL_HEIGHT,
   LABEL_LEADER,
@@ -196,30 +198,45 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
           continue
         }
 
+        // "Promoted" is a filled chip and carries its own padding; "unclaimed"
+        // is plain meta text and does not. Both have to be in the width the
+        // layout resolves, or the pill it places is not the pill that draws.
         const metaWidth = data.metas[i]
-          ? frame.measure(data.metas[i], 'meta') + LABEL_GAP
+          ? frame.measure(data.metas[i], 'meta') +
+            LABEL_GAP +
+            (promoted ? LABEL_CHIP_PAD : 0)
           : 0
         const pillWidth =
+          LABEL_BORDER * 2 +
           LABEL_PAD_X * 2 +
           LABEL_SWATCH +
           LABEL_GAP +
           frame.measure(data.names[i], 'name') +
           metaWidth
 
+        // Right of the marker, or mirrored to its left when the frame edge is
+        // in the way. A plot name is the one string on this map somebody paid
+        // for; rendering half of it is worse than dropping it.
+        const left = anchoredLabelX(px, pillWidth, LABEL_LEADER, width)
+        if (left === null) continue
+        const top = clampLabelSpan(py - halfH, pillH, height, halfH - 4)
+        if (top === null) continue
+
+        const boxX = Math.min(px - 5, left)
         out.push(
           s.boxes.take(
             data.ids[i],
-            px - 5,
-            py - halfH,
-            pillWidth + LABEL_LEADER + 5,
+            boxX,
+            top,
+            Math.max(px + 5, left + pillWidth) - boxX,
             pillH,
             data.priority[i],
           ),
         )
         s.idx.push(i)
         s.alpha.push(alpha)
-        s.x.push(px)
-        s.y.push(py)
+        s.x.push(left)
+        s.y.push(top)
         taken += 1
       }
     },
@@ -231,17 +248,13 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
       pool.begin()
 
       const s = scratch
-      const halfH = LABEL_HEIGHT.plot / 2
       for (let k = 0; k < s.idx.length; k += 1) {
         const i = s.idx[k]
         if (!placed.has(data.ids[i])) continue
 
-        const slot = pool.show(
-          data.ids[i],
-          s.x[k] + LABEL_LEADER,
-          s.y[k] - halfH,
-          s.alpha[k],
-        )
+        // `collect` resolved the side and the edge clamp already, so this is
+        // the exact rectangle the layout agreed to.
+        const slot = pool.show(data.ids[i], s.x[k], s.y[k], s.alpha[k])
         if (slot < 0) continue
 
         if (slotPin[slot] !== i) {
@@ -251,8 +264,16 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
           if (data.metas[i]) {
             meta.textContent = data.metas[i]
             meta.style.display = ''
+            // Paid placement is a disclosure, so it is drawn as a filled chip
+            // that survives any terrain; "unclaimed" is an invitation and stays
+            // quiet meta text.
+            meta.classList.toggle(
+              'world-lod__meta--promoted',
+              data.priority[i] >= PROMOTED_PRIORITY,
+            )
           } else {
             meta.style.display = 'none'
+            meta.classList.remove('world-lod__meta--promoted')
           }
           const swatch = pool.swatches[slot]
           swatch.style.display = ''

@@ -78,13 +78,52 @@ export function tierToHeight(tier: number): number {
 }
 
 /**
+ * What a pin's tier honestly says about its stake.
+ *
+ * The globe feed ships a bucket, not an amount — `_tier_bucket` in
+ * `backend/world.py` — so this is the whole truth the client holds about how
+ * much is on a pin:
+ *
+ *   0  a seed. Nothing is staked; it is not a claim at all.
+ *   1  at least the $5 floor and under $50
+ *   2  $50 – $249
+ *   3  $250 – $999
+ *   4  $1,000 or more
+ *
+ * A band is not a guess: every one of those edges is the backend's own, mirrored
+ * by hand exactly like `constants.ts` mirrors `world_constants.py`. Anything
+ * outside the range the backend currently emits returns `null`, and the caller
+ * renders "unknown" — the same rule `cents_to_beat` follows. **Do not invent a
+ * midpoint here.** A pin whose bucket this file does not recognise is a pin
+ * whose stake this client does not know.
+ */
+export function stakeBand(tier: number, kind: 'plot' | 'seed'): string | null {
+  if (kind === 'seed' || tier <= 0) return null
+  switch (tier) {
+    case 1:
+      return '$5 – $49'
+    case 2:
+      return '$50 – $249'
+    case 3:
+      return '$250 – $999'
+    case 4:
+      return '$1,000+'
+    default:
+      // A bucket a future backend added. Say so; do not extrapolate the ladder.
+      return null
+  }
+}
+
+/**
  * Pin colours, per theme.
  *
  * `promoted` is YC orange, and it is the only saturated colour on the map —
  * ExploreYC's rule that orange is signal, never decoration, applied literally.
  * Paid pins are a slate ramp getting stronger with tier; a seed (an imported
- * company nobody has claimed) is the palest mark on the map: present, clearly
- * unowned, obviously claimable.
+ * company nobody has claimed) is the quietest mark on the map: present, clearly
+ * unowned, obviously claimable — but no longer *invisible*. Every seed value
+ * below clears 2.4:1 against its own land, because "quieter" and "not there"
+ * are different design instructions and the old palette shipped the second one.
  */
 export interface MarkerPalette {
   promoted: string
@@ -110,52 +149,145 @@ export function markerColor(
 }
 
 /**
- * The claim palette: saturated pastels, one per claimed country.
+ * The claim ramp: one hue, from a faint warm tint to a confident orange.
  *
- * Ordered so that adjacent entries are far apart on the wheel — hashing is not
- * a permutation, and a palette ordered by hue would hand neighbouring countries
- * near-identical colours.
+ * This used to be twelve saturated pastels hashed off the ISO code, so that a
+ * country's colour was a property of the country and somebody could say "the
+ * purple one is us". That was a nice social property bought at a price the
+ * brand does not pay: it put a second, third and twelfth accent hue on a
+ * surface whose entire visual argument is that **orange is signal and nothing
+ * else is**. On a board with a single claim it rendered the United States in
+ * magenta, which is not a colour this product owns.
+ *
+ * So rank is the only thing the fill encodes now, and it encodes it on one
+ * axis of one hue derived from `YC_ORANGE`: value and chroma climb together
+ * from `faint` to `strong`. The identity a visitor reads off the globe is the
+ * *height* of a country on the board, which is the thing the board is actually
+ * about — and two claimed countries are still told apart by their own outline,
+ * which `CountryFills` derives from the fill.
+ *
+ * Both endpoints are chosen against their theme's `land`, not in the abstract,
+ * and both were re-measured when the grounds moved to the bright/physical
+ * palette (light ground #F2F7FC, soft dark ground #151A22). Every ratio below
+ * was computed from the hex values in this file, not estimated:
+ *
+ * - **Light.** Land is `#EDF2F8` (relative luminance 0.8829). `faint` #FBD9BE
+ *   measures 0.7385 — 1.18:1 under the land, a warm tint that is unmistakably
+ *   *not* grey without shouting; `strong` #D2621C measures 0.2252, which is
+ *   3.39:1 against unclaimed land and 2.87:1 against `faint`, so the ramp is
+ *   legible end to end at world view.
+ * - **Dark.** Land is `#4A5563` (0.0885) — the soft elevated slate, not the
+ *   old near-black #2B3038. Lighter land leaves less headroom under pure
+ *   orange, so both ends moved up: `faint` #955429 measures 0.1289 (1.29:1
+ *   above land) and `strong` #E0701E measures 0.2753 (2.35:1 above land,
+ *   1.82:1 above `faint`) — within a hair of the old ramp's 1.51 / 2.03 spread
+ *   on a ground that is now three shades friendlier.
+ *
+ * Both `strong` ends stay deliberately below pure `#FB651E` (0.2991) in value —
+ * light 0.2252, dark 0.2753 — so a promoted pin, the one place the *pure*
+ * accent is allowed, still reads as hotter than the ground it stands on.
  */
-export const CLAIM_PALETTE = [
-  '#A98BE8', // violet
-  '#F2A0C0', // pink
-  '#6FD1C6', // teal
-  '#F5D06A', // yellow
-  '#F09A7E', // coral
-  '#8FB8EC', // cornflower
-  '#B9C3CE', // slate
-  '#C8A2E0', // orchid
-  '#7FCBA0', // jade
-  '#EFB07A', // apricot
-  '#E88C99', // rose
-  '#9FD5EA', // sky
-] as const
+export interface ClaimRamp {
+  /** A country sitting at the $5 floor. */
+  faint: string
+  /** The top of the board. */
+  strong: string
+}
 
 /**
- * Fill hue for a claimed country: a deterministic FNV-1a hash of the ISO code.
+ * Where a claimed country sits on the ramp when every claim is at the floor.
  *
- * A country's hue is a property of the *country*, not of the current board —
- * it survives a reshuffle, a reload, and a different visitor, because the
- * social value of the map is somebody saying "the purple one is us" and having
- * that still be true tomorrow.
+ * `t = 0` would be correct and would also render the map's only claim at its
+ * faintest, which reads as a rendering failure rather than as a statement about
+ * rank. Mid-ramp is the honest answer to "there is nothing to rank yet".
  */
-export function claimColor(iso2: string): string {
-  const key = iso2.toUpperCase()
-  let hash = 0x811c9dc5
-  for (let i = 0; i < key.length; i += 1) {
-    hash ^= key.charCodeAt(i)
-    // FNV prime; Math.imul keeps this in 32-bit integer space.
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return CLAIM_PALETTE[(hash >>> 0) % CLAIM_PALETTE.length]
+const SOLO_CLAIM_T = 0.55
+
+/**
+ * Fill for a claimed country at ramp position `t` (0 = floor, 1 = top).
+ *
+ * Interpolated in sRGB. Both endpoints sit at ~22° hue, so a straight lerp
+ * stays on the ramp's hue instead of bending through brown — the check that
+ * makes the cheap interpolation legitimate here rather than merely convenient.
+ */
+export function claimFill(ramp: ClaimRamp, t: number): string {
+  const k = t <= 0 ? 0 : t >= 1 ? 1 : t
+  const a = hexToRgb(ramp.faint)
+  const b = hexToRgb(ramp.strong)
+  const mix = (i: number) => Math.round(a[i] + (b[i] - a[i]) * k)
+  return `rgb(${mix(0)},${mix(1)},${mix(2)})`
+}
+
+/**
+ * Ramp position for a claim of `weight` on a board whose heaviest claim is
+ * `max`, where a weight of 1 is a single pin at the $5 floor.
+ *
+ * Logarithmic and anchored at the floor rather than at zero. Zero stake is not
+ * a case — an unclaimed country is grey — so anchoring there wastes the bottom
+ * of the ramp on a state that never renders and compresses every real claim
+ * into its top half. Anchored at the floor, the cheapest claim on the board is
+ * the faintest colour on it and the ramp is used end to end.
+ */
+export function claimRampT(weight: number, max: number): number {
+  const denom = Math.log1p(Math.max(max, 1) - 1)
+  if (!(denom > 0)) return SOLO_CLAIM_T
+  const t = Math.log1p(Math.max(weight, 1) - 1) / denom
+  return t <= 0 ? 0 : t >= 1 ? 1 : t
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ]
+}
+
+/**
+ * How a country reacts to the cursor.
+ *
+ * One mechanism, two settings, because "brighten" is not a instruction that
+ * survives a theme swap: the light map's land is already a near-white
+ * (#EDF2F8, luminance 0.8829) and has nowhere left to go toward white, while
+ * the dark map's land has all the headroom in the world. So the hovered fill is
+ * mixed toward a *warm* target instead — deepening in light, lifting in dark —
+ * and the direction of travel is the palette's business, not the shader's.
+ *
+ * Deliberately NOT pure `--w-accent`: an orange-saturated hover on grey land
+ * looks exactly like the faintest rung of the claim ramp, and "your cursor is
+ * here" must never be mistakable for "somebody owns this". These are washes
+ * from the same warm family, one hue, no second accent.
+ */
+export interface HoverWash {
+  /** Colour the hovered country's own fill is mixed toward. */
+  tint: string
+  /** How far, 0..1. */
+  amount: number
 }
 
 /**
  * The globe's ground colours, one set per theme.
  *
- * Light: a genuinely blue ocean under neutral grey land that reads as paper
- * floating on it. Dark: the same relationships at night — deep water, charcoal
- * land — tuned so the label pills and slate pins keep WCAG-legible contrast.
+ * Both themes now sit on the World design tokens' grounds — light #F2F7FC,
+ * dark #151A22 — and the sphere is tuned to read as a friendly object resting
+ * on that page rather than as an instrument panel. The dark set in particular
+ * is a SOFT ELEVATED night map: its ocean is 1.82:1 *lighter* than the page
+ * behind it and its land 2.30:1, so the globe is the brightest thing in the
+ * frame. The old near-black terrain (#0B2136 water, #2B3038 land) read as a
+ * hole cut in the page, which is the terminal idiom this feature is leaving.
+ *
+ * Measured against the page ground, from these exact hex values:
+ *
+ *   LIGHT   ocean #7CC2EA on ground #F2F7FC ....... 1.81:1  (silhouette)
+ *           oceanDeep #4E9AD1 on ground .......... 2.84:1  (limb)
+ *           land #EDF2F8 over ocean #7CC2EA ...... 1.73:1  (paper on water)
+ *           landStroke #C9D5E2 on land ........... 1.32:1  (seams)
+ *   DARK    ocean #1F4869 on ground #151A22 ...... 1.82:1
+ *           oceanDeep #132D45 on ground .......... 1.24:1  (limb, + rim below)
+ *           rim #6098C6 on ground ................ 5.66:1  (edge of the world)
+ *           land #4A5563 over ocean #1F4869 ...... 1.27:1  (+ hue + seams)
+ *           land #4A5563 on ground ............... 2.30:1
+ *           landStroke #6C7A8C on land ........... 1.73:1
  */
 export interface GlobePalette {
   ocean: string
@@ -164,40 +296,76 @@ export interface GlobePalette {
   landStroke: string
   /** Rim mixed toward at the limb of the globe body. */
   rim: string
+  /**
+   * The halo outside the silhouette.
+   *
+   * Its own token rather than a reuse of `oceanDeep`, which is what it used to
+   * be: the halo is blended over the *page*, so it has to be judged against the
+   * page. `oceanDeep` in the dark theme (#132D45) is 1.24:1 on the dark ground
+   * — an invisible halo — while these values measure 2.26:1 (light, #5FAEDF on
+   * #F2F7FC) and 3.93:1 (dark, #4A7CA6 on #151A22).
+   */
+  halo: string
   /** Graticule minor/major line colours. */
   gridMinor: string
   gridMajor: string
   markers: MarkerPalette
+  /** Claimed-country fill, floor to top of board. */
+  claim: ClaimRamp
+  /** What happens to a country's fill under the cursor. */
+  hover: HoverWash
 }
 
 export const GLOBE_PALETTE_LIGHT: GlobePalette = {
-  ocean: '#A8D4EE',
-  oceanDeep: '#5B9BD5',
-  land: '#E4E7EB',
-  landStroke: '#C4CAD2',
-  rim: '#f6fbff',
-  gridMinor: '#b4d6f4',
-  gridMajor: '#8fbde6',
+  ocean: '#7CC2EA',
+  oceanDeep: '#4E9AD1',
+  land: '#EDF2F8',
+  landStroke: '#C9D5E2',
+  rim: '#FFFFFF',
+  halo: '#5FAEDF',
+  gridMinor: '#A2D5F1',
+  gridMajor: '#4E9AD1',
   markers: {
     promoted: YC_ORANGE,
-    seed: '#C3D0E0',
-    ramp: ['#8494AB', '#5B6B84', '#3B4A63'],
+    // 2.46:1 on land, 1.42:1 on ocean, and every bead carries a white ring in
+    // the marker shader on top of that. The old #C3D0E0 measured 1.26:1 on its
+    // own land: technically a colour, practically a smudge.
+    seed: '#8A9DB6',
+    // 4.61:1 / 6.91:1 / 10.39:1 against land — the tiers are told apart by
+    // value alone, which is what makes the ladder survive a greyscale print.
+    ramp: ['#5A6E8C', '#3E5375', '#26385A'],
   },
+  claim: { faint: '#FBD9BE', strong: '#D2621C' },
+  // Land 0.8829 mixed 0.38 toward #E88B3F resolves to #EBCBB2 — 1.36:1 under
+  // its unhovered neighbours, and warm rather than merely darker. It stays
+  // 1.15:1 clear of the faintest claim fill, which is the colour it must not be
+  // confused with.
+  hover: { tint: '#E88B3F', amount: 0.38 },
 }
 
 export const GLOBE_PALETTE_DARK: GlobePalette = {
-  ocean: '#1D4A6E',
-  oceanDeep: '#0B2136',
-  land: '#2B3038',
-  landStroke: '#454C57',
-  rim: '#39536e',
-  gridMinor: '#28567a',
-  gridMajor: '#356c99',
+  ocean: '#1F4869',
+  oceanDeep: '#132D45',
+  land: '#4A5563',
+  landStroke: '#6C7A8C',
+  rim: '#6098C6',
+  halo: '#4A7CA6',
+  gridMinor: '#316A93',
+  gridMajor: '#4A7CA6',
   markers: {
     promoted: YC_ORANGE,
-    seed: '#55616F',
-    ramp: ['#94A3B8', '#B8C4D4', '#DCE4EE'],
+    // 2.57:1 on land, 3.25:1 on ocean. The old #55616F cleared 2.10:1 against
+    // the old near-black land and would measure 1.20:1 against this one —
+    // lifting the ground without lifting the seed would have erased it.
+    seed: '#8798AC',
+    // 3.97:1 / 5.67:1 / 7.11:1 against land.
+    ramp: ['#AFBDCE', '#D5E0EC', '#F4F8FD'],
   },
+  claim: { faint: '#955429', strong: '#E0701E' },
+  // Land 0.0885 mixed 0.45 toward #FFD3B4 resolves to #9B8E87 — 2.39:1 above
+  // its unhovered neighbours, and 1.85:1 clear of the faintest claim fill.
+  // Lifting, not deepening, because dark land has the room for it.
+  hover: { tint: '#FFD3B4', amount: 0.45 },
 }
 
 /** The palette for a theme flag. The single switch the whole globe reads. */

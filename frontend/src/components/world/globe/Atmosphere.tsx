@@ -47,8 +47,14 @@ const FRAG = /* glsl */ `
 export interface AtmosphereProps {
   /** Shell radius as a multiple of the globe radius. */
   scale?: number
-  /** The halo is the ocean, carried a little past the edge — pass the theme's
-   *  `oceanDeep` so light and dark maps each get their own air. */
+  /**
+   * The air around the planet — pass the theme's `halo`.
+   *
+   * It used to be `oceanDeep`, which is the wrong colour to judge here: this
+   * shell is blended over the PAGE, not over the water. On the soft dark ground
+   * (#151A22) the dark theme's `oceanDeep` measures 1.24:1 and the halo simply
+   * was not there; `halo` clears 2:1 in both themes by construction.
+   */
   color?: string
   /** Overall density. Above ~0.8 it stops reading as a rim and starts to fog. */
   strength?: number
@@ -56,7 +62,7 @@ export interface AtmosphereProps {
 
 export function Atmosphere({
   scale = 1.09,
-  color = GLOBE_PALETTE_LIGHT.oceanDeep,
+  color = GLOBE_PALETTE_LIGHT.halo,
   strength = 0.52,
 }: AtmosphereProps) {
   const material = useMemo(() => {

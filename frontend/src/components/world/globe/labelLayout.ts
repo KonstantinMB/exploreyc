@@ -379,6 +379,80 @@ export interface LayoutResult {
 }
 
 /**
+ * Breathing room kept between a label pill and the edge of the canvas.
+ *
+ * Matches the 6px the pill's own drop shadow needs to land inside the frame —
+ * clamping flush to zero puts a shadow half outside the canvas, which reads as
+ * the pill still being clipped.
+ */
+export const LABEL_EDGE_INSET = 6
+
+/**
+ * Slide a label back inside the viewport, or report that it cannot go.
+ *
+ * `layoutLabels` culls only boxes that are *entirely* outside the frame, which
+ * is correct for collision purposes and is exactly why a label anchored near an
+ * edge used to render half off it — on a 375px phone the United States pill is
+ * wider than a third of the screen, and it came out as "d States of America".
+ * Clipping a label is worse than not drawing it: a truncated country name is
+ * indistinguishable from a rendering bug.
+ *
+ * So the pill is nudged back in, up to `maxShift`, and dropped past that.
+ * `maxShift` is what keeps the nudge honest — a pill dragged far enough from
+ * its anchor is no longer pointing at anything, so a caller passes the distance
+ * beyond which the label would start lying about where its country is.
+ *
+ * Returns the new start coordinate, or `null` when the label should be dropped
+ * (needed more than `maxShift`, or is simply wider than the viewport).
+ */
+export function clampLabelSpan(
+  start: number,
+  size: number,
+  extent: number,
+  maxShift: number,
+  inset = LABEL_EDGE_INSET,
+): number | null {
+  if (!Number.isFinite(start) || !(size > 0)) return null
+
+  // A pill wider than the frame cannot be placed at all; there is no position
+  // where it is not clipped, so no amount of sliding helps.
+  const room = extent - size - inset * 2
+  if (!(room >= 0)) return null
+
+  const lo = inset
+  const hi = inset + room
+  const next = start < lo ? lo : start > hi ? hi : start
+  return Math.abs(next - start) > maxShift ? null : next
+}
+
+/**
+ * Left edge for a pill that hangs off the side of a dot, `leader` pixels clear
+ * of it — the city and plot layers, where the mark is the dot and the pill is
+ * its caption.
+ *
+ * Right first, because a caption reading away from its dot is the convention
+ * every atlas uses. If the pill will not fit there it is mirrored to the left
+ * of the dot at the same gap, which is why a city on the right edge keeps its
+ * name instead of losing it. Only when neither side fits is it dropped.
+ *
+ * Neither side is allowed to slide more than `leader`, which is exactly the
+ * distance at which the pill would reach the dot. Past that the pill would
+ * cover the mark it is naming — and a name sitting on top of the thing it
+ * labels is how you hide a city behind its own caption.
+ */
+export function anchoredLabelX(
+  anchorX: number,
+  size: number,
+  leader: number,
+  extent: number,
+  inset = LABEL_EDGE_INSET,
+): number | null {
+  const right = clampLabelSpan(anchorX + leader, size, extent, leader, inset)
+  if (right !== null) return right
+  return clampLabelSpan(anchorX - leader - size, size, extent, leader, inset)
+}
+
+/**
  * How much a label's importance is multiplied by while it is already on screen.
  *
  * Applied by the caller, not here, but it belongs next to the algorithm it

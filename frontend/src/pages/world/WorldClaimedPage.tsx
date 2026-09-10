@@ -4,12 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Terminal } from 'lucide-react'
+import { CheckCircle2, ChevronRight } from 'lucide-react'
 import worldApi from '../../lib/worldApi'
 import { takePendingLogo } from '../../components/world/claim/logoStash'
-import { Button } from '../../components/ui/button'
-import { HackerCard } from '../../components/ui/hacker-card'
-import { DotPattern } from '../../components/ui/dot-pattern'
+import { WorldCard, WorldHeading, worldButtonClass } from '../../components/world/ui'
 
 const SLOW_AFTER_MS = 60_000
 
@@ -51,84 +49,88 @@ export default function WorldClaimedPage() {
   }, [done, claimed])
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background p-4 font-mono">
+    <div className="world-root flex min-h-screen items-center justify-center p-4">
       <Helmet>
         <title>Confirming your plot — ExploreYC World</title>
       </Helmet>
-      <DotPattern />
 
-      <HackerCard className="w-full max-w-md p-6">
-        <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
-          <Terminal className="h-4 w-4 text-[#FB651E]" aria-hidden />
-          <span>$ exploreyc --world --claimed</span>
-        </div>
-
+      <WorldCard className="w-full max-w-md p-6">
         {!sessionId ? (
           <div role="alert">
-            <p className="mb-2 text-sm font-bold">missing session id</p>
-            <p className="mb-4 text-xs text-muted-foreground">
-              This page confirms a checkout and needs the <code>session_id</code> Stripe sends
-              back. If you just paid, use the link Stripe redirected you to.
+            <WorldHeading level={3} className="mb-2">
+              Missing session id
+            </WorldHeading>
+            <p className="mb-5 text-[0.875rem] text-[var(--w-muted)]">
+              This page confirms a checkout and needs the{' '}
+              <span className="world-tokens world-num">session_id</span> Stripe sends back. If you
+              just paid, use the link Stripe redirected you to.
             </p>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/world">back to the globe</Link>
-            </Button>
+            <Link to="/world" className={worldButtonClass('secondary', 'md')}>
+              Back to the globe
+            </Link>
           </div>
         ) : done ? (
           <div role="status">
-            <p className="mb-2 flex items-center gap-2 text-sm font-bold">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" aria-hidden />
-              your plot is live
-            </p>
-            <p className="mb-4 text-xs text-muted-foreground">
+            <WorldHeading level={3} className="mb-2">
+              <span className="inline-flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-[var(--w-accent-text)]" aria-hidden />
+                Your plot is live
+              </span>
+            </WorldHeading>
+            <p className="mb-5 text-[0.875rem] text-[var(--w-muted)]">
               Payment confirmed and the plot is planted. Every dollar you staked now counts for
               your country on the world boards.
             </p>
             {logoNote && (
-              <p role="status" className="mb-4 text-xs text-muted-foreground">
+              <p role="status" className="mb-5 text-[0.875rem] text-[var(--w-muted)]">
                 {logoNote}
               </p>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button asChild size="sm">
-                <Link to={`/world/p/${claimed!.plot_id}`}>view your plot →</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/world">back to the globe</Link>
-              </Button>
+              <Link
+                to={`/world/p/${claimed!.plot_id}`}
+                className={worldButtonClass('primary', 'md')}
+              >
+                View your plot
+                <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+              </Link>
+              <Link to="/world" className={worldButtonClass('secondary', 'md')}>
+                Back to the globe
+              </Link>
             </div>
           </div>
         ) : claimedQuery.isError ? (
           <div role="alert">
-            <p className="mb-2 text-sm font-bold">can&apos;t reach the confirmation service</p>
-            <p className="mb-4 text-xs text-muted-foreground">
+            <WorldHeading level={3} className="mb-2">
+              Can&apos;t reach the confirmation service
+            </WorldHeading>
+            <p className="mb-5 text-[0.875rem] text-[var(--w-muted)]">
               Your payment is safe with Stripe — this page just can&apos;t check its status right
-              now. It keeps retrying automatically; you can also come back later via
-              &ldquo;my plots&rdquo;.
+              now. It keeps retrying automatically; you can also come back later via &ldquo;my
+              plots&rdquo;.
             </p>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/world">back to the globe</Link>
-            </Button>
+            <Link to="/world" className={worldButtonClass('secondary', 'md')}>
+              Back to the globe
+            </Link>
           </div>
         ) : (
           <div role="status">
-            <p className="mb-2 text-sm font-bold">
-              confirming your plot<span className="animate-pulse">…</span>
-            </p>
-            <p className="mb-2 text-xs text-muted-foreground">
+            <WorldHeading level={3} className="mb-2">
+              Confirming your plot…
+            </WorldHeading>
+            <p className="mb-2 text-[0.875rem] text-[var(--w-muted)]">
               Payment received by Stripe. We&apos;re waiting for the confirmation webhook to plant
               your plot — this usually takes a few seconds. This page checks every 2 seconds.
             </p>
             {slow && (
-              <p className="text-xs text-muted-foreground">
-                Still confirming — webhooks can take a minute or two. Your payment is safe and
-                this page keeps checking; the plot will also appear under your account once it
-                lands.
+              <p className="text-[0.875rem] text-[var(--w-muted)]">
+                Still confirming — webhooks can take a minute or two. Your payment is safe and this
+                page keeps checking; the plot will also appear under your account once it lands.
               </p>
             )}
           </div>
         )}
-      </HackerCard>
+      </WorldCard>
     </div>
   )
 }

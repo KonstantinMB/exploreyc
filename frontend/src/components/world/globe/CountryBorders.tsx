@@ -9,7 +9,7 @@ import { use, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { geoCentroid } from 'd3-geo'
 import { feature, mesh } from 'topojson-client'
-import { claimColor, type GlobePalette } from './geo'
+import { claimFill, claimRampT, type GlobePalette } from './geo'
 import { iso2FromNumeric, nameFromIso2 } from './countries'
 import { CountryFills, type FillSource } from './CountryFills'
 
@@ -69,18 +69,6 @@ const LINE_CHORD = 0.012
 const CELL_DEG = 1
 const LAT_CELLS = 180 / CELL_DEG
 const LNG_CELLS = 360 / CELL_DEG
-
-/**
- * How far a claim's colour is washed toward white when the country is at the
- * bottom of the board.
- *
- * Zero stake is not a case here — an unclaimed country is grey — so this is the
- * difference between "someone just planted here" and "this is a stronghold".
- * The hue is fixed by `claimColor`, so saturation is the only channel left to
- * carry rank, and it has to move enough to be legible without ever getting so
- * pale that the country reads as unclaimed.
- */
-const CLAIM_WASH = 0.5
 
 // ---------------------------------------------------------------------------
 // Topology loading
@@ -568,8 +556,9 @@ export interface CountryInfo {
 export interface CountryBordersProps {
   /**
    * iso2 → claim weight. Any positive number marks the country as claimed and
-   * scales its saturation; the donor fed cents here, ExploreYC feeds a
-   * tier-weighted pin count — the wash only ever reads relative magnitude.
+   * places it on the claim ramp; the donor fed cents here, ExploreYC feeds a
+   * tier-weighted pin count where 1 is a single pin at the $5 floor. Only
+   * relative magnitude is ever read.
    */
   claims: ReadonlyMap<string, number>
   /** Ground palette for the active theme. Owned by the caller. */
@@ -679,14 +668,18 @@ export function CountryBorders({
   /**
    * ISO code → the CSS colour that country is painted.
    *
-   * Hue comes from `claimColor` and nothing else, so a country's colour is a
-   * property of the country rather than of the current board — it survives a
-   * reshuffle, a reload, and a different visitor. Rank moves saturation only.
+   * One hue — the theme's claim ramp, derived from YC orange — and rank is the
+   * only thing that moves along it. A country's colour is therefore a statement
+   * about the *board* rather than about the country, which is the trade this
+   * layer deliberately makes: the alternative was a per-country hue hashed off
+   * the ISO code, and twelve accent colours is eleven more than this product
+   * has.
    *
-   * The rank scale is logarithmic and anchored at the $5 floor. Linear would
-   * make one whale country vivid and leave every other claimed country a pastel
-   * indistinguishable from the next, which defeats the point of colouring them
-   * at all: the board is supposed to be legible from the globe.
+   * The rank scale is logarithmic and anchored at the $5 floor — see
+   * `claimRampT`. Linear would make one whale country vivid and leave every
+   * other claimed country indistinguishable from the next, which defeats the
+   * point of colouring them at all: the board is supposed to be legible from
+   * the globe.
    */
   const fills = useMemo(() => {
     const m = new Map<string, string>()
@@ -694,30 +687,24 @@ export function CountryBorders({
     for (const w of claims.values()) if (w > max) max = w
     if (max <= 0) return m
 
-    const denom = Math.log1p(max) || 1
     for (const [code, claimWeight] of claims) {
       if (claimWeight <= 0) continue
-      const iso2 = code.toUpperCase()
-      const t = Math.min(1, Math.log1p(claimWeight) / denom)
-
-      const hex = claimColor(iso2)
-      const r = parseInt(hex.slice(1, 3), 16)
-      const g = parseInt(hex.slice(3, 5), 16)
-      const b = parseInt(hex.slice(5, 7), 16)
-      const w = CLAIM_WASH * (1 - t)
-      const mix = (c: number) => Math.round(c + (255 - c) * w)
 
       /*
        * Only the fill is stated here. Each claimed country also carries its own
        * outline, a darker step of this same colour — see `STROKE_TINT` in
        * `CountryFills`, which derives it in the shader from the one value this
        * map holds, rather than shipping a second colour that could drift from
-       * it.
+       * it. That outline is what still separates two claimed neighbours now
+       * that they share a hue.
        */
-      m.set(iso2, `rgb(${mix(r)},${mix(g)},${mix(b)})`)
+      m.set(
+        code.toUpperCase(),
+        claimFill(palette.claim, claimRampT(claimWeight, max)),
+      )
     }
     return m
-  }, [claims])
+  }, [claims, palette])
 
   /**
    * Names and centroids for every country in the current topology.
@@ -792,6 +779,8 @@ export function CountryBorders({
         landColor={palette.land}
         hoveredIso2={hoveredIso2}
         selectedIso2={selectedIso2}
+        hoverTint={palette.hover.tint}
+        hoverAmount={palette.hover.amount}
       />
       <lineSegments
         ref={linesRef}
