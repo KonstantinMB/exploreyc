@@ -11,28 +11,57 @@ import {
   WorldCard,
   WorldChip,
   WorldHeading,
+  WorldLogo,
   WorldRowButton,
   worldButtonClass,
   WORLD_FOCUS_CLASS,
 } from '../../components/world/ui'
+import WorldChrome from '../../components/world/WorldChrome'
 import WorldBoards from '../../components/world/boards/WorldBoards'
 import CountUp from '../../components/world/boards/CountUp'
 import { isoFlag } from '../../components/world/boards/format'
 import FeaturedRail from '../../components/world/featured/FeaturedRail'
 import { centsToBeat, formatDollars, MIN_STAKE_CENTS } from '../../components/world/constants'
 
-/** A rank readout. `null` is "unranked", never a placeholder number. */
+/**
+ * A standing.
+ *
+ * `null` is "unranked", never a placeholder number. A top-three standing gets
+ * the same medal disc the leaderboard rows wear — this is the one place a
+ * country finds out it is on the podium, and a grey "#2" is a poor way to say
+ * it. <Rank> carries the visually-hidden "Rank 2" and the digit inside the
+ * disc, so nothing here depends on the colour of the metal.
+ */
 function RankChip({ label, rank }: { label: string; rank: number | null }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
+    <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
       <span className="text-[var(--w-muted)]">{label}</span>
-      {rank != null ? (
-        <span className="world-tokens world-num font-bold text-[var(--w-ink)]">#{rank}</span>
-      ) : (
+      {rank == null ? (
         <span className="font-semibold text-[var(--w-muted)]">unranked</span>
+      ) : rank <= 3 ? (
+        <Rank n={rank} />
+      ) : (
+        <span className="world-tokens world-num text-[0.9375rem] font-extrabold text-[var(--w-ink)]">
+          #{rank}
+        </span>
       )}
     </span>
   )
+}
+
+/**
+ * The standings line — the product's own voice, aimed at whoever is reading.
+ *
+ * Concrete and a little arch, never breathless, and every word of it is
+ * derived from the number the API actually returned: there is no branch that
+ * invents a position or implies a reward for taking one.
+ */
+function standingsLine(name: string, rank: number | null): string {
+  if (rank == null) return `${name} is not on the board at all. That is a vacancy.`
+  if (rank === 1) return `${name} is #1. Enjoy it while it lasts.`
+  if (rank <= 3) return `${name} is #${rank}. So close to the top it stings.`
+  if (rank <= 10) return `${name} is #${rank}. Top ten, which is not the top.`
+  return `${name} is #${rank}. That is embarrassing.`
 }
 
 /** Centred single-message shell for the not-found / loading states. */
@@ -104,6 +133,7 @@ export default function WorldCountryPage() {
 
   return (
     <div className="world-root min-h-screen">
+      <WorldChrome />
       <Helmet>
         <title>{`${country.name} — ExploreYC World`}</title>
         <meta
@@ -139,12 +169,18 @@ export default function WorldCountryPage() {
                 </span>
                 {country.name}
               </WorldHeading>
-              <p className="text-[0.9375rem] text-[var(--w-muted)]">
+              {/* The score, set as a score. This is the number the whole page
+                  is about, and it used to be the same size as the sentence it
+                  sat in. The count-up is unchanged; tabular numerals mean it no
+                  longer wobbles the line while it runs. */}
+              <p className="mt-1">
                 <CountUp
                   value={country.total_cents}
                   format={formatDollars}
-                  className="world-tokens world-money text-[var(--w-ink)]"
-                />{' '}
+                  className="world-tokens world-money world-score world-score--xl text-[var(--w-ink)]"
+                />
+              </p>
+              <p className="text-[0.9375rem] text-[var(--w-muted)]">
                 staked across {country.plots_count} plot
                 {country.plots_count === 1 ? '' : 's'}
               </p>
@@ -152,6 +188,10 @@ export default function WorldCountryPage() {
                 <RankChip label="Richest" rank={country.rank_richest} />
                 <RankChip label="Planted" rank={country.rank_planted} />
               </div>
+              {/* Says the standing out loud, in the product's voice. */}
+              <p className="mt-3 text-[0.9375rem] font-semibold text-[var(--w-ink)]">
+                {standingsLine(country.name, country.rank_richest)}
+              </p>
             </div>
 
             <div className="flex flex-none flex-col gap-2 sm:items-end">
@@ -205,7 +245,7 @@ export default function WorldCountryPage() {
               </div>
               {country.cities.length === 0 ? (
                 <p className="px-4 py-5 text-sm text-[var(--w-muted)]">
-                  No city has a plot yet. The first plant in a city takes it.
+                  Every city here is empty. First one in takes it.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1.5 p-3">
@@ -227,7 +267,7 @@ export default function WorldCountryPage() {
                           subtitle={city.top_plot ? `#1: ${city.top_plot.name}` : 'Unclaimed'}
                           trailing={
                             <span className="flex flex-col items-end">
-                              <Money cents={city.total_cents} />
+                              <Money cents={city.total_cents} score />
                               <span className="text-[0.6875rem] text-[var(--w-muted)]">
                                 <Money cents={cityPrice} className="text-[var(--w-accent-text)]" />{' '}
                                 takes #1
@@ -244,15 +284,20 @@ export default function WorldCountryPage() {
 
             <WorldCard as="section" aria-label={`Plots in ${country.name}`}>
               <div className="px-4 pb-1 pt-4">
-                <WorldHeading level={3}>Plots</WorldHeading>
+                <WorldHeading level={3}>Planted here</WorldHeading>
               </div>
               {country.plots.length === 0 ? (
+                // Invite, don't report. The price is the real minimum stake,
+                // and taking #1 in an empty country is a true statement about
+                // an empty board — not a promise of anything else.
                 <div className="flex flex-col items-start gap-3 px-4 pb-4 pt-2">
-                  <p className="text-sm text-[var(--w-muted)]">
-                    Nothing planted in {country.name} yet.
+                  <p className="text-[0.9375rem] text-[var(--w-ink)]">
+                    Nobody has planted in {country.name} yet —{' '}
+                    <Money cents={MIN_STAKE_CENTS} className="text-[var(--w-accent-text)]" /> takes
+                    #1.
                   </p>
                   <Link to="/world/claim" className={worldButtonClass('primary', 'md')}>
-                    Be first
+                    Plant the first one
                     <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
                   </Link>
                 </div>
@@ -264,12 +309,17 @@ export default function WorldCountryPage() {
                         to={`/world/p/${plot.id}`}
                         // The API's own rank, not the array index, so real ties
                         // render as "=4" here exactly as they do on the boards.
-                        leading={<Rank n={plot.rank} joint={i > 0 && list[i - 1].rank === plot.rank} />}
+                        leading={
+                          <>
+                            <Rank n={plot.rank} joint={i > 0 && list[i - 1].rank === plot.rank} />
+                            <WorldLogo src={plot.logo_url} name={plot.name} size={24} />
+                          </>
+                        }
                         title={plot.name}
                         trailing={
                           <>
                             {plot.promoted && <WorldChip tone="promoted" />}
-                            <Money cents={plot.total_cents} />
+                            <Money cents={plot.total_cents} score />
                           </>
                         }
                       />

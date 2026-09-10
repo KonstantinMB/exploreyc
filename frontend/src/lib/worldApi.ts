@@ -55,6 +55,12 @@ export interface BoardRow {
   total_cents: number
   plot_id: string | null
   delta_cents: number | null
+  /**
+   * Plot rows: the plot's own logo, else the linked company's thumbnail.
+   * Country rows (scope=world): always null — render the flag emoji instead.
+   * null means "no logo", never a placeholder.
+   */
+  logo_url?: string | null
 }
 
 export interface BoardResponse {
@@ -72,10 +78,27 @@ export interface FounderRow {
   name: string
   total_cents: number
   created_at: string
+  /** Plot logo, else the linked company's thumbnail, else null. */
+  logo_url?: string | null
 }
 
 export interface FoundersResponse {
   rows: FounderRow[]
+}
+
+/**
+ * Public facts about the YC company a plot is linked to, copied straight from
+ * the companies row. Any field the scrape never captured stays null.
+ */
+export interface WorldCompanyBrief {
+  slug: string
+  name: string
+  logo_url: string | null
+  batch: string | null
+  one_liner: string | null
+  industry: string | null
+  team_size: number | null
+  is_hiring: boolean
 }
 
 export interface WorldPlot {
@@ -105,6 +128,11 @@ export interface WorldPlot {
   /** Richest-board ranks; present on GET /api/world/plots/{id} only (null while pending). */
   rank_world?: number | null
   rank_country?: number | null
+  /**
+   * The linked company; present on GET /api/world/plots/{id} only.
+   * null when company_id is null, or the company row no longer exists.
+   */
+  company?: WorldCompanyBrief | null
 }
 
 /** Row in a country page's plot list — board row shape plus id + promoted. */
@@ -118,6 +146,12 @@ export interface CountryPlotRow {
   total_cents: number
   delta_cents: number | null
   promoted: boolean
+  /**
+   * Plot logo, else the linked company's thumbnail, else null. These rows go
+   * through the same `_board_row` serializer as /api/world/board, so they get
+   * the field for free.
+   */
+  logo_url?: string | null
 }
 
 export interface CountryCity {

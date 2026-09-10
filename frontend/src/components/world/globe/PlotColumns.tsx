@@ -32,8 +32,8 @@ import {
  * resolve by depth instead of accumulating into a smear.
  *
  * Three states, told apart at a glance:
- *  - **seed** (an imported company nobody claimed): the bottom tier at
- *    `SEED_RADIUS_FACTOR` of its radius, in the palest colour on the map.
+ *  - **seed** (an imported company nobody claimed): `SEED_RADIUS`, two thirds
+ *    the width of the cheapest paid pin, in the palest colour on the map.
  *    Present, clearly unowned, obviously claimable — never mistakable for a
  *    stake, and never so small it stops being a mark at all.
  *  - **plot** (someone paid): full radius, slate ramp deepening with tier.
@@ -71,13 +71,40 @@ import {
 const MARKER_SCALE = 0.36
 
 /**
- * Seed radius, as a fraction of the same tier's paid radius.
+ * Seed radius, as a multiple of the tier-0 rung of the same ladder.
  *
- * A seed is still the smallest and palest mark on the map — it sits on tier 0,
- * so it is the bottom of the ladder twice over — but it is no longer sub-pixel.
- * "Quieter than a paid pin" and "invisible" are different instructions.
+ * Raised from 0.78, and it crosses 1.0 on purpose. **Tier 0 is the seed's own
+ * rung** — `stakeBand` in geo.ts spells out the backend's buckets, and a paid
+ * plot is never below tier 1 — so nothing on the ladder is being overtaken;
+ * this is a seed being sized against a rung no stake occupies.
+ *
+ * The old 0.78 drew a seed 3.0 px across, and the marker shader spends the
+ * outer 40% of every bead on its white ring and the outer 14% on the darker
+ * edge. At 3 px that leaves 1.8 px of actual colour and one pixel of ring: the
+ * three-zone marker collapses into a grey speck, which is most of why a globe
+ * carrying 5,579 pins read as an empty globe. At 1.30 the ladder measures:
+ *
+ *   seed (tier 0, x1.30) .....  5.0px    <- was 3.0px
+ *   tier 1 ($5-$49) ..........  7.4px
+ *   tier 2 ($50-$249) ........ 11.0px
+ *   tier 3 ($250-$999) ....... 14.7px
+ *   tier 4 ($1,000+) ......... 18.3px
+ *
+ * A seed is still two thirds of the cheapest paid pin's width and under half
+ * its area, still the palest colour on the map, and still the only mark that
+ * never pops. Smaller and quieter — but no longer a rendering artefact.
  */
-const SEED_RADIUS_FACTOR = 0.78
+const SEED_RADIUS_FACTOR = 1.3
+
+/**
+ * The seed bead's radius, in globe radii.
+ *
+ * Pinned to tier 0 rather than read off `pin.tier`, so a feed that ever ships a
+ * seed carrying a stake bucket cannot inflate an unclaimed company to the size
+ * of a $1,000 stake. A seed is tier 0 by definition; this makes it so by
+ * construction.
+ */
+const SEED_RADIUS = tierToHeight(0) * MARKER_SCALE * SEED_RADIUS_FACTOR
 
 /** Seconds between pops. Slow enough to be an event, not a strobe. */
 const POP_INTERVAL = 2.4
@@ -577,16 +604,12 @@ export function PlotColumns({
     for (let i = 0; i < pins.length; i += 1) {
       const pin = pins[i]
       /*
-        A SEED IS NOT A BID, so it does not get a bid's presence: the bottom
-        rung of the size ladder, taken down again by SEED_RADIUS_FACTOR, in the
-        palest colour on the map. Present and obviously claimable, never
-        mistakable for a stake.
+        A SEED IS NOT A BID, so it does not get a bid's presence: a fixed
+        SEED_RADIUS below every paid rung, in the palest colour on the map.
+        Present and obviously claimable, never mistakable for a stake.
       */
       const isSeed = pin.kind === 'seed'
-      const radius =
-        tierToHeight(pin.tier) *
-        MARKER_SCALE *
-        (isSeed ? SEED_RADIUS_FACTOR : 1)
+      const radius = isSeed ? SEED_RADIUS : tierToHeight(pin.tier) * MARKER_SCALE
 
       dir.copy(latLngToVector3(pin.lat, pin.lng, 1))
       dirs[i * 3] = dir.x

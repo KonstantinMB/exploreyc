@@ -598,8 +598,31 @@ def _public_plot(plot: dict, is_mine: Optional[bool] = None) -> dict:
     return out
 
 
+def _company_brief(row: Optional[dict]) -> Optional[dict]:
+    """The linked company's public facts for the plot detail card, or None.
+
+    Every field is copied straight from the companies row — a value the
+    scrape never captured stays null, it never becomes '' or a guess."""
+    if not row:
+        return None
+    return {
+        "slug": row["slug"],
+        "name": row["name"],
+        "logo_url": row.get("logo_url") or None,
+        "batch": row.get("batch") or None,
+        "one_liner": row.get("one_liner") or None,
+        "industry": row.get("industry") or None,
+        "team_size": row.get("team_size"),
+        "is_hiring": bool(row.get("is_hiring")),
+    }
+
+
 def _board_row(row: dict) -> dict:
-    """Normalize country- and plot-board rows onto the shared contract shape."""
+    """Normalize country- and plot-board rows onto the shared contract shape.
+
+    logo_url is optional imagery, never a claim: a plot row carries its own
+    logo or the linked company's thumb, a country row carries None (the UI
+    renders a flag emoji), and an absent logo stays None rather than ''."""
     return {
         "rank": row["rank"],
         "iso": row.get("iso"),
@@ -607,6 +630,7 @@ def _board_row(row: dict) -> dict:
         "total_cents": row.get("total_cents"),
         "plot_id": row.get("plot_id"),
         "delta_cents": row.get("delta_cents"),
+        "logo_url": row.get("logo_url") or None,
     }
 
 
@@ -721,6 +745,8 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             "rank": r["rank"], "founder_name": r["founder_name"],
             "plot_id": r["plot_id"], "name": r["name"],
             "total_cents": r["total_cents"], "created_at": r["created_at"],
+            # Plot logo, else the linked company's thumb, else null.
+            "logo_url": r.get("logo_url") or None,
         } for r in rows]}
 
     @router.get("/api/world/cities")
@@ -783,6 +809,11 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             viewer = _optional_user_id(authorization)
             is_mine = viewer is not None and viewer == plot.get("user_id")
         out = _public_plot(plot, is_mine=is_mine)
+        # The linked company's public facts, so the detail card can show a real
+        # logo and one-liner without a second round trip. Null when the plot is
+        # unlinked, or when the company row has since gone.
+        out["company"] = (_company_brief(db.get_company_brief(plot["company_id"]))
+                          if plot.get("company_id") is not None else None)
         # Richest-board ranks for the share/OG surfaces. A pending plot is off
         # the boards, so its ranks are honestly None (rendered as an em dash).
         out["rank_world"] = _rank_of(db.get_world_plot_board("richest", limit=1_000_000), plot_id)

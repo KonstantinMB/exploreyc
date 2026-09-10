@@ -39,6 +39,15 @@ export interface WorldGlobeProps {
   pickMode?: boolean
   onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
+  /**
+   * A seed bead was clicked — an imported company with nothing staked on it.
+   *
+   * Optional, and its absence is a real behaviour rather than a gap: without it
+   * a seed click falls through to its country, exactly as it always has. The
+   * pin carries the feed's own coordinates and its `id`, `name` and
+   * `company_slug`; there is no plot id, because there is no plot yet.
+   */
+  onSelectSeed?: (pin: GlobePin) => void
   onSelectCountry?: (iso: string) => void
   className?: string
 }
@@ -134,10 +143,18 @@ const TOOLTIP_TONE = {
   },
 } as const
 
+/**
+ * The one face, mirroring --w-sans.
+ *
+ * There is no TOOLTIP_MONO any more, and there must not be one again: the stake
+ * band used to be set in a typewriter face here, which was the last monospace
+ * left anywhere in the feature and the exact thing the World was redesigned
+ * away from. A band like "$50 – $249" needs its digits to line up, not to look
+ * typed, and `tabular-nums` (applied at the call site below) does that inside
+ * the sans.
+ */
 const TOOLTIP_SANS =
   'ui-rounded, "SF Pro Rounded", "Segoe UI Variable", Inter, system-ui, sans-serif'
-const TOOLTIP_MONO =
-  'ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace'
 
 /**
  * What a pin is worth, said honestly.
@@ -168,9 +185,10 @@ function PinTooltipBody({ pin }: { pin: GlobePin }) {
       Staked{' '}
       <span
         style={{
-          fontFamily: TOOLTIP_MONO,
+          fontFamily: TOOLTIP_SANS,
           fontVariantNumeric: 'tabular-nums',
-          fontWeight: 600,
+          fontFeatureSettings: '"tnum" 1',
+          fontWeight: 700,
         }}
       >
         {band}
@@ -205,6 +223,7 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
   pickMode = false,
   onPick,
   onSelectPlot,
+  onSelectSeed,
   onSelectCountry,
   className,
 }) => {
@@ -416,6 +435,7 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
               pickMode={pickMode}
               onPick={onPick}
               onSelectPlot={onSelectPlot}
+              onSelectSeed={onSelectSeed}
               onSelectCountry={onSelectCountry}
               onHoverPin={handleHoverPin}
               onPerformanceDecline={lowPower ? undefined : handleDecline}

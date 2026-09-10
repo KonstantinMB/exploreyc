@@ -22,6 +22,7 @@ import type { GlobePin } from '../../../lib/worldApi'
 import {
   GLOBE_RADIUS,
   YC_ORANGE,
+  jitterSeeds,
   vector3ToLatLng,
   type GlobePalette,
 } from './geo'
@@ -736,6 +737,15 @@ export interface GlobeSceneProps {
   pickMode?: boolean
   onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
+  /**
+   * A seed was clicked — an imported company nobody has staked yet.
+   *
+   * Without this a seed click falls through to its country, which is the right
+   * default for a mark with no detail page but the wrong one once something
+   * upstairs can offer to claim it. The pin handed over carries the pin's
+   * ORIGINAL feed coordinates, not the jittered ones this scene draws.
+   */
+  onSelectSeed?: (pin: GlobePin) => void
   onSelectCountry?: (iso: string) => void
   /**
    * The pin under the cursor, or null. Fires on change only — never per frame —
@@ -749,19 +759,49 @@ export interface GlobeSceneProps {
 }
 
 export function GlobeScene({
-  pins,
+  pins: feedPins,
   palette,
   darkMode,
   focus,
   pickMode = false,
   onPick,
   onSelectPlot,
+  onSelectSeed,
   onSelectCountry,
   onHoverPin,
   onPerformanceDecline,
   onLodSample,
 }: GlobeSceneProps) {
   const reducedMotion = usePrefersReducedMotion()
+
+  /**
+   * The pin set every layer below this line works from.
+   *
+   * The jitter is applied HERE, at the top, and nowhere else. `countryAgg`,
+   * `paidPins`, `PlotColumns`' instance matrices and its hit test, `PlotLabels`,
+   * `CityLabels` and the LOD budget all derive from this one array — so what is
+   * drawn, what the cursor finds and what a click resolves to are the same
+   * coordinates by construction. Jitter applied further down would put the
+   * markers somewhere the hit test could not find them, which is a worse bug
+   * than the one it fixes.
+   *
+   * Paid plots pass through untouched, by reference — see `jitterSeeds`.
+   */
+  const pins = useMemo(() => jitterSeeds(feedPins), [feedPins])
+
+  /**
+   * Feed coordinates, by id, so a click can hand back the pin the SERVER sent.
+   *
+   * A consumer only needs id/name/company_slug, all of which survive the
+   * jitter — but handing out a coordinate this file invented, to a caller that
+   * might well store or display it, is how invented coordinates get into a
+   * database. Cheap enough: one Map per data change.
+   */
+  const feedById = useMemo(() => {
+    const m = new Map<string, GlobePin>()
+    for (const p of feedPins) m.set(p.id, p)
+    return m
+  }, [feedPins])
 
   const [hoveredIso2, setHoveredIso2] = useState<string | null>(null)
   /**
@@ -878,8 +918,12 @@ export function GlobeScene({
   /**
    * A click resolves in strict order: pick mode wins outright (the claim flow
    * asked for a coordinate and gets exactly the pixel that was clicked), then
-   * a paid pin under the cursor, then the country, then nothing. Seeds fall
-   * through to their country — a seed has no detail page to open.
+   * a paid pin under the cursor, then a seed if anybody upstairs wants seeds,
+   * then the country, then nothing.
+   *
+   * A seed still falls through to its country when `onSelectSeed` is absent —
+   * that is the honest default for a mark with no page behind it, and it is
+   * what every caller that has not opted in keeps getting.
    */
   const handlePick = useCallback(
     (lat: number, lng: number) => {
@@ -900,14 +944,27 @@ export function GlobeScene({
         }
       }
 
+      if (pin && pin.kind === 'seed' && onSelectSeed) {
+        // The feed's pin, not the drawn one: `pins` is jittered, and a
+        // coordinate this file invented must not leave it. Falls back to the
+        // drawn pin only if the id is somehow not in the feed map, which keeps
+        // id/name/company_slug — the three fields a consumer actually needs —
+        // correct either way.
+        onSelectSeed(feedById.get(pin.id) ?? pin)
+        return
+      }
+
       const iso2 = lookupRef.current?.(lat, lng) ?? null
       if (iso2 && onSelectCountry) onSelectCountry(iso2)
     },
-    [pickMode, onPick, onSelectPlot, onSelectCountry],
+    [pickMode, onPick, onSelectPlot, onSelectSeed, onSelectCountry, feedById],
   )
 
   const clickable =
-    pickMode || Boolean(onSelectCountry) || Boolean(onSelectPlot)
+    pickMode ||
+    Boolean(onSelectCountry) ||
+    Boolean(onSelectPlot) ||
+    Boolean(onSelectSeed)
 
   /**
    * The one cursor, resolved from every opinion at once.

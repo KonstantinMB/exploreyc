@@ -8,10 +8,14 @@
  * decides structure, semantics and keyboard behaviour.
  *
  * House rules encoded here, not left to callers:
- *   - Monospace is only ever reached through <Money> and <Rank>. Everything
- *     else renders in the rounded sans face.
+ *   - ONE face. There is no monospace anywhere in the World and no token left
+ *     to reach for; <Money>, <Rank> and .world-num get their column alignment
+ *     from `font-variant-numeric: tabular-nums`, not from a typewriter.
  *   - <Money cents={null}> prints "unknown". There is no code path that
  *     invents a number.
+ *   - <Rank> renders a medal for the top three and a visually-hidden
+ *     "Rank 2" / "Joint rank 2" for every rank, so the standing never depends
+ *     on either colour or a bare glyph.
  *   - <WorldChip tone="promoted" | "sponsor"> defaults its own label, so a paid
  *     placement can't be rendered without the word being visible.
  *   - Anything clickable gets a pointer cursor, a hover state, a press state, a
@@ -156,7 +160,8 @@ export interface WorldHeadingProps extends Omit<HTMLAttributes<HTMLHeadingElemen
 
 /**
  * A plain sentence-case heading. Deliberately has no "$ " prefix, no ">_",
- * no blinking cursor — the World is a place, not a shell prompt.
+ * no blinking cursor and no monospace — the World is a place you play in, not
+ * a shell prompt.
  */
 export function WorldHeading({
   level = 2,
@@ -205,7 +210,7 @@ export function WorldChip({ tone = 'neutral', className, children, ...rest }: Wo
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Money / Rank — the only monospace primitives
+   Money / Rank — the score primitives
    ──────────────────────────────────────────────────────────────────────────── */
 
 export interface MoneyProps extends HTMLAttributes<HTMLSpanElement> {
@@ -215,17 +220,24 @@ export interface MoneyProps extends HTMLAttributes<HTMLSpanElement> {
   plus?: boolean
   /** Copy shown when `cents` is null. Keep it a word, not a number. */
   unknownLabel?: string
+  /**
+   * Score type: bigger and heavier, for the surfaces where the amount IS the
+   * row rather than a detail on it. `"xl"` is the win screen.
+   */
+  score?: boolean | 'xl'
 }
 
 /**
- * Tabular money. When the backend has no figure, this renders "unknown" in the
- * prose face — the honesty rule is enforced by the component, not by discipline
- * at every call site.
+ * Tabular money. When the backend has no figure, this renders "unknown" — the
+ * honesty rule is enforced by the component, not by discipline at every call
+ * site. `score` never applies to "unknown": inflating a non-number to 3rem
+ * would make an absence look like a headline figure.
  */
 export function Money({
   cents,
   plus = false,
   unknownLabel = 'unknown',
+  score = false,
   className,
   ...rest
 }: MoneyProps) {
@@ -238,25 +250,117 @@ export function Money({
   }
   const sign = plus && cents > 0 ? '+' : ''
   return (
-    <span className={cn('world-tokens world-money', className)} {...rest}>
+    <span
+      className={cn(
+        'world-tokens world-money',
+        score && 'world-score',
+        score === 'xl' && 'world-score--xl',
+        className
+      )}
+      {...rest}
+    >
       {sign}
       {formatDollars(cents)}
     </span>
   )
 }
 
+/** Which medal a standing earns. Anything past third is a plain numeral. */
+const MEDAL_TONE: Record<number, 'gold' | 'silver' | 'bronze'> = {
+  1: 'gold',
+  2: 'silver',
+  3: 'bronze',
+}
+
 export interface RankProps extends HTMLAttributes<HTMLSpanElement> {
   n: number
   /** True when this rank ties the row above it; prints "=4" instead of "4". */
   joint?: boolean
+  /**
+   * Medal treatment for ranks 1–3. On by default — pass `false` in dense
+   * contexts where a 26px disc would set the row height.
+   */
+  medal?: boolean
 }
 
-/** Right-aligned tabular rank numeral. */
-export function Rank({ n, joint = false, className, ...rest }: RankProps) {
+/**
+ * A standing.
+ *
+ * Ranks 1–3 get a gold / silver / bronze disc, because a leaderboard whose top
+ * three are three identical grey numerals is a table, and this is supposed to
+ * be a game. Three independent channels carry the information, so no single
+ * one of them is load-bearing:
+ *
+ *   - the DIGIT, inside the disc, at 6–10:1 on its own fill (SC 1.4.1: the
+ *     rank is never the colour);
+ *   - the SHAPE — disc versus bare numeral — which says "top three" with no
+ *     colour perception at all;
+ *   - a visually-hidden "Rank 2" / "Joint rank 2", so a screen reader hears a
+ *     standing rather than a loose number in the middle of a row.
+ *
+ * Joint ranks keep working: `=1` fits the pill (it flexes on padding rather
+ * than being a fixed circle) and two joint firsts both wear gold, which is
+ * what a tie for first means.
+ */
+export function Rank({ n, joint = false, medal = true, className, ...rest }: RankProps) {
+  const tone = medal ? MEDAL_TONE[n] : undefined
   return (
-    <span className={cn('world-tokens world-rank', className)} {...rest}>
-      {joint ? `=${n}` : n}
+    <span
+      className={cn(
+        'world-tokens world-rank',
+        tone && `world-rank--medal world-rank--${tone}`,
+        className
+      )}
+      {...rest}
+    >
+      <span className="sr-only">{joint ? `Joint rank ${n}` : `Rank ${n}`}</span>
+      <span aria-hidden="true">{joint ? `=${n}` : n}</span>
     </span>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   WorldLogo — a real ExploreYC company logo, or a letter that occupies the
+   same box
+   ──────────────────────────────────────────────────────────────────────────── */
+
+export interface WorldLogoProps {
+  /** `small_logo_thumb_url` from the companies table, or a plot's own logo. */
+  src?: string | null
+  /** The name the fallback letter comes from. */
+  name: string
+  /** Box size in px. */
+  size?: number
+  className?: string
+}
+
+/**
+ * One tile for every company mark in the World.
+ *
+ * The fallback is not optional decoration: a lot of imported companies have no
+ * thumb, and a board where some rows have a 28px tile and others have nothing
+ * ripples the whole name column. Same box either way. `alt=""` because the
+ * company name is always rendered as text right beside it — announcing it
+ * twice is noise.
+ */
+export function WorldLogo({ src, name, size = 28, className }: WorldLogoProps) {
+  const box = { width: size, height: size, fontSize: Math.round(size * 0.42) }
+  if (!src) {
+    return (
+      <span aria-hidden="true" className={cn('world-logo', className)} style={box}>
+        {name.slice(0, 1).toUpperCase()}
+      </span>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={cn('world-logo', className)}
+      style={box}
+    />
   )
 }
 

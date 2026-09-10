@@ -20,6 +20,15 @@ export interface WorldGlobeProps {
   pickMode?: boolean
   onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
+  /**
+   * A seed pin was clicked — an imported company nobody has staked on yet.
+   *
+   * The pin carries the feed's own coordinates plus `id`, `name` and
+   * `company_slug`; there is no plot id, because there is no plot. Optional:
+   * leave it off and a seed click falls through to its country, which is what
+   * the globe has always done.
+   */
+  onSelectSeed?: (pin: GlobePin) => void
   onSelectCountry?: (iso: string) => void
   className?: string
 }

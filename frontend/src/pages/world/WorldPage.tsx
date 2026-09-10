@@ -3,9 +3,9 @@ import { Suspense, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight, LayoutList } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Trophy } from 'lucide-react'
 import { useApp } from '../../contexts/AppContext'
-import worldApi from '../../lib/worldApi'
+import worldApi, { type GlobePin } from '../../lib/worldApi'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import {
   WorldButton,
@@ -14,9 +14,11 @@ import {
   worldButtonClass,
   WORLD_FOCUS_CLASS,
 } from '../../components/world/ui'
+import SeedCompanyDialog from '../../components/world/SeedCompanyDialog'
 import WorldBoards from '../../components/world/boards/WorldBoards'
 import FeaturedRail from '../../components/world/featured/FeaturedRail'
 import { PulseList, PulseTicker } from '../../components/world/pulse/PulseTicker'
+import { Logo } from '../../components/ui/Logo'
 import { LazyWorldGlobe } from './worldLazy'
 
 /** The one line of legal honesty that has to survive every layout. */
@@ -42,6 +44,13 @@ export default function WorldPage() {
   const { darkMode } = useApp()
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /**
+   * The unclaimed pin somebody clicked. Every pale dot on this globe is a real
+   * ExploreYC company, and a click on one used to fall through to its country
+   * page — so the company behind the dot, and its profile two clicks away at
+   * /company/<slug>, were both invisible. See SeedCompanyDialog.
+   */
+  const [seedPin, setSeedPin] = useState<GlobePin | null>(null)
 
   const { data } = useQuery({
     queryKey: ['world', 'globe'],
@@ -65,6 +74,7 @@ export default function WorldPage() {
           plots={plots}
           darkMode={darkMode}
           onSelectPlot={(id) => navigate(`/world/p/${id}`)}
+          onSelectSeed={setSeedPin}
           onSelectCountry={(iso) => navigate(`/world/c/${iso}`)}
           className="absolute inset-0"
         />
@@ -72,17 +82,24 @@ export default function WorldPage() {
 
       {/* Top bar: back control + title card + desktop claim CTA */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 p-3 sm:p-4">
-        <WorldCard className="pointer-events-auto px-3.5 py-2.5">
-          <Link
-            to="/"
-            className={`${WORLD_FOCUS_CLASS} mb-0.5 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-[var(--w-muted)] transition-colors hover:text-[var(--w-accent-text)]`}
-          >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-            ExploreYC
-          </Link>
-          <WorldHeading level={1} className="text-[1.375rem] sm:text-2xl">
-            World
-          </WorldHeading>
+        {/* The brand lockup, as a floating card rather than a bar. This page
+            gets no nav — the map is the page — but it still has to say whose
+            product it is, and the mark is the app's real <Logo>, the same one
+            on every other ExploreYC page, not a World-only redraw. */}
+        <WorldCard className="pointer-events-auto flex items-center gap-3 px-3.5 py-2.5">
+          <Logo size={34} />
+          <div className="min-w-0">
+            <Link
+              to="/"
+              className={`${WORLD_FOCUS_CLASS} mb-0.5 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-[var(--w-muted)] transition-colors hover:text-[var(--w-accent-text)]`}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+              ExploreYC
+            </Link>
+            <WorldHeading level={1} className="text-[1.375rem] sm:text-2xl">
+              World
+            </WorldHeading>
+          </div>
         </WorldCard>
 
         <div className="pointer-events-auto hidden flex-col items-end gap-1.5 lg:flex">
@@ -134,7 +151,7 @@ export default function WorldPage() {
             Claim a plot — $5+
           </Link>
           <WorldButton variant="secondary" onClick={() => setDrawerOpen(true)}>
-            <LayoutList className="h-4 w-4" aria-hidden />
+            <Trophy className="h-4 w-4" aria-hidden />
             Boards
           </WorldButton>
         </div>
@@ -180,7 +197,7 @@ export default function WorldPage() {
                   Boards
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Description className="text-[0.8125rem] text-[var(--w-muted)]">
-                  Live world boards, featured placements, and recent activity.
+                  Who is winning, who paid to be seen, and what just happened.
                 </DialogPrimitive.Description>
               </div>
               <DialogPrimitive.Close asChild>
@@ -194,7 +211,7 @@ export default function WorldPage() {
               <FeaturedRail />
               <WorldCard as="section" aria-label="Recent activity" className="px-4 pb-3 pt-4">
                 <WorldHeading level={3} className="mb-1">
-                  Recent activity
+                  Just happened
                 </WorldHeading>
                 <PulseList />
               </WorldCard>
@@ -202,6 +219,10 @@ export default function WorldPage() {
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
+
+      {/* Clicking an unclaimed pin: who that company is, its ExploreYC profile,
+          and the claim flow prefilled for it. */}
+      <SeedCompanyDialog pin={seedPin} onClose={() => setSeedPin(null)} />
     </div>
   )
 }

@@ -8,8 +8,9 @@
 // declared on `.world-root` / `.world-tokens` (see ../world.css) instead.
 //
 // Rules encoded here so no call site has to remember them:
-//   - Prose, labels, hints and controls use --w-sans. Only the money input
-//     uses --w-mono, because a stake is a numeral.
+//   - ONE face, --w-sans, for everything including the money input. There is
+//     no monospace token left to reach for; the stake field gets its column
+//     alignment from `tabular-nums`, not from a typewriter.
 //   - Errors are the accent, never a second hue (non-negotiable #4). They are
 //     always paired with an icon and a word, so colour is never the only
 //     signal (SC 1.4.1).
@@ -24,8 +25,20 @@ import { cn } from '../../../lib/utils'
 /** The friendly sans. Form controls need it applied explicitly. */
 export const SANS: CSSProperties = { fontFamily: 'var(--w-sans)' }
 
-/** Tabular numerals — money and other figures only. */
-export const MONO: CSSProperties = { fontFamily: 'var(--w-mono)' }
+/**
+ * Tabular numerals — money and other figures only.
+ *
+ * Was `fontFamily: var(--w-mono)`. A monospace stake field was the last
+ * typewriter in the claim flow, and the alignment it was there for is a font
+ * FEATURE: `tabular-nums` locks the digits to one advance width inside the
+ * same rounded sans as the label above it, so "1,250.00" still does not
+ * shuffle as you type it.
+ */
+export const TABULAR: CSSProperties = {
+  fontFamily: 'var(--w-sans)',
+  fontVariantNumeric: 'tabular-nums',
+  fontFeatureSettings: '"tnum" 1',
+}
 
 /** Small sentence-case label above a control. Not uppercase, not a command. */
 export const LABEL = 'text-[0.9375rem] font-semibold leading-tight text-[color:var(--w-ink)]'

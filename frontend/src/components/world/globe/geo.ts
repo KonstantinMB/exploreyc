@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { GlobePin } from '../../../lib/worldApi'
 
 /**
  * Geometry helpers and the globe's two palettes.
@@ -65,6 +66,117 @@ export function haversineKm(
 }
 
 /**
+ * How far a seed may be nudged off its city's centroid, in degrees of latitude.
+ *
+ * 0.065° is 7.23 km, and the number is a measurement, not a taste call. The feed
+ * gives every company its CITY's centroid, so in production 2,819 of 5,579 pins
+ * share the single coordinate (37.7749, -122.4194) — the whole of YC's San
+ * Francisco cohort stacked into one bead that only one company can ever be
+ * hovered, clicked or labelled through. San Francisco is the tightest metro on
+ * the board, so it sets the ceiling:
+ *
+ *   - **West.** The centroid is 8.03 km from the surf at Ocean Beach
+ *     (-122.5107 at that latitude). At 7.23 km NO seed reaches the Pacific:
+ *     run over all 2,819, the westmost lands at -122.50112, 840 m inland. That
+ *     is the one hard edge, and the reason the radius is not the 0.08–0.12 the
+ *     eye would prefer.
+ *   - **North.** 5.0 km to the Golden Gate; past it a pin lands in the strait
+ *     or on the Marin headlands. Water, but water with a bridge over it.
+ *   - **East.** The bay shoreline is only ~3 km out, so the eastern third of
+ *     the disc lies over San Francisco Bay. Unavoidable — SF is a 7 km
+ *     peninsula and any disc wide enough to separate 2,819 pins crosses it. The
+ *     coarse topology this globe draws at world zoom (`countries-110m`) does not
+ *     render the bay at all; the fine one (`countries-10m`) does, and a handful
+ *     of seeds will sit on it at city zoom. That is the price, it is paid in the
+ *     middle of the Bay Area, and it is ~6,000 km short of another country.
+ *
+ * Roomier metros are nowhere near their edges: New York's centroid is 15 km
+ * from the Atlantic, Los Angeles' 24 km from Santa Monica bay.
+ *
+ * At world zoom this is deliberately invisible — one globe radius is ~295 px
+ * there, so 7.23 km is a third of a pixel. The payoff is at city zoom and in the
+ * HIT TEST: `PlotColumns` resolves hover and clicks to the nearest pin by
+ * surface direction, and 2,819 identical directions means 2,818 companies that
+ * can never be reached with a cursor. Same trade the 2D map made at 0.02° in
+ * `WorldMap.tsx`; the globe can afford three times as much because its markers
+ * are three times as far apart on screen at the zoom where it matters.
+ */
+export const SEED_JITTER_DEG = 0.065
+
+/**
+ * A stable 32-bit hash of a pin id.
+ *
+ * Seed ids arrive as `"seed-240"`, where the number is the companies-table row —
+ * the same integer `WorldMap.tsx` hashes — so pulling the digits out keeps a
+ * company on the same relative offset on both surfaces. Anything without digits
+ * falls back to FNV-1a over the whole string, which is still deterministic.
+ *
+ * Never `Math.random`: an offset that changes per render walks the pin across
+ * the map on every re-render, and one that changes per reload means a link to a
+ * company points somewhere else tomorrow.
+ */
+function pinHash(id: string): number {
+  const digits = /\d+/.exec(id)
+  if (digits) {
+    const n = Number(digits[0])
+    // Knuth's multiplicative constant, exactly as the 2D map uses it.
+    if (Number.isFinite(n)) return Math.imul(n, 2654435761) >>> 0
+  }
+  let h = 2166136261
+  for (let i = 0; i < id.length; i += 1) {
+    h ^= id.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+/**
+ * Spread coincident SEED pins over a small disc around their shared centroid.
+ *
+ * **Paid plots are returned untouched, by identity.** A plot's coordinate is the
+ * spot its buyer chose and paid for; moving it — by any amount, for any reason,
+ * including "it looked better" — is falsifying the product's central claim. The
+ * `kind !== 'seed'` guard below is the whole of that promise, and the identity
+ * return is what makes it checkable: `jitterSeeds(pins).filter(p => p.kind ===
+ * 'plot')` is reference-equal, element for element, to the input's plots.
+ *
+ * Uniform over the disc, not over (angle, radius): `sqrt` on the radial term is
+ * what stops the offsets piling into the centre, which would defeat the point.
+ * The longitude divisor turns degrees of latitude into the degrees of longitude
+ * that cover the same ground at that latitude, so the disc is a circle in
+ * kilometres rather than an ellipse squashed toward the poles — floored at 0.2
+ * (~78°) so a polar pin cannot divide its way to the far side of the planet.
+ *
+ * Pure and total: same input, same output, no clock, no globals.
+ */
+export function jitterSeeds(
+  pins: readonly GlobePin[],
+  radiusDeg = SEED_JITTER_DEG,
+): GlobePin[] {
+  return pins.map((pin) => {
+    if (pin.kind !== 'seed') return pin
+
+    const h = pinHash(pin.id)
+    const angle = ((h % 3600) / 3600) * 2 * Math.PI
+    const dist = Math.sqrt(((h >>> 12) % 1000) / 1000)
+    const r = radiusDeg * dist
+    const latRad = (pin.lat * Math.PI) / 180
+
+    const lat = pin.lat + r * Math.cos(angle)
+    const lng =
+      pin.lng + (r * Math.sin(angle)) / Math.max(Math.cos(latRad), 0.2)
+
+    return {
+      ...pin,
+      // Clamped and wrapped so a bad feed coordinate cannot produce a pin the
+      // sphere maths has no answer for.
+      lat: lat > 89.9 ? 89.9 : lat < -89.9 ? -89.9 : lat,
+      lng: ((((lng + 180) % 360) + 360) % 360) - 180,
+    }
+  })
+}
+
+/**
  * Marker radius per stake-size tier, in the same units the donor's
  * `stakeToHeight` produced.
  *
@@ -122,8 +234,9 @@ export function stakeBand(tier: number, kind: 'plot' | 'seed'): string | null {
  * Paid pins are a slate ramp getting stronger with tier; a seed (an imported
  * company nobody has claimed) is the quietest mark on the map: present, clearly
  * unowned, obviously claimable — but no longer *invisible*. Every seed value
- * below clears 2.4:1 against its own land, because "quieter" and "not there"
- * are different design instructions and the old palette shipped the second one.
+ * below clears **3:1 against its own land** — 3.17:1 light, 3.19:1 dark —
+ * because "quieter" and "not there" are different design instructions and the
+ * old palette shipped the second one twice: first at 1.26:1, then at ~2.5:1.
  */
 export interface MarkerPalette {
   promoted: string
@@ -327,10 +440,12 @@ export const GLOBE_PALETTE_LIGHT: GlobePalette = {
   gridMajor: '#4E9AD1',
   markers: {
     promoted: YC_ORANGE,
-    // 2.46:1 on land, 1.42:1 on ocean, and every bead carries a white ring in
-    // the marker shader on top of that. The old #C3D0E0 measured 1.26:1 on its
-    // own land: technically a colour, practically a smudge.
-    seed: '#8A9DB6',
+    // 3.17:1 on land, 1.83:1 on ocean, and every bead carries a white ring in
+    // the marker shader on top of that. Deepened from #8A9DB6, which measured
+    // 2.46:1 — a pale mark five pixels wide on near-white land was the other
+    // half of why the pin field read as an empty globe. Still a full rung
+    // lighter than tier 1 (#5A6E8C, 4.61:1): quieter than a stake, present.
+    seed: '#7789A3',
     // 4.61:1 / 6.91:1 / 10.39:1 against land — the tiers are told apart by
     // value alone, which is what makes the ladder survive a greyscale print.
     ramp: ['#5A6E8C', '#3E5375', '#26385A'],
@@ -354,10 +469,15 @@ export const GLOBE_PALETTE_DARK: GlobePalette = {
   gridMajor: '#4A7CA6',
   markers: {
     promoted: YC_ORANGE,
-    // 2.57:1 on land, 3.25:1 on ocean. The old #55616F cleared 2.10:1 against
-    // the old near-black land and would measure 1.20:1 against this one —
-    // lifting the ground without lifting the seed would have erased it.
-    seed: '#8798AC',
+    // 3.19:1 on land, 4.04:1 on ocean. Lifted from #8798AC (2.57:1), which was
+    // itself a lift off the pre-soft-ground #55616F. Dark land is bright enough
+    // (#4A5563) that the whole ramp only has 7.11:1 of headroom above it, so
+    // the seed sits just 1.24:1 under tier 1 (#AFBDCE, 3.97:1) — closer than
+    // the light palette's rungs, and deliberately so: in this theme "quieter
+    // than a stake" is carried by SIZE (5.0px against 7.4px) and by the pop,
+    // which no seed ever gets. Value alone cannot carry it here without pushing
+    // the seed back under the 3:1 floor.
+    seed: '#9AAABC',
     // 3.97:1 / 5.67:1 / 7.11:1 against land.
     ramp: ['#AFBDCE', '#D5E0EC', '#F4F8FD'],
   },
