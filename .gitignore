@@ -39,6 +39,8 @@ wheels/
 !backend/railway.json
 # World feature runtime data (seeds + geometry) must ship with the backend
 !backend/data/*.json
+# Frontend content data (FAQ copy shared by the UI and the SEO prerender)
+!frontend/src/data/*.json
 
 # Environment variables
 .env
