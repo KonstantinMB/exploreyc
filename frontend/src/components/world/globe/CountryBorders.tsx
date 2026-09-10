@@ -779,6 +779,8 @@ export function CountryBorders({
         landColor={palette.land}
         hoveredIso2={hoveredIso2}
         selectedIso2={selectedIso2}
+        hoverTint={palette.hover.tint}
+        hoverAmount={palette.hover.amount}
       />
       <lineSegments
         ref={linesRef}

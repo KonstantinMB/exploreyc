@@ -13,8 +13,11 @@ import { latLngToVector3 } from './geo'
 import type { CountryInfo } from './CountryBorders'
 import { clampLabelSpan, countryLabelBudget } from './labelLayout'
 import {
+  LABEL_BORDER,
+  LABEL_CHEVRON,
   LABEL_GAP,
   LABEL_HEIGHT,
+  LABEL_PAD_COUNTRY,
   createBoxPool,
   createLabelPool,
   useLabelLayer,
@@ -82,6 +85,14 @@ export interface CountryLabelsProps {
    * every node inert until a handler exists.
    */
   onActivate?: (iso2: string) => void
+  /**
+   * Fired with the ISO-3166 alpha-2 the cursor is over, or null on leave.
+   *
+   * The pill covers the canvas while the cursor is on it, so the globe's own
+   * hover picker goes blind exactly then; forwarding this keeps the territory
+   * lit while its label is being aimed at.
+   */
+  onHover?: (iso2: string | null) => void
 }
 
 export function CountryLabels({
@@ -89,6 +100,7 @@ export function CountryLabels({
   counts,
   enabled = true,
   onActivate,
+  onHover,
 }: CountryLabelsProps) {
   const surface = useLabelSurface()
 
@@ -172,6 +184,17 @@ export function CountryLabels({
     return () => pool.setActivate(null)
   }, [onActivate, surface])
 
+  /** Same contract as above, for the pill's own hover. */
+  useLayoutEffect(() => {
+    const pool = poolRef.current
+    if (!pool) return undefined
+
+    pool.setHover(
+      onHover ? (id) => onHover(id ? id.replace(/^k/, '') : null) : null,
+    )
+    return () => pool.setHover(null)
+  }, [onHover, surface])
+
   const slotCountry = useMemo(() => new Int32Array(COUNTRY_POOL).fill(-1), [])
 
   const scratch = useMemo(
@@ -185,6 +208,17 @@ export function CountryLabels({
     }),
     [],
   )
+
+  /**
+   * The chevron's contribution to a pill's width, or zero.
+   *
+   * `onActivate` is the same condition the pool uses to add `is-pressable`,
+   * which is the class that reveals the glyph — so this is the one flag that
+   * decides both whether the affordance is drawn and whether the layout is
+   * told about it. Read fresh each render: `useLabelLayer` mirrors the latest
+   * layer object into a ref every render, so this closure never goes stale.
+   */
+  const chevronWidth = onActivate ? LABEL_CHEVRON : 0
 
   useLabelLayer({
     collect(out, frame) {
@@ -230,12 +264,23 @@ export function CountryLabels({
           continue
         }
 
-        // 9px of padding, matching `.world-lod--country`.
+        /*
+         * Padding, text, meta — and the chevron, when there is one.
+         *
+         * The chevron only exists on a pressable pill (`.is-pressable` is what
+         * reveals it), and it is drawn in CSS, so it has no text width for
+         * `measure` to find. Leaving it out of this sum would make every
+         * country pill LABEL_CHEVRON pixels wider than the rectangle the layout
+         * resolved, which is how the edge clamp starts letting pills hang off
+         * the frame again.
+         */
         const pillWidth =
-          9 * 2 +
+          LABEL_BORDER * 2 +
+          LABEL_PAD_COUNTRY * 2 +
           frame.measure(data.names[i], 'title') +
           LABEL_GAP +
-          frame.measure(data.metas[i], 'meta')
+          frame.measure(data.metas[i], 'meta') +
+          chevronWidth
 
         /*
          * Centred on the centroid rather than offset beside it — a country has

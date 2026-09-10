@@ -4,25 +4,30 @@
 // into localStorage) — and mirrors their validation: email required, password
 // min 8 chars on signup, company optional. On success the flow advances by
 // itself, so this step never navigates.
+//
+// Two structural notes, both deliberate:
+//
+//   1. There is NO <form> in here. This step renders inside the wizard's form,
+//      and a nested form is invalid HTML whose submit event bubbles into the
+//      wizard's own handler. Instead Enter is handled explicitly on the field
+//      group: it logs you in, and it is stopped from reaching the wizard.
+//      Because that also removes the browser's constraint validation, the two
+//      rules the server enforces are checked here in code.
+//   2. The account toggle is a pair of `aria-pressed` buttons, not an ARIA tab
+//      list. A tab list promises tab panels, roving focus and arrow-key
+//      travel; this is one form that swaps a field. Toggle buttons are what it
+//      actually is, and they are reachable with plain Tab.
 
 import { useId, useState } from 'react'
 import { AlertCircle, KeyRound, Loader2 } from 'lucide-react'
 
-import { cn } from '../../../lib/utils'
-import { Input } from '../../ui/input'
-import { Label } from '../../ui/label'
 import { useDevAuth } from '../../../contexts/DevAuthContext'
+import { WorldButton, WorldHeading } from '../ui'
+import { ERROR_TEXT, HINT, INPUT, LABEL, SANS } from './styles'
 
 type Mode = 'login' | 'signup'
 
-const TAB = (active: boolean) =>
-  cn(
-    'flex-1 border-b-2 py-2 text-center font-mono text-sm transition-colors',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-    active
-      ? 'border-[#FB651E] font-medium text-foreground'
-      : 'border-transparent text-muted-foreground hover:text-foreground',
-  )
+const MIN_PASSWORD = 8
 
 export function AuthStep() {
   const baseId = useId()
@@ -35,9 +40,24 @@ export function AuthStep() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const submit = async () => {
+    if (loading) return
     setError('')
+
+    // Stands in for the constraint validation a <form> would have run.
+    if (email.trim() === '') {
+      setError('Enter the email address for your account.')
+      return
+    }
+    if (password === '') {
+      setError('Enter your password.')
+      return
+    }
+    if (mode === 'signup' && password.length < MIN_PASSWORD) {
+      setError(`Passwords need at least ${MIN_PASSWORD} characters.`)
+      return
+    }
+
     setLoading(true)
     try {
       if (mode === 'login') {
@@ -58,56 +78,77 @@ export function AuthStep() {
     }
   }
 
+  /** Enter anywhere in the fields submits this step, and only this step. */
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter') return
+    const target = event.target as HTMLElement
+    if (target.tagName !== 'INPUT') return
+    event.preventDefault()
+    event.stopPropagation()
+    void submit()
+  }
+
+  const switchTo = (next: Mode) => {
+    setMode(next)
+    setError('')
+  }
+
+  const fieldId = (name: string) => `${baseId}-${name}`
+
   return (
-    <div className="flex flex-col gap-5 font-mono">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FB651E]/10">
-          <KeyRound aria-hidden="true" className="h-5 w-5 text-[#FB651E]" />
-        </div>
+    <div className="flex flex-col gap-5" style={SANS}>
+      <div className="flex items-start gap-3.5">
+        <span
+          aria-hidden="true"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--w-tint)] text-[color:var(--w-accent-text)]"
+        >
+          <KeyRound className="h-5 w-5" />
+        </span>
         <div className="flex flex-col gap-1">
-          <h3 className="text-base font-bold">Your plot needs an account</h3>
-          <p className="text-xs leading-snug text-muted-foreground">
+          <WorldHeading level={3}>Your plot needs an account</WorldHeading>
+          <p className={HINT}>
             An ExploreYC account owns the plot — it is how you come back to edit it and top it up.
             Free, no card.
           </p>
         </div>
       </div>
 
-      <div role="tablist" aria-label="Log in or create an account" className="flex border-b border-border">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'signup'}
-          className={TAB(mode === 'signup')}
-          onClick={() => setMode('signup')}
+      {/* Real WorldButtons rather than hand-styled segments: they carry the
+          press, the hover and the focus ring for free, and the selected one is
+          simply the orange one. */}
+      <div role="group" aria-label="Create an account or log in" className="flex gap-2">
+        <WorldButton
+          variant={mode === 'signup' ? 'primary' : 'secondary'}
+          size="sm"
+          aria-pressed={mode === 'signup'}
+          className="flex-1"
+          onClick={() => switchTo('signup')}
         >
           Create account
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'login'}
-          className={TAB(mode === 'login')}
-          onClick={() => setMode('login')}
+        </WorldButton>
+        <WorldButton
+          variant={mode === 'login' ? 'primary' : 'secondary'}
+          size="sm"
+          aria-pressed={mode === 'login'}
+          className="flex-1"
+          onClick={() => switchTo('login')}
         >
           Log in
-        </button>
+        </WorldButton>
       </div>
 
-      <form onSubmit={submit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4" onKeyDown={onKeyDown}>
         <div className="flex flex-col gap-1.5">
-          <Label
-            htmlFor={`${baseId}-email`}
-            className="font-mono text-xs uppercase tracking-wider text-muted-foreground"
-          >
+          <label htmlFor={fieldId('email')} className={LABEL}>
             {mode === 'signup' ? 'Work email' : 'Email'}
-          </Label>
-          <Input
-            id={`${baseId}-email`}
+          </label>
+          <input
+            id={fieldId('email')}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="h-9 font-mono text-sm"
+            className={INPUT}
+            style={SANS}
             placeholder="you@company.com"
             autoComplete="email"
             required
@@ -116,64 +157,57 @@ export function AuthStep() {
 
         {mode === 'signup' ? (
           <div className="flex flex-col gap-1.5">
-            <Label
-              htmlFor={`${baseId}-company`}
-              className="font-mono text-xs uppercase tracking-wider text-muted-foreground"
-            >
+            <label htmlFor={fieldId('company')} className={LABEL}>
               Company
-            </Label>
-            <Input
-              id={`${baseId}-company`}
+            </label>
+            <input
+              id={fieldId('company')}
               type="text"
               value={company}
               onChange={(e) => setCompany(e.target.value)}
-              className="h-9 font-mono text-sm"
+              className={INPUT}
+              style={SANS}
               placeholder="Acme Inc."
               autoComplete="organization"
+              aria-describedby={fieldId('company-hint')}
             />
+            <p id={fieldId('company-hint')} className={HINT}>
+              Optional.
+            </p>
           </div>
         ) : null}
 
         <div className="flex flex-col gap-1.5">
-          <Label
-            htmlFor={`${baseId}-password`}
-            className="font-mono text-xs uppercase tracking-wider text-muted-foreground"
-          >
+          <label htmlFor={fieldId('password')} className={LABEL}>
             Password
-          </Label>
-          <Input
-            id={`${baseId}-password`}
+          </label>
+          <input
+            id={fieldId('password')}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-9 font-mono text-sm"
-            placeholder={mode === 'signup' ? 'At least 8 characters' : '••••••••'}
+            className={INPUT}
+            style={SANS}
+            placeholder={mode === 'signup' ? `At least ${MIN_PASSWORD} characters` : '••••••••'}
             autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            minLength={mode === 'signup' ? 8 : undefined}
+            minLength={mode === 'signup' ? MIN_PASSWORD : undefined}
             required
           />
         </div>
 
         {error ? (
-          <div role="alert" className="flex items-center gap-2 font-mono text-sm text-red-500">
-            <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <p role="alert" className={ERROR_TEXT}>
+            <AlertCircle aria-hidden="true" className="mt-px h-4 w-4 shrink-0" />
             {error}
-          </div>
+          </p>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className={
-            'inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#FB651E] px-4 ' +
-            'font-mono text-sm font-medium text-white transition-colors hover:bg-[#E65C00] ' +
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
-            'ring-offset-background disabled:pointer-events-none disabled:opacity-50'
-          }
-        >
+        {/* type="button": this step is inside the wizard's form and must never
+            submit it. The click handler is the only way in. */}
+        <WorldButton type="button" variant="primary" size="md" block disabled={loading} onClick={() => void submit()}>
           {loading ? (
             <>
-              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              <Loader2 aria-hidden="true" className="h-[1.125rem] w-[1.125rem] animate-spin motion-reduce:animate-none" />
               {mode === 'login' ? 'Logging in…' : 'Creating account…'}
             </>
           ) : mode === 'login' ? (
@@ -181,8 +215,8 @@ export function AuthStep() {
           ) : (
             'Create account'
           )}
-        </button>
-      </form>
+        </WorldButton>
+      </div>
     </div>
   )
 }

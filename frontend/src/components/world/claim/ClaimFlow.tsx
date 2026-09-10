@@ -14,22 +14,26 @@
 // unfinished", never "no going forward".
 //
 // The page owns the surface (bottom sheet on phones, card on desktop) and the
-// globe. Picking happens on the globe: the page calls `onNeedPick` handling,
-// then re-opens this flow with coordinates. This component renders inline and
-// never navigates on its own — the only redirect is `window.location.assign`
-// to Stripe.
+// globe, but the PICKING UI lives in here, on step 1 — see PlaceSummary. A
+// globe click arrives as `initial: {lat, lng}`; a city chosen in step 1's
+// search goes back out through `onChoosePoint` and returns the same way, so
+// both gestures end up in one place. This component renders inline and never
+// navigates on its own — the only redirect is `window.location.assign` to
+// Stripe.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
 
 import { cn } from '../../../lib/utils'
 import { apiClient } from '../../../lib/api'
 import worldApi, { type WhereResponse, type WorldCheckoutRequest } from '../../../lib/worldApi'
-import { MIN_STAKE_CENTS, formatDollars } from '../constants'
+import { MIN_STAKE_CENTS } from '../constants'
 import { useDevAuth } from '../../../contexts/DevAuthContext'
+import { Money, WorldButton, WorldHeading } from '../ui'
+import { HINT, PRESSABLE, SANS } from './styles'
 
 import { AmountPicker, validateAmountCents, type AmountContext } from './AmountPicker'
 import { AuthStep } from './AuthStep'
@@ -49,11 +53,15 @@ export type ClaimInitial =
 export interface ClaimFlowProps {
   initial?: ClaimInitial
   /**
-   * The page owns the globe. When the flow needs a coordinate (or a new one),
-   * it calls this; the page enters pick mode and re-opens the flow with
-   * `initial: {lat, lng}`.
+   * A coordinate was chosen inside the flow — in practice, a city picked from
+   * the search on step 1. The page owns the globe and the authoritative
+   * coordinate, so it hears about it here, flies the camera, and re-renders
+   * this flow with `initial: {lat, lng}`. That keeps ONE source of truth for
+   * "where the plot goes" no matter which of the two gestures produced it.
+   *
+   * Omitted by callers with a fixed coordinate (a top-up, a seed claim).
    */
-  onNeedPick?: () => void
+  onChoosePoint?: (point: { lat: number; lng: number }) => void
 }
 
 type StepId = 'place' | 'identity' | 'auth' | 'amount'
@@ -93,7 +101,7 @@ function httpsify(url: string | undefined | null): string {
   return ''
 }
 
-export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
+export default function ClaimFlow({ initial, onChoosePoint }: ClaimFlowProps) {
   const reduced = useReducedMotion()
   const { user, loading: authLoading } = useDevAuth()
 
@@ -335,22 +343,31 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
 
   if (authLoading || (topUp && plotQuery.isPending) || (companyId !== null && companyQuery.isPending)) {
     return (
-      <div className="flex items-center justify-center p-10 font-mono" role="status">
-        <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin text-[#FB651E]" />
-        <span className="text-sm text-muted-foreground">loading…</span>
+      <div className="flex items-center justify-center gap-2.5 p-10" role="status" style={SANS}>
+        <Loader2
+          aria-hidden="true"
+          className="h-5 w-5 animate-spin text-[color:var(--w-accent-text)] motion-reduce:animate-none"
+        />
+        <span className="text-[0.9375rem] font-semibold text-[color:var(--w-muted)]">Loading…</span>
       </div>
     )
   }
 
   if (topUp && (plotQuery.isError || (plot && plot.is_mine === false))) {
     return (
-      <div className="flex flex-col gap-2 p-6 font-mono" role="alert">
-        <h2 className="text-base font-bold">Cannot top up this plot</h2>
-        <p className="text-sm leading-snug text-muted-foreground">
-          {plotQuery.isError
-            ? 'This plot could not be loaded. Try again in a moment.'
-            : 'Only the owner of a plot can add to its stake.'}
-        </p>
+      <div className="flex items-start gap-3 p-6" role="alert" style={SANS}>
+        <AlertCircle
+          aria-hidden="true"
+          className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--w-accent-text)]"
+        />
+        <div className="flex flex-col gap-1.5">
+          <WorldHeading level={3}>Cannot top up this plot</WorldHeading>
+          <p className={HINT}>
+            {plotQuery.isError
+              ? 'This plot could not be loaded. Try again in a moment.'
+              : 'Only the owner of a plot can add to its stake.'}
+          </p>
+        </div>
       </div>
     )
   }
@@ -360,47 +377,75 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
   const lastStep = stepIndex === steps.length - 1
 
   return (
-    <div className="flex h-full min-h-0 flex-col font-mono">
-      <header className="shrink-0 border-b border-border px-5 py-4">
-        <h2 className="text-lg font-bold">
-          {topUp ? 'Add to your plot' : 'Claim your plot'}
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+    <div className="flex h-full min-h-0 flex-col" style={SANS}>
+      <header className="shrink-0 px-5 pb-2.5 pt-4 sm:pb-3 sm:pt-5">
+        <WorldHeading level={2}>{topUp ? 'Add to your plot' : 'Claim your plot'}</WorldHeading>
+        <p className={cn(HINT, 'mt-1')}>
           {topUp
             ? 'Top up the stake on a plot you already own.'
             : 'A permanent pin at a real coordinate. You finish on Stripe.'}
         </p>
       </header>
 
-      {/* ---- step tabs ------------------------------------------------------ */}
-      <ol className="flex shrink-0 items-stretch border-b border-border px-5">
+      {/* ---- step tabs ------------------------------------------------------
+          Pills, not a terminal tab strip. Each one says where you are (filled
+          orange), where you have been (a tick) and where you cannot go yet
+          (dimmed and genuinely disabled). */}
+      {/* Pills size to their own labels. They used to be `flex-1` equal columns,
+          which forced every label through `truncate` — in a 26rem panel that
+          shipped "3 Acco…" and "4 Amo…", i.e. the two steps that involve money
+          were the two nobody could read. At natural width all four fit one line
+          down to 375px, and `flex-wrap` catches anything narrower. */}
+      <ol className="flex shrink-0 flex-wrap items-stretch gap-1.5 px-5 pb-3 sm:pb-4">
         {steps.map((id, index) => {
           const done = index < stepIndex && canLeave[id]
           const current = id === stepId
+          const blocked = !reachable[index]
           return (
-            <li key={id} className="flex-1">
+            <li key={id} className="min-w-0">
               <button
                 type="button"
-                disabled={!reachable[index] || submitting}
+                disabled={blocked || submitting}
                 aria-current={current ? 'step' : undefined}
                 onClick={() => setStepId(id)}
                 className={cn(
-                  'flex w-full items-center justify-center gap-2 border-b-2 py-2.5 text-center transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                  'disabled:cursor-default',
+                  PRESSABLE,
+                  'flex min-h-[2.5rem] w-full items-center justify-center gap-1.5',
+                  // Measured: at the sm size all four pills come to 346px and a
+                  // 375px phone leaves 335px inside the sheet, so they wrapped
+                  // onto a second row and cost ~50px of the step below. One
+                  // notch down on padding and type puts them at 323px.
+                  'px-2.5 text-[0.8125rem] sm:px-3 sm:text-[0.875rem]',
+                  'rounded-full',
+                  'border font-bold',
+                  // 0.6 is the same dimming the primitives use for inactive
+                  // controls, which SC 1.4.3 exempts.
+                  'disabled:cursor-not-allowed disabled:opacity-60 disabled:active:translate-y-0',
                   current
-                    ? 'border-b-[#FB651E] text-foreground'
-                    : 'border-b-transparent text-muted-foreground enabled:hover:text-foreground',
+                    ? 'border-[color:var(--w-accent)] bg-[color:var(--w-accent)] text-[color:var(--w-accent-ink)]'
+                    : cn(
+                        'border-[color:var(--w-border)] bg-[color:var(--w-card)] text-[color:var(--w-muted)]',
+                        !blocked &&
+                          'hover:border-[color:var(--w-accent)] hover:text-[color:var(--w-ink)]',
+                      ),
                 )}
               >
                 {done ? (
-                  <Check aria-hidden="true" className="h-3.5 w-3.5 text-[#FB651E]" />
+                  <Check
+                    aria-hidden="true"
+                    className="h-4 w-4 shrink-0 text-[color:var(--w-accent-text)]"
+                  />
                 ) : (
-                  <span className={cn('text-xs tabular-nums', current && 'font-semibold text-[#FB651E]')}>
+                  <span aria-hidden="true" className="world-num shrink-0 text-[0.8125rem]">
                     {index + 1}
                   </span>
                 )}
-                <span className="text-xs uppercase tracking-wider">{STEP_LABELS[id]}</span>
+                <span className="truncate">{STEP_LABELS[id]}</span>
+                {/* The number is decoration for sighted users; the step's real
+                    position is spoken here once, not twice. */}
+                <span className="sr-only">
+                  {` — step ${index + 1} of ${steps.length}${done ? ', done' : ''}`}
+                </span>
               </button>
             </li>
           )
@@ -416,7 +461,9 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
           if (!lastStep) goNext()
         }}
       >
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        {/* py-4 up to sm: the bottom sheet on a 375x812 phone has about 200px
+            for a step, and 8px of it was padding nobody could use. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:py-5">
           {/* One step at a time. mode="wait": two steps overlapping means two
               focusable forms in the tree at once, and a buyer who tabs during
               the transition lands in the step they just left. */}
@@ -433,7 +480,12 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
               </h3>
 
               {stepId === 'place' ? (
-                <PlaceSummary place={place} onNeedPick={onNeedPick} canChange={companyId === null} />
+                // No search on a seed claim: the coordinate is the company's
+                // and is not the buyer's to move from in here.
+                <PlaceSummary
+                  place={place}
+                  onPickCity={companyId === null ? onChoosePoint : undefined}
+                />
               ) : stepId === 'identity' ? (
                 <IdentityForm value={identity} onChange={setIdentity} showAllErrors={showIdentityErrors} />
               ) : stepId === 'auth' ? (
@@ -446,7 +498,7 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
                     context={amountContext}
                     existingStakeCents={topUp ? (plot?.total_cents ?? 0) : 0}
                   />
-                  <div aria-hidden="true" className="h-px w-full bg-border" />
+                  <div aria-hidden="true" className="h-px w-full bg-[color:var(--w-border)]" />
                   <ClaimSummary
                     amountCents={amountCents}
                     placeLabel={resolvedWhere ? placeLabel(resolvedWhere) : null}
@@ -467,45 +519,34 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
         </div>
 
         {/* ---- footer ------------------------------------------------------- */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-card px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--w-border)] bg-[color:var(--w-card)] px-5 py-4">
           {stepIndex > 0 ? (
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={goBack}
-              className={cn(
-                'inline-flex h-10 items-center gap-1.5 rounded-md border border-input bg-background px-4',
-                'font-mono text-sm transition-colors hover:border-[#FB651E]/60 hover:text-[#FB651E]',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                'ring-offset-background disabled:pointer-events-none disabled:opacity-50',
-              )}
-            >
-              <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+            <WorldButton variant="secondary" size="md" disabled={submitting} onClick={goBack}>
+              <ArrowLeft aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
               Back
-            </button>
+            </WorldButton>
           ) : (
             <span />
           )}
 
           {!lastStep ? (
-            <button
+            <WorldButton
               type="submit"
+              variant="primary"
+              size="md"
               disabled={!canLeave[stepId] && stepId !== 'identity'}
-              className={cn(
-                'inline-flex h-10 min-w-[11rem] items-center justify-center gap-2 rounded-md bg-[#FB651E] px-4',
-                'font-mono text-sm font-medium text-white transition-colors hover:bg-[#E65C00]',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                'ring-offset-background disabled:pointer-events-none disabled:opacity-50',
-              )}
+              className="min-w-[10rem]"
             >
               <span>Continue</span>
               {/* The price rides on the button from step one: the number that
                   lets somebody opt out early, or relax and keep going. */}
               {stepIndex === 0 && !topUp ? (
-                <span className="font-normal opacity-90">· from {formatDollars(MIN_STAKE_CENTS)}</span>
+                <span className="font-semibold opacity-80">
+                  · from <Money cents={MIN_STAKE_CENTS} />
+                </span>
               ) : null}
-              <ArrowRight aria-hidden="true" className="h-4 w-4" />
-            </button>
+              <ArrowRight aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
+            </WorldButton>
           ) : (
             /* The amount step has its own pay button in ClaimSummary; the
                footer keeps the chosen place and price on screen together —
@@ -513,13 +554,14 @@ export default function ClaimFlow({ initial, onNeedPick }: ClaimFlowProps) {
                separate screens. */
             <div className="ml-auto flex min-w-0 items-baseline gap-2">
               {resolvedWhere ? (
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                <span className="min-w-0 truncate text-[0.8125rem] text-[color:var(--w-muted)]">
                   {placeLabel(resolvedWhere)}
                 </span>
               ) : null}
-              <span className="shrink-0 text-sm font-semibold text-[#FB651E]">
-                {formatDollars(amountCents)}
-              </span>
+              <Money
+                cents={amountCents}
+                className="shrink-0 text-[1.0625rem] font-bold text-[color:var(--w-accent-text)]"
+              />
             </div>
           )}
         </div>

@@ -1,16 +1,17 @@
 // The last surface before Stripe: what the money buys, said plainly, then the
 // honesty block, then the pay button.
 //
-// Ported from startupworld's claim/ClaimSummary.tsx. The "No prize, no payout,
-// no refund" sentence is rendered at body size in body colour immediately
-// above the pay button — a disclaimer set in 10px grey is evidence we hoped
-// nobody would read it. The donor's dofollow/click-tracking promises are gone:
-// both are out of the ExploreYC v1 scope, and the summary must not promise
-// what the product does not do.
+// Ported from startupworld's claim/ClaimSummary.tsx. "No prize, no payout, no
+// refund" is rendered at body size, in body colour, in bold, immediately above
+// the pay button — a disclaimer set in 10px grey is evidence we hoped nobody
+// would read it. The donor's dofollow/click-tracking promises are gone: both
+// are out of the ExploreYC v1 scope, and the summary must not promise what the
+// product does not do.
 
 import { AlertCircle, Check, Link2, Loader2, MapPin, Share2 } from 'lucide-react'
 
-import { formatDollars } from '../constants'
+import { Money, WorldButton, WorldCard, WorldHeading } from '../ui'
+import { HINT, SANS, SECTION_LABEL } from './styles'
 
 export interface ClaimSummaryProps {
   amountCents: number
@@ -28,10 +29,12 @@ export interface ClaimSummaryProps {
   disabled?: boolean
 }
 
-const HONESTY =
-  'No prize, no payout, no refund. A plot is a pin on a globe and a rank on a board — ' +
-  'nothing is ever won or paid out, this is not an investment or a bet, and payments ' +
-  'are non-refundable.'
+/** The first three words are the whole point, so they are their own sentence
+ *  and they are the bold ones. */
+const HONESTY_LEAD = 'No prize, no payout, no refund.'
+const HONESTY_REST =
+  'A plot is a pin on a globe and a rank on a board — nothing is ever won or paid out, ' +
+  'this is not an investment or a bet, and payments are non-refundable.'
 
 export function ClaimSummary({
   amountCents,
@@ -52,7 +55,7 @@ export function ClaimSummary({
           icon: <Check aria-hidden="true" />,
           text: (
             <>
-              {formatDollars(amountCents)} added to your stake — rank is cumulative, so every
+              <Money cents={amountCents} /> added to your stake — rank is cumulative, so every
               dollar counts toward your city, your country and the world.
             </>
           ),
@@ -64,8 +67,10 @@ export function ClaimSummary({
           text: (
             <>
               A permanent plot at{' '}
-              <span className="text-foreground">{placeLabel ?? 'your coordinate'}</span>, rendered
-              on the globe.
+              <span className="font-semibold text-[color:var(--w-ink)]">
+                {placeLabel ?? 'your coordinate'}
+              </span>
+              , rendered on the globe.
             </>
           ),
         },
@@ -73,8 +78,8 @@ export function ClaimSummary({
           icon: <Check aria-hidden="true" />,
           text: (
             <>
-              <span className="text-foreground">{displayName}</span>, your one line, and your rank
-              in your city, your country and the world.
+              <span className="font-semibold text-[color:var(--w-ink)]">{displayName}</span>, your
+              one line, and your rank in your city, your country and the world.
             </>
           ),
         },
@@ -93,68 +98,87 @@ export function ClaimSummary({
       ]
 
   return (
-    <div className="flex flex-col gap-5 font-mono">
-      <div className="flex flex-col gap-2.5">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">
-          What you get
-        </span>
+    <div className="flex flex-col gap-5" style={SANS}>
+      <div className="flex flex-col gap-3">
+        <WorldHeading level={3}>What you get</WorldHeading>
         <ul className="flex flex-col gap-2.5">
           {gets.map((item, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm text-muted-foreground">
-              <span className="mt-0.5 shrink-0 text-[#FB651E] [&_svg]:h-4 [&_svg]:w-4">
+            <li
+              key={i}
+              className="flex items-start gap-2.5 text-[0.9375rem] leading-snug text-[color:var(--w-muted)]"
+            >
+              <span className="mt-0.5 shrink-0 text-[color:var(--w-accent-text)] [&_svg]:h-[1.125rem] [&_svg]:w-[1.125rem]">
                 {item.icon}
               </span>
-              <span className="leading-snug">{item.text}</span>
+              <span>{item.text}</span>
             </li>
           ))}
         </ul>
       </div>
 
-      {/* Deliberately NOT a hover-glow card: this block is not interactive and
+      {/* Deliberately NOT a hover-lift card: this block is not interactive and
           must not look like something you can dismiss or click past. */}
-      <div className="rounded-sm border border-border bg-muted p-4">
-        <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Read this</p>
-        <p className="text-sm leading-relaxed text-foreground">{HONESTY}</p>
-      </div>
+      <WorldCard flat className="flex flex-col gap-2 bg-[color:var(--w-ground)] p-4">
+        <p className={SECTION_LABEL}>Read this</p>
+        <p className="text-[0.9375rem] leading-relaxed text-[color:var(--w-ink)]">
+          <strong className="font-bold">{HONESTY_LEAD}</strong> {HONESTY_REST}
+        </p>
+      </WorldCard>
 
       {error ? (
-        <div
+        <WorldCard
           role="alert"
-          className="flex items-start gap-2 rounded-sm border border-red-500/40 bg-red-500/5 p-3"
+          flat
+          className="flex items-start gap-2.5 border-[color:var(--w-accent)] bg-[color:var(--w-tint)] p-3.5"
         >
-          <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 h-[1.125rem] w-[1.125rem] shrink-0 text-[color:var(--w-accent-text)]"
+          />
           <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-foreground">Checkout did not start</p>
-            <p className="text-xs leading-snug text-muted-foreground">
+            <p className="text-[0.9375rem] font-bold text-[color:var(--w-ink)]">
+              Checkout did not start
+            </p>
+            <p className={HINT}>
               {error} Nothing was charged, and everything you typed is still here.
             </p>
           </div>
-        </div>
+        </WorldCard>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <button
+      <div className="flex flex-col gap-2.5">
+        {/*
+          type="button", and it must stay that way.
+
+          This sits inside the wizard's <form>. As a submit button it would be
+          the form's default submit control, so Enter pressed in ANY text field
+          on this step would start a payment. A charge is only ever the result
+          of somebody deliberately pressing this.
+        */}
+        <WorldButton
           type="button"
+          variant="primary"
+          size="lg"
+          block
           onClick={onSubmit}
           disabled={disabled || submitting}
-          className={
-            'inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#FB651E] px-4 ' +
-            'font-mono text-base font-medium text-white transition-colors hover:bg-[#E65C00] ' +
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
-            'ring-offset-background disabled:pointer-events-none disabled:opacity-50'
-          }
         >
           {submitting ? (
             <>
-              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              <Loader2
+                aria-hidden="true"
+                className="h-5 w-5 animate-spin motion-reduce:animate-none"
+              />
               Opening Stripe…
             </>
           ) : (
-            <>{topUp ? 'Top up' : 'Plant'} for {formatDollars(amountCents)}</>
+            <>
+              {topUp ? 'Top up' : 'Plant'} for <Money cents={amountCents} />
+            </>
           )}
-        </button>
+        </WorldButton>
 
-        <p className="text-center text-xs leading-snug text-muted-foreground">
+        <p className={`${HINT} text-center`}>
           You finish on Stripe. No card details touch this site.
         </p>
       </div>

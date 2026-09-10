@@ -1,17 +1,18 @@
 // Step two of the claim wizard: who the plot belongs to.
 //
-// Ported from startupworld's claim/IdentityForm.tsx into ExploreYC's design
-// language (monospace, HSL tokens, orange only as signal). The donor's email
-// field is gone — identity here is the ExploreYC developer account, handled by
-// the inline AuthStep — and optional founder fields plus a logo upload
-// (DeveloperDashboard's canvas-resize pattern) are added per the World spec.
+// Ported from startupworld's claim/IdentityForm.tsx and then re-dressed in the
+// World's bright, physical language: sentence-case labels in the rounded sans,
+// 44px controls, one accent. The donor's email field is gone — identity here is
+// the ExploreYC developer account, handled by the inline AuthStep — and
+// optional founder fields plus a logo upload (DeveloperDashboard's
+// canvas-resize pattern) are added per the World spec.
 
 import { useId, useRef, useState } from 'react'
-import { Camera, X } from 'lucide-react'
+import { AlertCircle, Camera, X } from 'lucide-react'
 
 import { cn } from '../../../lib/utils'
-import { Input } from '../../ui/input'
-import { Label } from '../../ui/label'
+import { WorldButton, WorldHeading } from '../ui'
+import { ERROR_TEXT, HINT, INPUT, INPUT_INVALID, LABEL, SANS, TEXTAREA } from './styles'
 
 export const DISPLAY_NAME_MAX = 40
 export const TAGLINE_MAX = 140
@@ -152,10 +153,8 @@ export interface IdentityFormProps {
   showAllErrors?: boolean
 }
 
-const FIELD = 'font-mono h-9 text-sm'
-
 /**
- * Every control is wired to a real `Label` by id, with `aria-describedby`
+ * Every control is wired to a real `<label>` by id, with `aria-describedby`
  * pointing at whichever of the hint or the error is on screen. Errors appear
  * on blur, not on keystroke — validating a URL while it is being typed means
  * telling somebody it is wrong four times before they finish writing it.
@@ -221,23 +220,26 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
     return (
       <div className="flex flex-col gap-1.5">
         <div className="flex items-baseline justify-between gap-3">
-          <Label htmlFor={id.field} className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          <label htmlFor={id.field} className={LABEL}>
             {label}
-          </Label>
+          </label>
           {counterMax !== undefined ? (
             <span
               className={cn(
-                'font-mono text-[11px] tabular-nums',
-                value[key].length > counterMax ? 'text-red-500' : 'text-muted-foreground',
+                'world-num text-[0.75rem]',
+                value[key].length > counterMax
+                  ? 'font-bold text-[color:var(--w-accent-text)]'
+                  : 'text-[color:var(--w-muted)]',
               )}
             >
               {value[key].length}/{counterMax}
             </span>
           ) : null}
         </div>
-        <Input
+        <input
           id={id.field}
-          className={FIELD}
+          className={cn(INPUT, error !== null && INPUT_INVALID)}
+          style={SANS}
           value={value[key]}
           onChange={set(key)}
           onBlur={blur(key)}
@@ -246,11 +248,12 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
           {...props}
         />
         {error === null ? (
-          <p id={id.hint} className="font-mono text-xs leading-snug text-muted-foreground">
+          <p id={id.hint} className={HINT}>
             {hint}
           </p>
         ) : (
-          <p id={id.error} role="alert" className="font-mono text-xs leading-snug text-red-500">
+          <p id={id.error} role="alert" className={ERROR_TEXT}>
+            <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
             {error}
           </p>
         )}
@@ -262,7 +265,9 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
   const taglineError = shown('tagline')
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5" style={SANS}>
+      <WorldHeading level={3}>Who the plot belongs to</WorldHeading>
+
       {field(
         'name',
         'Name',
@@ -274,16 +279,15 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
       {/* ---- tagline (textarea, so it wraps) ------------------------------ */}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-baseline justify-between gap-3">
-          <Label
-            htmlFor={taglineIds.field}
-            className="font-mono text-xs uppercase tracking-wider text-muted-foreground"
-          >
+          <label htmlFor={taglineIds.field} className={LABEL}>
             One line
-          </Label>
+          </label>
           <span
             className={cn(
-              'font-mono text-[11px] tabular-nums',
-              value.tagline.length > TAGLINE_MAX ? 'text-red-500' : 'text-muted-foreground',
+              'world-num text-[0.75rem]',
+              value.tagline.length > TAGLINE_MAX
+                ? 'font-bold text-[color:var(--w-accent-text)]'
+                : 'text-[color:var(--w-muted)]',
             )}
           >
             {value.tagline.length}/{TAGLINE_MAX}
@@ -298,18 +302,16 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
           placeholder="What you are building, in one line."
           aria-invalid={taglineError !== null}
           aria-describedby={describedBy('tagline')}
-          className={cn(
-            'flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm',
-            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2',
-            'focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background resize-none',
-          )}
+          style={SANS}
+          className={cn(TEXTAREA, taglineError !== null && INPUT_INVALID)}
         />
         {taglineError === null ? (
-          <p id={taglineIds.hint} className="font-mono text-xs leading-snug text-muted-foreground">
+          <p id={taglineIds.hint} className={HINT}>
             Optional. Shown under your name on the globe and on your plot page.
           </p>
         ) : (
-          <p id={taglineIds.error} role="alert" className="font-mono text-xs leading-snug text-red-500">
+          <p id={taglineIds.error} role="alert" className={ERROR_TEXT}>
+            <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
             {taglineError}
           </p>
         )}
@@ -324,50 +326,41 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
 
       {/* ---- logo --------------------------------------------------------- */}
       <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">Logo</span>
+        <span className={LABEL}>Logo</span>
         <div className="flex items-center gap-3">
           {value.logoDataUrl ? (
             <img
               src={value.logoDataUrl}
               alt="Your logo, as it will appear"
-              className="h-12 w-12 shrink-0 rounded-sm border border-border object-cover"
+              className="h-14 w-14 shrink-0 rounded-[10px] border border-[color:var(--w-border)] object-cover"
             />
           ) : (
             <div
               aria-hidden="true"
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-sm border border-dashed border-border text-muted-foreground"
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[10px] border border-dashed border-[color:var(--w-border)] text-[color:var(--w-muted)]"
             >
-              <Camera className="h-4 w-4" />
+              <Camera className="h-5 w-5" />
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+            <WorldButton
+              variant="secondary"
+              size="sm"
               disabled={logoBusy}
               onClick={() => fileRef.current?.click()}
-              className={cn(
-                'inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3',
-                'font-mono text-xs transition-colors hover:border-[#FB651E]/60 hover:text-[#FB651E]',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                'ring-offset-background disabled:opacity-50',
-              )}
             >
-              <Camera aria-hidden="true" className="h-3.5 w-3.5" />
+              <Camera aria-hidden="true" className="h-4 w-4" />
               {logoBusy ? 'Reading…' : value.logoDataUrl ? 'Replace' : 'Upload'}
-            </button>
+            </WorldButton>
             {value.logoDataUrl ? (
-              <button
-                type="button"
+              <WorldButton
+                variant="ghost"
+                size="sm"
                 onClick={() => onChange({ ...value, logoDataUrl: '' })}
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 rounded-md px-2 font-mono text-xs text-muted-foreground',
-                  'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2',
-                  'focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background',
-                )}
               >
-                <X aria-hidden="true" className="h-3.5 w-3.5" />
+                <X aria-hidden="true" className="h-4 w-4" />
                 Remove
-              </button>
+              </WorldButton>
             ) : null}
           </div>
           {/*
@@ -391,21 +384,20 @@ export function IdentityForm({ value, onChange, showAllErrors = false }: Identit
           />
         </div>
         {logoError ? (
-          <p role="alert" className="font-mono text-xs leading-snug text-red-500">
+          <p role="alert" className={ERROR_TEXT}>
+            <AlertCircle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
             {logoError}
           </p>
         ) : (
-          <p className="font-mono text-xs leading-snug text-muted-foreground">
+          <p className={HINT}>
             Optional, square works best. Applied to your plot right after checkout.
           </p>
         )}
       </div>
 
       {/* ---- founder (optional group) ------------------------------------- */}
-      <fieldset className="flex flex-col gap-4 rounded-sm border border-border/80 p-3">
-        <legend className="px-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
-          Founder — optional
-        </legend>
+      <fieldset className="flex flex-col gap-4 rounded-[16px] border border-[color:var(--w-border)] p-4">
+        <legend className={cn(LABEL, 'px-1.5')}>Founder — optional</legend>
         {field(
           'founderName',
           'Founder name',

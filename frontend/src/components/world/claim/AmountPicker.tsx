@@ -4,13 +4,20 @@
 // <scope>" readout is the product — it is the first and largest thing on the
 // screen, recomputes on every keystroke and slider pixel, and each figure is
 // a button that fills the amount in. It never guesses: a scope whose leader
-// stake is unknown says so plainly instead of printing a number.
+// stake is unknown renders <Money cents={null}>, which prints the word
+// "unknown" — there is no code path in this file that invents a number.
+//
+// Every figure on this screen goes through <Money>, so money is the one thing
+// set in the monospace face (tabular alignment is the entire point of a
+// numeral) while every label around it stays in the rounded sans.
 
 import { useId, useState } from 'react'
-import { ArrowRight, Crown, Info } from 'lucide-react'
+import { Crown, Info } from 'lucide-react'
 
 import { cn } from '../../../lib/utils'
 import { MIN_STAKE_CENTS, formatDollars } from '../constants'
+import { Money, WorldButton, WorldCard, WorldHeading } from '../ui'
+import { HINT, INPUT, LABEL, MONO, PRESSABLE, SANS } from './styles'
 
 /** What each scope currently costs to win. null = unknown, never guessed. */
 export interface AmountContext {
@@ -132,17 +139,18 @@ export function AmountPicker({
   )
 
   return (
-    <div className="flex flex-col gap-6 font-mono">
+    <div className="flex flex-col gap-6" style={SANS}>
       {/* ---- the readout — the reason this screen exists ------------------ */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">What it takes</span>
+      <div className="flex flex-col gap-2.5">
+        <WorldHeading level={3}>What it takes</WorldHeading>
 
         {/* One polite live region for the whole readout, so a drag that flips
             City from "takes it" to "does not" speaks once, not twice. */}
-        <div
-          aria-live="polite"
-          className="flex flex-col divide-y divide-border/80 rounded-sm border border-border/80 bg-card/50"
-        >
+        {/* Rows are inset inside the card rather than full-bleed. Two reasons,
+            both practical: `overflow-hidden` would clip the focus ring of the
+            scope buttons, and an inset row can keep the 10px radius the shared
+            focus ring draws — so focusing one never changes its shape. */}
+        <WorldCard flat aria-live="polite" className="flex flex-col gap-1 p-1.5">
           <ScopeRow
             scope="City"
             place={context?.cityName ?? null}
@@ -157,31 +165,42 @@ export function AmountPicker({
             amountCents={valueCents}
             onTake={() => countryNeeded !== null && commit(countryNeeded)}
           />
-        </div>
+        </WorldCard>
       </div>
 
       {/* ---- the amount itself ------------------------------------------- */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3.5">
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor={amountId} className="text-xs uppercase tracking-wider text-muted-foreground">
+          <label htmlFor={amountId} className={LABEL}>
             Your stake
           </label>
 
+          {/* The real control is the <input> inside, so the ring has to come
+              from :focus-within on this wrapper. It is the SAME ring as
+              everywhere else — --w-focus-ring, not a second one invented
+              here. */}
           <div
             className={cn(
-              'flex h-9 w-32 items-center gap-1 rounded-md border bg-background px-3',
-              'ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2',
-              amountError ? 'border-red-500' : 'border-input focus-within:border-[#FB651E]/60',
+              INPUT,
+              'flex w-36 items-center gap-1 py-0 pr-3',
+              'focus-within:border-[color:var(--w-accent)] focus-within:[box-shadow:var(--w-focus-ring)]',
+              amountError && 'border-[color:var(--w-accent)] bg-[color:var(--w-tint)]',
             )}
           >
             {/* Real text rather than a pseudo-element, so a screen reader
-                still hears the unit. Orange because it is live data. */}
-            <span className="text-sm font-medium text-[#FB651E]">$</span>
+                still hears the unit. */}
+            <span
+              className="world-num text-[1.0625rem] font-bold text-[color:var(--w-accent-text)]"
+              aria-hidden="true"
+            >
+              $
+            </span>
             <input
               id={amountId}
               inputMode="decimal"
               autoComplete="off"
-              className="w-full bg-transparent text-right font-mono text-sm outline-none"
+              className="w-full min-w-0 bg-transparent text-right text-[1.0625rem] font-semibold text-[color:var(--w-ink)] outline-none"
+              style={MONO}
               value={focused ? draft : dollarsString(valueCents)}
               aria-invalid={amountError !== null}
               aria-describedby={amountHintId}
@@ -205,9 +224,13 @@ export function AmountPicker({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <div className="relative">
-            {/* Native range input: free keyboard support (arrows, Home/End),
-                and aria-valuetext can carry the money shape directly. */}
+          <div className="relative py-1">
+            {/* Native range input, left NATIVE on purpose: `appearance: none`
+                would need a ::-webkit-slider-thumb rule to draw a thumb at
+                all, and the thumb rules live in world.css, which this file
+                does not own. `accent-color` tints the real control instead —
+                keyboard support (arrows, Home/End), a visible thumb in every
+                engine, and one accent. */}
             <input
               type="range"
               min={MIN_STAKE_CENTS / 100}
@@ -217,28 +240,27 @@ export function AmountPicker({
               aria-label="Amount to stake"
               aria-valuetext={formatDollars(sliderDollars * 100)}
               onChange={(event) => onChange(Number(event.target.value) * 100)}
-              className="h-2 w-full cursor-pointer appearance-none rounded-none accent-[#FB651E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
-              style={{
-                background: `linear-gradient(to right, #FB651E 0%, #FB651E ${position(sliderDollars * 100)}%, hsl(var(--muted)) ${position(sliderDollars * 100)}%, hsl(var(--muted)) 100%)`,
-              }}
+              className="world-focus relative z-10 w-full cursor-pointer"
+              style={{ accentColor: 'var(--w-accent)' }}
             />
 
-            {/* Where the two ranks sit on the track. Decoration over the real
-                control — pointer-events off, never a hit target. Only drawn
-                for a scope whose leader is known. */}
+            {/* Where the two ranks sit on the track. Drawn OVER the native
+                control (which is opaque, so an underlay would be invisible)
+                but with pointer-events off, so it is never a hit target. Only
+                drawn for a scope whose leader is known. */}
             {marks.map((mark) => (
               <span
                 key={mark.key}
                 aria-hidden="true"
-                className="pointer-events-none absolute top-1/2 h-3.5 w-px -translate-y-1/2 bg-[#FB651E]"
+                className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 bg-[color:var(--w-accent)] opacity-40"
                 style={{ left: `${position(mark.cents)}%` }}
               />
             ))}
           </div>
 
-          <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>{formatDollars(MIN_STAKE_CENTS)}</span>
-            <span>{formatDollars(maxCents)}</span>
+          <div className="flex items-center justify-between text-[0.75rem] text-[color:var(--w-muted)]">
+            <Money cents={MIN_STAKE_CENTS} />
+            <Money cents={maxCents} />
           </div>
         </div>
 
@@ -246,38 +268,35 @@ export function AmountPicker({
           {PRESETS_CENTS.map((cents) => {
             const active = valueCents === cents
             return (
-              <button
+              <WorldButton
                 key={cents}
-                type="button"
+                variant={active ? 'primary' : 'secondary'}
+                size="sm"
                 aria-pressed={active}
                 onClick={() => commit(cents)}
-                className={cn(
-                  'h-10 flex-1 rounded-md border font-mono text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background',
-                  active
-                    ? 'border-[#FB651E] bg-[#FB651E] text-white hover:bg-[#E65C00]'
-                    : 'border-input bg-background hover:border-[#FB651E]/60 hover:text-[#FB651E]',
-                )}
+                className="flex-1"
               >
-                {formatDollars(cents)}
-              </button>
+                <Money cents={cents} />
+              </WorldButton>
             )
           })}
         </div>
 
         {amountError ? (
-          <p id={amountHintId} role="alert" className="text-xs leading-snug text-red-500">
+          <p id={amountHintId} role="alert" className="text-[0.8125rem] font-semibold leading-snug text-[color:var(--w-accent-text)]">
             {amountError}
           </p>
         ) : (
-          <p id={amountHintId} className="text-xs leading-snug text-muted-foreground">
+          <p id={amountHintId} className={HINT}>
             {existingStakeCents > 0 ? (
               <>
-                You already hold {formatDollars(existingStakeCents)} here — this takes you to{' '}
-                {formatDollars(existingStakeCents + valueCents)}. Non-refundable.
+                You already hold <Money cents={existingStakeCents} /> here — this takes you to{' '}
+                <Money cents={existingStakeCents + valueCents} />. Non-refundable.
               </>
             ) : (
-              <>From {formatDollars(MIN_STAKE_CENTS)}. Charged once, non-refundable.</>
+              <>
+                From <Money cents={MIN_STAKE_CENTS} />. Charged once, non-refundable.
+              </>
             )}
           </p>
         )}
@@ -295,21 +314,28 @@ interface ScopeRowProps {
   onTake: () => void
 }
 
+const SCOPE_LABEL =
+  'w-[4.5rem] shrink-0 text-[0.8125rem] font-bold text-[color:var(--w-muted)]'
+
 function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) {
   // No place, or a place whose current leader we do not know. Either way this
   // row has no honest number to print — inventing one is the single failure
   // mode that would make a buyer feel cheated after they had already paid.
+  // <Money cents={null}> is what prints the word "unknown".
   if (!place || needed === null) {
     return (
-      <div className="flex items-start gap-3 px-3 py-3.5">
-        <span className="w-16 shrink-0 pt-0.5 text-xs uppercase tracking-wider text-muted-foreground">
-          {scope}
-        </span>
-        <p className="flex min-w-0 flex-1 items-start gap-2 text-sm leading-snug text-muted-foreground">
-          <Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {place
-            ? `The leader stake in ${place} is unknown. Your rank there is settled at checkout.`
-            : `No ${scope.toLowerCase()} in range for this point.`}
+      <div className="flex items-start gap-3 rounded-[10px] px-3.5 py-3.5">
+        <span className={cn(SCOPE_LABEL, 'pt-0.5')}>{scope}</span>
+        <p className="flex min-w-0 flex-1 items-start gap-2 text-[0.875rem] leading-snug text-[color:var(--w-muted)]">
+          <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+          {place ? (
+            <span>
+              The leader stake in {place} is <Money cents={null} />. Your rank there is settled at
+              checkout.
+            </span>
+          ) : (
+            <span>No {scope.toLowerCase()} in range for this point.</span>
+          )}
         </p>
       </div>
     )
@@ -319,14 +345,14 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
 
   if (takesIt) {
     return (
-      <div className="flex items-start gap-3 bg-[#FB651E]/5 px-3 py-3.5 shadow-[inset_2px_0_0_#FB651E]">
-        <span className="w-16 shrink-0 pt-0.5 text-xs uppercase tracking-wider text-muted-foreground">
-          {scope}
-        </span>
-        <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 text-base leading-snug">
-          <Crown aria-hidden="true" className="h-4 w-4 self-center text-[#FB651E]" />
-          <span className="font-medium text-foreground">#1 in {place}</span>
-          <span className="text-sm text-muted-foreground">at {formatDollars(amountCents)}</span>
+      <div className="flex items-start gap-3 rounded-[10px] bg-[color:var(--w-tint)] px-3.5 py-3.5 shadow-[inset_3px_0_0_var(--w-accent)]">
+        <span className={cn(SCOPE_LABEL, 'pt-1')}>{scope}</span>
+        <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 leading-snug">
+          <Crown aria-hidden="true" className="h-[1.125rem] w-[1.125rem] self-center text-[color:var(--w-accent-text)]" />
+          <span className="text-[1.0625rem] font-bold text-[color:var(--w-ink)]">#1 in {place}</span>
+          <span className="text-[0.875rem] text-[color:var(--w-muted)]">
+            at <Money cents={amountCents} />
+          </span>
         </p>
       </div>
     )
@@ -338,21 +364,21 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
       onClick={onTake}
       aria-label={`Set the amount to ${formatDollars(needed)} — takes first place in ${place}`}
       className={cn(
-        'group flex w-full items-start justify-start gap-3 px-3 py-3.5 text-left transition-colors',
-        'hover:bg-[#FB651E]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        PRESSABLE,
+        'group flex w-full items-center gap-3 rounded-[10px] px-3.5 py-3.5 text-left',
+        'hover:bg-[color:var(--w-tint)]',
       )}
     >
-      <span className="w-16 shrink-0 pt-2 text-xs uppercase tracking-wider text-muted-foreground">
-        {scope}
-      </span>
+      <span className={SCOPE_LABEL}>{scope}</span>
 
       <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
         {/* The largest thing on the screen, and the reason it exists. */}
-        <span className="text-[1.75rem] font-semibold leading-none tracking-tight text-[#FB651E]">
-          {formatDollars(needed)}
-        </span>
-        <span className="text-sm leading-snug text-muted-foreground">
-          takes #1 in <span className="text-foreground">{place}</span>
+        <Money
+          cents={needed}
+          className="text-[1.75rem] font-bold leading-none tracking-tight text-[color:var(--w-accent-text)]"
+        />
+        <span className="text-[0.875rem] leading-snug text-[color:var(--w-muted)]">
+          takes #1 in <span className="font-semibold text-[color:var(--w-ink)]">{place}</span>
         </span>
       </span>
 
@@ -360,10 +386,14 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
           behind a hover — an affordance nobody can see is not an affordance. */}
       <span
         aria-hidden="true"
-        className="flex shrink-0 items-center gap-1 self-center whitespace-nowrap text-xs text-muted-foreground group-hover:text-foreground"
+        className={cn(
+          'flex shrink-0 items-center rounded-full border border-[color:var(--w-border)] px-3 py-1.5',
+          'text-[0.8125rem] font-bold text-[color:var(--w-muted)]',
+          'transition-colors duration-150 motion-reduce:transition-none',
+          'group-hover:border-[color:var(--w-accent)] group-hover:text-[color:var(--w-accent-text)]',
+        )}
       >
-        Use
-        <ArrowRight className="h-3 w-3" />
+        Use this
       </span>
     </button>
   )

@@ -49,7 +49,12 @@ export interface ClaimInitial {
 
 export interface ClaimFlowProps {
   initial?: ClaimInitial
-  onNeedPick?: () => void
+  /**
+   * A coordinate was chosen inside the wizard (the city search on step 1).
+   * The page owns the globe, so it flies the camera and feeds the point back
+   * down through `initial` — one source of truth for the chosen spot.
+   */
+  onChoosePoint?: (point: { lat: number; lng: number }) => void
 }
 
 export const LazyClaimFlow = lazy(async () => {

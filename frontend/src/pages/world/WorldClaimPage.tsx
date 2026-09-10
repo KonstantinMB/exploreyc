@@ -1,25 +1,56 @@
-// /world/claim — pick a spot on the globe, then the 3-step claim wizard.
+// /world/claim — choose a spot on Earth, then the claim wizard.
+//
+// ONE surface does the choosing, and it is the wizard panel on the right (a
+// bottom sheet on phones). It holds the city search field and the readout of
+// what is currently chosen. This page used to float a second card over the
+// top-left of the globe carrying its own copy of all of that — its own
+// heading, its own "nothing chosen yet", its own instruction and its own
+// search input — while the wizard showed the same three things plus a big
+// orange button that only moved focus back into that other input. Two panels
+// for one decision. The page keeps a small non-interactive hint over the globe
+// and nothing else.
+//
+// The two gestures that pick a spot are still equals:
+//
+//   1. Click anywhere on the globe.
+//   2. Search for a city — the only route that works without a mouse (you
+//      cannot click a WebGL sphere with a keyboard), so the combobox is the
+//      accessibility path into the whole flow, not a shortcut.
+//
+// Both write the same {lat, lng} into `candidate` HERE, both go through the
+// server's /api/world/where resolver, and both fly the globe to the result.
+// The wizard receives the coordinate through `initial` and echoes it back in
+// words — "Sofia, Bulgaria" — in its own live region.
+//
 // Supports ?company=<slug> seed claiming: prefills identity from the company.
-import { Suspense, useEffect, useMemo, useState } from 'react'
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Crosshair, Terminal } from 'lucide-react'
+import { ArrowLeft, Loader2, MousePointerClick } from 'lucide-react'
 import { useApp } from '../../contexts/AppContext'
 import { apiClient } from '../../lib/api'
 import worldApi from '../../lib/worldApi'
-import { isoFlag } from '../../components/world/boards/format'
+import { WORLD_ROOT_CLASS, WorldCard, worldButtonClass } from '../../components/world/ui'
 import { LazyClaimFlow, LazyWorldGlobe, type ClaimInitial } from './worldLazy'
+
+type Point = { lat: number; lng: number }
 
 export default function WorldClaimPage() {
   const { darkMode } = useApp()
   const [searchParams] = useSearchParams()
   const companySlug = searchParams.get('company')
 
-  // The spot the visitor tapped, pending server geography confirmation.
-  const [candidate, setCandidate] = useState<{ lat: number; lng: number } | null>(null)
-  // The last land point the server confirmed. Ocean picks never land here.
-  const [picked, setPicked] = useState<{ lat: number; lng: number } | null>(null)
+  // The spot the visitor chose, pending server geography confirmation. This is
+  // what the wizard is told about — including an ocean pick, so that its
+  // readout is the thing that says "that is open water". There is no second
+  // readout on this page to contradict it.
+  const [candidate, setCandidate] = useState<Point | null>(null)
+  // Where the camera should be. Only ever a point the server called land: a
+  // rejected pick should not drag the globe away from where the visitor was
+  // looking.
+  const [flyTo, setFlyTo] = useState<Point | null>(null)
 
   const { data: globeData } = useQuery({
     queryKey: ['world', 'globe'],
@@ -35,7 +66,10 @@ export default function WorldClaimPage() {
   })
   const company = companyQuery.data
 
-  // Server-side geography preview: confirms land, names the country/city.
+  // Server-side geography check, used HERE for one decision only: whether the
+  // camera should fly. The wizard runs its own for the words it prints, so
+  // there is no second opinion about the place on screen — this one never
+  // renders anything.
   const whereQuery = useQuery({
     queryKey: ['world', 'where', candidate?.lat, candidate?.lng],
     queryFn: () => worldApi.getWhere(candidate!.lat, candidate!.lng).then((r) => r.data),
@@ -44,17 +78,18 @@ export default function WorldClaimPage() {
   })
 
   useEffect(() => {
-    if (whereQuery.data && candidate) setPicked(candidate)
+    if (whereQuery.data && candidate) setFlyTo(candidate)
   }, [whereQuery.data, candidate])
 
   // A company with coordinates starts the wizard on its own pin.
   useEffect(() => {
-    if (company?.latitude != null && company?.longitude != null) {
-      setCandidate((c) => c ?? { lat: company.latitude!, lng: company.longitude! })
-    }
+    const lat = company?.latitude
+    const lng = company?.longitude
+    if (lat == null || lng == null) return
+    const point = { lat, lng }
+    setCandidate((c) => c ?? point)
+    setFlyTo((f) => f ?? point)
   }, [company])
-
-  const isOcean = whereQuery.isError
 
   const initial: ClaimInitial = useMemo(
     () => ({
@@ -66,21 +101,27 @@ export default function WorldClaimPage() {
             tagline: company.one_liner,
           }
         : {}),
-      ...(picked ?? {}),
+      // `candidate`, not a land-only copy of it: the wizard's readout is the
+      // only one on the page now, so it has to be handed the ocean picks too
+      // or nothing would ever tell the visitor the click was rejected.
+      ...(candidate ?? {}),
     }),
-    [company, picked]
+    [company, candidate]
   )
 
-  const statusLine = isOcean
-    ? "that's ocean — tap land"
-    : whereQuery.isFetching
-      ? 'checking coordinates…'
-      : whereQuery.data
-        ? `${isoFlag(whereQuery.data.country_iso)} ${whereQuery.data.country_name}${whereQuery.data.city_name ? ` · ${whereQuery.data.city_name}` : ''}`
-        : 'tap the globe to place your pin'
+  /**
+   * A city chosen in the wizard's search is treated exactly like a globe
+   * click: same state, same geography check, same flight. The camera moves
+   * immediately here rather than after the round trip, because the city index
+   * is local and its coordinate is not in doubt.
+   */
+  const choosePoint = useCallback((point: Point) => {
+    setCandidate(point)
+    setFlyTo(point)
+  }, [])
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-background font-mono">
+    <div className={`${WORLD_ROOT_CLASS} fixed inset-0 overflow-hidden`}>
       <Helmet>
         <title>Claim a plot — ExploreYC World</title>
       </Helmet>
@@ -88,8 +129,15 @@ export default function WorldClaimPage() {
       <Suspense
         fallback={
           <div className="absolute inset-0 flex items-center justify-center">
-            <p role="status" className="font-mono text-sm text-muted-foreground">
-              $ exploreyc --world --claim <span className="animate-pulse">loading globe…</span>
+            <p
+              role="status"
+              className="flex items-center gap-2.5 text-[0.9375rem] font-semibold text-[color:var(--w-muted)]"
+            >
+              <Loader2
+                aria-hidden="true"
+                className="h-5 w-5 animate-spin text-[color:var(--w-accent-text)] motion-reduce:animate-none"
+              />
+              Loading the globe…
             </p>
           </div>
         }
@@ -98,61 +146,93 @@ export default function WorldClaimPage() {
           plots={globeData?.plots ?? []}
           darkMode={darkMode}
           pickMode
-          focus={picked ?? (company?.latitude != null && company?.longitude != null
-            ? { lat: company.latitude, lng: company.longitude }
-            : null)}
+          focus={flyTo}
           onPick={(p) => setCandidate(p)}
           className="absolute inset-0"
         />
       </Suspense>
 
-      {/* Top bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 p-3 sm:p-4">
-        <div className="pointer-events-auto rounded-sm border border-border bg-card/90 px-3 py-2 backdrop-blur-sm dark:bg-black/70">
+      {/* ---- globe chrome -------------------------------------------------- */}
+      {/* The way out, and one sentence saying the globe can be clicked. That
+          sentence is the ONLY instruction about choosing anywhere outside the
+          wizard, and the card carrying it takes no input and no focus — the
+          whole point of the change is that there is one place to choose from.
+          aria-hidden because it is a caption for a gesture a screen-reader user
+          cannot perform; their route in is the search field in the wizard,
+          which is labelled and reachable by Tab. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-3 sm:p-4">
+        <div className="flex w-full max-w-[24rem] flex-col items-start gap-2.5">
           <Link
             to="/world"
-            className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={worldButtonClass('secondary', 'sm', {
+              className: 'pointer-events-auto self-start',
+            })}
           >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-            back to the globe
+            <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+            Back to the globe
           </Link>
-          <h1 className="flex items-center gap-2 text-sm font-bold">
-            <Terminal className="h-4 w-4 text-[#FB651E]" aria-hidden />
-            <span>
-              <span className="text-[#FB651E]">$</span> exploreyc --world --claim
-            </span>
-          </h1>
-        </div>
 
-        <div
-          role="status"
-          className="pointer-events-auto flex items-center gap-2 rounded-sm border border-border bg-card/90 px-3 py-2 text-xs backdrop-blur-sm dark:bg-black/70"
-        >
-          <Crosshair className="h-3.5 w-3.5 shrink-0 text-[#FB651E]" aria-hidden />
-          <span className={isOcean ? 'text-[#FB651E]' : 'text-muted-foreground'}>
-            {statusLine}
-          </span>
+          <WorldCard
+            aria-hidden="true"
+            className="flex items-center gap-2.5 px-3 py-2.5 text-[0.9375rem] font-semibold leading-snug text-[color:var(--w-ink)]"
+          >
+            <MousePointerClick className="h-[1.125rem] w-[1.125rem] shrink-0 text-[color:var(--w-accent-text)]" />
+            Click anywhere to drop your pin
+          </WorldCard>
         </div>
-      </header>
+      </div>
 
-      {/* Claim wizard: floating panel on desktop, bottom card on mobile */}
-      <div className="absolute inset-x-0 bottom-0 z-10 max-h-[60vh] overflow-y-auto border-t border-border bg-background/95 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:inset-x-auto sm:bottom-4 sm:right-4 sm:top-24 sm:max-h-none sm:w-[400px] sm:rounded-sm sm:border">
-        {company && (
-          <p className="mb-3 rounded-sm border border-[#FB651E]/40 bg-[#FB651E]/10 px-2.5 py-1.5 text-[11px] text-foreground">
-            <span className="font-bold text-[#FB651E]">{company.name}</span> is already on the
-            globe as a seed pin — claim it to make it yours.
+      {/* ---- the wizard ---------------------------------------------------- */}
+      {/* Bottom sheet up to lg, a panel beside the globe from lg. The
+          breakpoint is lg rather than sm on purpose: the globe hint is 24rem
+          wide at the top-left, so a 26rem panel on the right only stops
+          colliding with it once the viewport is about 1024px.
+          MOBILE HEIGHT is 60vh. It was 52vh when the top-left card was a
+          200px-tall panel with its own search field in it; that card is now a
+          44px hint, so the sheet can take back eight points of viewport for
+          the picking UI it has absorbed — enough that step 1 fits without
+          scrolling on a 375x812 phone — and STILL leave a bigger window on the
+          globe than before (~190px against ~140px).
+          DESKTOP HEIGHT hugs the content instead of stretching top-4 to
+          bottom-4: the place step is short, and a full-height panel left ~460px
+          of blank card under it that read as a loading failure. The max-height
+          keeps the inner region scrollable on the long steps. */}
+      <div
+        className={
+          'absolute inset-x-0 bottom-0 z-10 flex max-h-[60vh] flex-col overflow-hidden ' +
+          'rounded-t-[16px] border-t border-[color:var(--w-border)] bg-[color:var(--w-card)] ' +
+          'pb-[env(safe-area-inset-bottom)] shadow-[var(--w-shadow)] ' +
+          'lg:inset-x-auto lg:bottom-auto lg:right-4 lg:top-4 lg:w-[26rem] ' +
+          'lg:max-h-[calc(100vh-2rem)] lg:rounded-[16px] lg:border lg:pb-0'
+        }
+      >
+        {company ? (
+          <p className="mx-4 mt-4 shrink-0 rounded-[10px] border border-[color:var(--w-accent)] bg-[color:var(--w-tint)] px-3 py-2 text-[0.8125rem] leading-snug text-[color:var(--w-ink)]">
+            <span className="font-bold">{company.name}</span> is already on the globe as a seed pin
+            — claim it to make it yours.
           </p>
-        )}
-        <Suspense
-          fallback={
-            <p role="status" className="py-6 text-center text-xs text-muted-foreground">
-              $ loading claim flow<span className="animate-pulse">…</span>
-            </p>
-          }
-        >
-          <LazyClaimFlow initial={initial} onNeedPick={() => setCandidate(null)} />
-        </Suspense>
-        <p className="mt-3 text-center text-[11px] text-muted-foreground">
+        ) : null}
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          <Suspense
+            fallback={
+              <p
+                role="status"
+                className="flex items-center justify-center gap-2.5 py-8 text-[0.875rem] font-semibold text-[color:var(--w-muted)]"
+              >
+                <Loader2
+                  aria-hidden="true"
+                  className="h-4 w-4 animate-spin text-[color:var(--w-accent-text)] motion-reduce:animate-none"
+                />
+                Loading the claim steps…
+              </p>
+            }
+          >
+            <LazyClaimFlow initial={initial} onChoosePoint={choosePoint} />
+          </Suspense>
+        </div>
+
+        <p className="shrink-0 border-t border-[color:var(--w-border)] px-5 py-3 text-center text-[0.8125rem] leading-snug text-[color:var(--w-muted)]">
           No prize, no payout, no refund. Minimum stake $5.
         </p>
       </div>

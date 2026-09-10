@@ -18,6 +18,7 @@ import {
   clampLabelSpan,
 } from './labelLayout'
 import {
+  LABEL_BORDER,
   LABEL_GAP,
   LABEL_HEIGHT,
   LABEL_LEADER,
@@ -450,7 +451,8 @@ export function CityLabels({ plots, enabled = true }: CityLabelsProps) {
         const nameWidth = frame.measure(names[i], 'name')
         const metaWidth =
           held > 0 ? frame.measure(plotCountText(held), 'meta') + LABEL_GAP : 0
-        const pillWidth = LABEL_PAD_X * 2 + nameWidth + metaWidth
+        const pillWidth =
+          LABEL_BORDER * 2 + LABEL_PAD_X * 2 + nameWidth + metaWidth
 
         // Right of the dot, or mirrored to its left when the frame edge is in
         // the way — a half-drawn city name is worse than a missing one.

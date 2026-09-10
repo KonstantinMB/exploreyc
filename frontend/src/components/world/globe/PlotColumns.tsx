@@ -32,44 +32,94 @@ import {
  * resolve by depth instead of accumulating into a smear.
  *
  * Three states, told apart at a glance:
- *  - **seed** (an imported company nobody claimed): two-thirds the radius and
- *    the palest colour on the map. Present, clearly unowned, obviously
- *    claimable — never mistakable for a stake.
+ *  - **seed** (an imported company nobody claimed): the bottom tier at
+ *    `SEED_RADIUS_FACTOR` of its radius, in the palest colour on the map.
+ *    Present, clearly unowned, obviously claimable — never mistakable for a
+ *    stake, and never so small it stops being a mark at all.
  *  - **plot** (someone paid): full radius, slate ramp deepening with tier.
  *  - **promoted**: YC orange — the only saturated hue on the globe — plus a
  *    pulsing beacon ring so it reads from any distance. The always-visible
  *    "Promoted" text lives in `PlotLabels`, which never drops promoted pills.
+ *
+ * Whichever bead the cursor finds also gets an orange halo, so "which of these
+ * am I about to click" is answered before the tooltip says a word.
  *
  * Hover is deliberately *not* wired through r3f pointer events, which raycast
  * every registered object on every pointermove. The mesh opts out and this
  * component runs its own throttled nearest-pin scan from `useFrame`.
  */
 
-/** Marker radius per unit of `tierToHeight`, in globe radii. */
-const MARKER_SCALE = 0.072
+/**
+ * Marker radius per unit of `tierToHeight`, in globe radii.
+ *
+ * FIVE TIMES the 0.072 this shipped with, and that was not a taste call. At the
+ * default camera (distance 3.45, fov 38) one globe radius is about 295 CSS
+ * pixels on a 700px-tall canvas, so the old scale drew the cheapest paid pin at
+ * a radius of 0.0025 radii — three quarters of ONE PIXEL — and a seed at a
+ * quarter of a pixel. The map was covered in marks nobody could see, let alone
+ * aim at. At 0.36 the same ladder measures roughly:
+ *
+ *   seed (tier 0, x0.78) .....  3px across
+ *   tier 1 ($5-$49) ..........  7px
+ *   tier 2 ($50-$249) ........ 11px
+ *   tier 3 ($250-$999) ....... 15px
+ *   tier 4 ($1,000+) ......... 18px
+ *
+ * — a legible ladder where stake is readable as size, and every paid pin is a
+ * target a hand can hit.
+ */
+const MARKER_SCALE = 0.36
+
+/**
+ * Seed radius, as a fraction of the same tier's paid radius.
+ *
+ * A seed is still the smallest and palest mark on the map — it sits on tier 0,
+ * so it is the bottom of the ladder twice over — but it is no longer sub-pixel.
+ * "Quieter than a paid pin" and "invisible" are different instructions.
+ */
+const SEED_RADIUS_FACTOR = 0.78
 
 /** Seconds between pops. Slow enough to be an event, not a strobe. */
 const POP_INTERVAL = 2.4
 /** Seconds a single pop lasts. */
 const POP_DURATION = 0.9
-/** Peak extra radius, as a fraction of the pin's own. */
-const POP_GAIN = 1.6
+/**
+ * Peak extra radius, as a fraction of the pin's own.
+ *
+ * Halved when the beads grew fivefold: 1.6 on a pin you could barely see was a
+ * flourish that made it findable, and the same 1.6 on a tier-4 bead is a 47px
+ * disc erupting out of a city. The pop is meant to read as a heartbeat.
+ */
+const POP_GAIN = 0.85
 /** Peak extra lift off the surface, as a fraction of the pin's own radius. */
-const POP_LIFT = 2.2
+const POP_LIFT = 1.4
 
 /* Module-scope scratch objects: the pop loop runs every frame and allocating a
    Vector3 and an Object3D per frame is garbage the collector has to chase. */
 const popDummy = new THREE.Object3D()
 const popDir = new THREE.Vector3()
 /** Ghost marker radius. Larger than any real pin — it is a cursor, not a bid. */
-const GHOST_RADIUS = 0.026
-/** Beacon quad half-width, in globe radii. */
-const BEACON_RADIUS = 0.02
+const GHOST_RADIUS = 0.046
+/** Beacon quad half-width, in globe radii. Sized to ring the biggest bead. */
+const BEACON_RADIUS = 0.062
+/** Hover halo half-width, as a multiple of the pin's own radius. */
+const HALO_GAIN = 2.6
+/** …and never smaller than this, so a hovered seed still gets a real ring. */
+const HALO_MIN = 0.02
 /** Instance capacity is rounded up to this, so a trickle of new pins does not
  *  reallocate the buffer on every arrival. */
 const CAPACITY_STEP = 512
-/** Hover slack as a fraction of camera distance — roughly ten screen pixels. */
-const HOVER_TOLERANCE = 0.005
+/**
+ * Hover slack as a fraction of camera distance.
+ *
+ * Constant in SCREEN terms by construction — the projected size of a world-unit
+ * length is inversely proportional to camera distance, so scaling the tolerance
+ * with distance keeps the grab radius the same everywhere. At 0.011 that is
+ * roughly eleven pixels, which is a little wider than the largest bead: the
+ * cursor should be able to sit just off a pin and still find it, because
+ * hovering a pin is how a visitor discovers a pin is a thing at all.
+ */
+const HOVER_TOLERANCE = 0.011
 
 /**
  * Camera-facing billboard, sized in world units.
@@ -214,6 +264,61 @@ const BEACON_FRAG = /* glsl */ `
   }
 `
 
+/**
+ * The hover halo: a ring around the bead the cursor has found.
+ *
+ * The same camera-facing quad as everything else here, drawn without instancing
+ * — there is only ever one hovered pin — and positioned by moving the mesh
+ * itself. Its job is to answer "which of these am I about to click?" before the
+ * tooltip has said anything, so it is YC orange and it is unmissable at the
+ * size the pins are now drawn.
+ *
+ * Under reduced motion the ring simply holds still; the *presence* of the ring
+ * is the information, the breathing is decoration.
+ */
+const HALO_VERT = /* glsl */ `
+  uniform float uScale;
+
+  varying vec2 vQuad;
+
+  void main() {
+    vQuad = position.xy;
+    // Never instanced: the mesh's own transform is the pin's position.
+    vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    mv.xy += position.xy * uScale;
+    gl_Position = projectionMatrix * mv;
+  }
+`
+
+const HALO_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uTime;
+  uniform float uStatic;
+  /** 1 while the pointer is held down on the hovered pin. */
+  uniform float uPress;
+
+  varying vec2 vQuad;
+
+  void main() {
+    float d = length(vQuad);
+    if (d > 1.0) discard;
+
+    float r = uStatic > 0.5 ? 0.74 : 0.70 + 0.05 * sin(uTime * 3.6);
+    // The press: the ring snaps in against the bead. A canvas has no :active,
+    // so the only way a pin can acknowledge being pressed is to draw it — and a
+    // control that does not acknowledge the press is a control people click
+    // twice.
+    r *= mix(1.0, 0.82, uPress);
+    float ring = 1.0 - smoothstep(0.0, 0.13, abs(d - r));
+    // A faint wash inside the ring so the halo reads as a highlighted target
+    // rather than as a second, hollow pin.
+    float wash = (1.0 - smoothstep(0.0, r, d)) * 0.16;
+
+    gl_FragColor = vec4(uColor, clamp(ring * 0.9 + wash, 0.0, 1.0));
+    #include <colorspace_fragment>
+  }
+`
+
 function makeMarkerMaterial(
   scale: number,
   tint = '#ffffff',
@@ -247,6 +352,14 @@ export interface PlotColumnsProps {
   palette: GlobePalette
   /** Ghost marker at the coordinate the visitor is choosing. */
   pendingPick?: { lat: number; lng: number } | null
+  /**
+   * Turn the hover scan (and with it the halo) off.
+   *
+   * Pick mode does exactly this: the visitor is choosing a coordinate, every
+   * pixel is a valid answer, and ringing whichever existing pin happens to be
+   * nearby would promise an action the click will not perform.
+   */
+  hoverEnabled?: boolean
   onHoverPin?: (pin: GlobePin | null) => void
   /**
    * Handed back on mount: resolves a surface coordinate to the nearest pin
@@ -261,6 +374,7 @@ export function PlotColumns({
   pins,
   palette,
   pendingPick,
+  hoverEnabled = true,
   onHoverPin,
   onHitTestReady,
   reducedMotion = false,
@@ -277,19 +391,30 @@ export function PlotColumns({
   const material = useMemo(() => makeMarkerMaterial(1), [])
 
   /**
-   * Markers shrink as the camera closes in.
+   * Markers hold their size on SCREEN as the camera moves.
    *
    * Their radius is baked into the instance matrix in WORLD units, which is
    * correct for the globe view and wrong everywhere below it: a marker roughly
    * 100 km across is a pinhead from orbit and, at the camera floor, a quarter
-   * of the frame. Exponent 1.35 over-compensates slightly on purpose: a marker
-   * should still get a little smaller as you dive into a city, so the ground
-   * wins the frame rather than the pins. Clamped at 0.2 so they never vanish,
-   * and at 1 so the world view keeps its original composition.
+   * of the frame. Compensating linearly with distance — the exact inverse of
+   * how perspective shrinks things — makes a pin the same handful of pixels at
+   * every zoom, which is what every map a visitor has ever used does and what
+   * makes a pin reliably clickable rather than a moving target.
+   *
+   * (It used to be exponent 1.35, deliberately over-compensating so pins shrank
+   * as you dove into a city. With pins this small that meant the closer you got
+   * to a plot the harder it was to hit, which is precisely backwards.)
+   *
+   * Clamped at 1 above distance 2.9 so the world view keeps its composition and
+   * the pins recede honestly as you pull away, and floored at 0.42 so the
+   * bottom of the zoom cannot inflate them into saucers.
    */
+  const markerScaleRef = useRef(1)
+
   useFrame(({ camera: cam }) => {
     const d = cam.position.length()
-    const f = Math.min(1, Math.max(0.2, Math.pow(d / 2.9, 1.35)))
+    const f = Math.min(1, Math.max(0.42, d / 2.9))
+    markerScaleRef.current = f
     material.uniforms.uScale.value = f
   })
 
@@ -324,8 +449,52 @@ export function PlotColumns({
     beaconMaterial.uniforms.uStatic.value = reducedMotion ? 1 : 0
   }, [beaconMaterial, reducedMotion])
 
+  /**
+   * The hover halo's material. One mesh, moved to whichever pin is under the
+   * cursor — see the hover scan below.
+   */
+  const haloMaterial = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: HALO_VERT,
+        fragmentShader: HALO_FRAG,
+        uniforms: {
+          uScale: { value: HALO_MIN },
+          uColor: { value: new THREE.Color(YC_ORANGE) },
+          uTime: { value: 0 },
+          uStatic: { value: reducedMotion ? 1 : 0 },
+          uPress: { value: 0 },
+        },
+        transparent: true,
+        depthWrite: false,
+        // Over everything: the halo is a cursor state, and a cursor state that
+        // can be occluded by the bead it is ringing is not a cursor state. Only
+        // ever drawn on the near hemisphere, because that is where the hover
+        // raycast can hit.
+        depthTest: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      }),
+    // Reduced motion flips a uniform below rather than rebuilding the shader.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
+  useEffect(() => {
+    haloMaterial.uniforms.uStatic.value = reducedMotion ? 1 : 0
+  }, [haloMaterial, reducedMotion])
+
+  /** Halo half-width in world units before the zoom compensation below. */
+  const haloBaseRef = useRef(HALO_MIN)
+
   useFrame((state) => {
     beaconMaterial.uniforms.uTime.value = state.clock.elapsedTime
+    haloMaterial.uniforms.uTime.value = state.clock.elapsedTime
+    // Beacon and halo track the marker's own screen-size compensation, so a
+    // promoted ring and a hover ring never drift out of step with their bead.
+    beaconMaterial.uniforms.uScale.value = markerScaleRef.current
+    haloMaterial.uniforms.uScale.value =
+      haloBaseRef.current * markerScaleRef.current
   })
 
   const ghostRingGeometry = useMemo(() => new THREE.RingGeometry(0.72, 1, 40), [])
@@ -360,6 +529,7 @@ export function PlotColumns({
       material.dispose()
       ghostMaterial.dispose()
       beaconMaterial.dispose()
+      haloMaterial.dispose()
       ghostRingGeometry.dispose()
       ghostRingMaterial.dispose()
     },
@@ -368,6 +538,7 @@ export function PlotColumns({
       material,
       ghostMaterial,
       beaconMaterial,
+      haloMaterial,
       ghostRingGeometry,
       ghostRingMaterial,
     ],
@@ -406,13 +577,16 @@ export function PlotColumns({
     for (let i = 0; i < pins.length; i += 1) {
       const pin = pins[i]
       /*
-        A SEED IS NOT A BID, so it does not get a bid's presence: two thirds
-        the radius and the palest colour on the map. Present and obviously
-        claimable, never mistakable for a stake.
+        A SEED IS NOT A BID, so it does not get a bid's presence: the bottom
+        rung of the size ladder, taken down again by SEED_RADIUS_FACTOR, in the
+        palest colour on the map. Present and obviously claimable, never
+        mistakable for a stake.
       */
       const isSeed = pin.kind === 'seed'
       const radius =
-        tierToHeight(pin.tier) * MARKER_SCALE * (isSeed ? 0.62 : 1)
+        tierToHeight(pin.tier) *
+        MARKER_SCALE *
+        (isSeed ? SEED_RADIUS_FACTOR : 1)
 
       dir.copy(latLngToVector3(pin.lat, pin.lng, 1))
       dirs[i * 3] = dir.x
@@ -525,8 +699,10 @@ export function PlotColumns({
     onHitTestReady(test)
   }, [onHitTestReady, nearestPin])
 
+  /** The mesh carrying the hover halo. Moved, not rebuilt, as hover changes. */
+  const haloRef = useRef<THREE.Mesh>(null)
+
   useEffect(() => {
-    if (!onHoverPin) return
     const el = gl.domElement
     // pointermove rather than pointerenter: synthetic pointer input, and a
     // pointer that is already over the canvas when the scene mounts, both skip
@@ -536,18 +712,48 @@ export function PlotColumns({
     }
     const leave = () => {
       hoverState.current.inside = false
+      haloMaterial.uniforms.uPress.value = 0
       if (hoverState.current.id !== -1) {
         hoverState.current.id = -1
-        onHoverPin(null)
+        if (haloRef.current) haloRef.current.visible = false
+        onHoverPin?.(null)
       }
+    }
+    // The press state, which a canvas cannot express with CSS. Only ever set
+    // when a pin is actually under the pointer, so a drag of the globe that
+    // starts over empty ocean does not flash a ring at nothing.
+    const down = () => {
+      if (hoverState.current.id !== -1) {
+        haloMaterial.uniforms.uPress.value = 1
+      }
+    }
+    const up = () => {
+      haloMaterial.uniforms.uPress.value = 0
     }
     el.addEventListener('pointermove', move, { passive: true })
     el.addEventListener('pointerleave', leave)
+    el.addEventListener('pointerdown', down, { passive: true })
+    el.addEventListener('pointerup', up, { passive: true })
+    el.addEventListener('pointercancel', up, { passive: true })
     return () => {
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerleave', leave)
+      el.removeEventListener('pointerdown', down)
+      el.removeEventListener('pointerup', up)
+      el.removeEventListener('pointercancel', up)
     }
-  }, [gl, onHoverPin])
+    // Deliberately NOT gated on `onHoverPin` any more: the halo is hover
+    // feedback the globe owes the visitor whether or not anybody upstairs
+    // wants a tooltip out of it.
+  }, [gl, haloMaterial, onHoverPin])
+
+  /** Drop the halo the moment hover is switched off (entering pick mode). */
+  useEffect(() => {
+    if (hoverEnabled) return
+    hoverState.current.id = -1
+    if (haloRef.current) haloRef.current.visible = false
+    onHoverPin?.(null)
+  }, [hoverEnabled, onHoverPin])
 
   /*
     Paid pins surface from the map, one at a time, forever.
@@ -630,7 +836,7 @@ export function PlotColumns({
   })
 
   useFrame((state) => {
-    if (!onHoverPin) return
+    if (!hoverEnabled) return
 
     const h = hoverState.current
     if (!h.inside) return
@@ -648,8 +854,30 @@ export function PlotColumns({
 
     if (id !== h.id) {
       h.id = id
-      onHoverPin(id === -1 ? null : (pins[id] ?? null))
+      onHoverPin?.(id === -1 ? null : (pins[id] ?? null))
     }
+
+    /*
+     * Park the halo on the hovered bead.
+     *
+     * Only ever at the scan rate, and that is enough: a pin's position is fixed
+     * in WORLD space — the camera orbits, the planet does not — so the halo has
+     * nothing to chase between scans. The quad re-faces the camera in the
+     * vertex shader every frame regardless, and its size is re-applied every
+     * frame beside the beacon, so a wheel zoom stays smooth.
+     */
+    const halo = haloRef.current
+    if (!halo) return
+    if (id === -1) {
+      halo.visible = false
+      return
+    }
+    const dirs = directions.current
+    const radius = baseRadii.current[id] ?? HALO_MIN
+    halo.position.set(dirs[id * 3], dirs[id * 3 + 1], dirs[id * 3 + 2])
+    halo.position.multiplyScalar(GLOBE_RADIUS + radius * 0.62)
+    halo.visible = true
+    haloBaseRef.current = Math.max(HALO_MIN, radius * HALO_GAIN)
   })
 
   // ---- ghost ---------------------------------------------------------------
@@ -699,6 +927,16 @@ export function PlotColumns({
               frustumCulled={false}
             />
           )}
+          {/* One halo, parked on whichever bead the cursor found. Starts
+              invisible; the hover scan owns it from there. */}
+          <mesh
+            ref={haloRef}
+            geometry={geometry}
+            material={haloMaterial}
+            visible={false}
+            renderOrder={9}
+            frustumCulled={false}
+          />
         </>
       )}
 
@@ -717,8 +955,9 @@ export function PlotColumns({
             position={[0, GLOBE_RADIUS + 0.001, 0]}
             rotation={[-Math.PI / 2, 0, 0]}
             // Wide enough to sit outside the bead. At the bead's own radius it
-            // is simply hidden underneath it, which took a zoom to notice.
-            scale={0.055}
+            // is simply hidden underneath it, which took a zoom to notice —
+            // and the beads are five times the size they were.
+            scale={0.095}
             renderOrder={7}
             frustumCulled={false}
           />

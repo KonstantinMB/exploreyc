@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Megaphone, Sprout, TrendingUp } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi, { type PulseEvent } from '../../../lib/worldApi'
-import { formatDollars } from '../constants'
+import { Money, WorldCard } from '../ui'
 import { isoFlag, timeAgo } from '../boards/format'
 
 const PULSE_POLL_MS = 15_000
@@ -24,26 +24,44 @@ const VERB: Record<PulseEvent['type'], string> = {
   promotion: 'promoted in',
 }
 
+/** Tinted disc behind the event glyph so the icon reads as a badge, not a bullet. */
 function EventIcon({ type }: { type: PulseEvent['type'] }) {
-  const cls = 'h-3.5 w-3.5 shrink-0 text-[#FB651E]'
-  if (type === 'plant') return <Sprout aria-hidden className={cls} />
-  if (type === 'topup') return <TrendingUp aria-hidden className={cls} />
-  return <Megaphone aria-hidden className={cls} />
+  const Icon = type === 'plant' ? Sprout : type === 'topup' ? TrendingUp : Megaphone
+  return (
+    <span
+      aria-hidden
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--w-tint)] text-[var(--w-accent-text)]"
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </span>
+  )
 }
 
 function EventLine({ event, now }: { event: PulseEvent; now: number }) {
   return (
-    <span className="flex min-w-0 items-center gap-2 font-mono text-xs">
+    <span className="flex min-w-0 items-center gap-2.5 text-[0.8125rem]">
       <EventIcon type={event.type} />
-      <span aria-hidden className="shrink-0 leading-none">{isoFlag(event.country_iso)}</span>
-      <span className="min-w-0 truncate">
-        <span className="font-semibold text-foreground">{event.name}</span>{' '}
-        <span className="text-muted-foreground">
-          {VERB[event.type]} {event.country_iso}
-        </span>{' '}
-        <span className="tabular-nums text-[#FB651E]">+{formatDollars(event.amount_cents)}</span>
+      <span aria-hidden className="shrink-0 text-base leading-none">
+        {isoFlag(event.country_iso)}
       </span>
-      <span className="shrink-0 tabular-nums text-muted-foreground">{timeAgo(event.at, now)}</span>
+      {/* The amount sits OUTSIDE the truncating span. Inside it, a long name
+          ate the figure — "TerminalStack promoted in US +…" — and the figure is
+          the one part of this line that has to stay honest and readable. Now
+          the name gives way instead. */}
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-semibold text-[var(--w-ink)]">{event.name}</span>{' '}
+        <span className="text-[var(--w-muted)]">
+          {VERB[event.type]} {event.country_iso}
+        </span>
+      </span>
+      <Money
+        cents={event.amount_cents}
+        plus
+        className="shrink-0 text-[var(--w-accent-text)]"
+      />
+      <span className="world-tokens world-num shrink-0 text-[var(--w-muted)]">
+        {timeAgo(event.at, now)}
+      </span>
     </span>
   )
 }
@@ -74,26 +92,34 @@ export function PulseTicker({ className }: { className?: string }) {
   const event = events[Math.min(index, events.length - 1)]
 
   return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-sm border border-border bg-card/90 px-3 py-2 backdrop-blur-sm dark:bg-black/70',
-        className
-      )}
+    <WorldCard
+      className={cn('overflow-hidden px-3 py-2', className)}
       // Rotating content must not spam screen readers (no aria-live); the
       // static PulseList is the accessible surface for the full feed.
     >
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={`${event.at}-${event.name}-${index}`}
-          initial={reduced ? false : { y: 12, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={reduced ? undefined : { y: -12, opacity: 0 }}
-          transition={{ duration: 0.25 }}
-        >
-          <EventLine event={event} now={now} />
-        </motion.div>
-      </AnimatePresence>
-    </div>
+      {/* Both the outgoing and the incoming event occupy the SAME grid cell, so
+          they cross over each other. This used to be `mode="wait"` in block
+          flow, which had two visible faults: the strip went completely blank
+          for the half-second between the exit finishing and the entry starting
+          (caught in a screenshot — an empty card floating over the globe), and
+          while the exiting line was still in flow it stacked a second card
+          edge under the first on mobile. Stacking fixes both and keeps the
+          card's height stable. */}
+      <div className="grid grid-cols-1 grid-rows-1">
+        <AnimatePresence initial={false}>
+          <motion.div
+            key={`${event.at}-${event.name}-${index}`}
+            className="col-start-1 row-start-1 min-w-0"
+            initial={reduced ? false : { y: 10, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={reduced ? undefined : { y: -10, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <EventLine event={event} now={now} />
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </WorldCard>
   )
 }
 
@@ -109,24 +135,27 @@ export function PulseList({ className, rows = 6 }: { className?: string; rows?: 
 
   if (isLoading) {
     return (
-      <p role="status" className={cn('font-mono text-xs text-muted-foreground', className)}>
-        $ loading pulse<span className="animate-pulse">…</span>
+      <p role="status" className={cn('text-sm text-[var(--w-muted)]', className)}>
+        Loading recent activity…
       </p>
     )
   }
   const events = data?.events?.slice(0, rows) ?? []
   if (events.length === 0) {
     return (
-      <p className={cn('font-mono text-xs text-muted-foreground', className)}>
+      <p className={cn('text-sm text-[var(--w-muted)]', className)}>
         Nothing planted yet. The first plot takes its country.
       </p>
     )
   }
 
   return (
-    <ul className={cn('flex flex-col gap-1.5', className)}>
+    <ul className={cn('flex flex-col', className)}>
       {events.map((event, i) => (
-        <li key={`${event.at}-${i}`} className="min-w-0">
+        <li
+          key={`${event.at}-${i}`}
+          className="min-w-0 border-b border-[var(--w-border)] py-2 last:border-b-0"
+        >
           <EventLine event={event} now={now} />
         </li>
       ))}

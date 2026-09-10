@@ -1,3 +1,9 @@
+/* ExploreYC World design foundation. Imported here (before `@tailwind
+   utilities`) so Tailwind utilities still win ties against the .world-* classes
+   and callers can override any primitive inline. Scoped entirely to
+   .world-root / .world-tokens — it changes nothing outside the World feature. */
+@import './components/world/world.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

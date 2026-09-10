@@ -125,8 +125,16 @@ const STROKE_TINT = 0.72
 /** Strength of the limb falloff, matching the shell material it replaces. */
 const SHADE = 0.9
 
-/** How far a hovered country is lifted toward white. */
-const HOVER_LIFT = 0.28
+/**
+ * Fallback hover wash, used only when no palette wash is passed.
+ *
+ * The real values live in `geo.ts` (`GlobePalette.hover`) because the right
+ * answer is theme-dependent: the light map's land is a near-white with nowhere
+ * to go toward white, so its hover *deepens* into a warm tone, while the dark
+ * map's land lifts. A single "mix toward white by 0.28" was legible on the old
+ * near-black terrain and almost invisible on this one.
+ */
+const HOVER_FALLBACK = { tint: '#E88B3F', amount: 0.38 }
 
 // ---------------------------------------------------------------------------
 // Input
@@ -666,6 +674,10 @@ const FILL_FRAG = /* glsl */ `
   uniform sampler2D uColors;
   uniform float uCount;
   uniform float uHoverId;
+  /** Warm wash the hovered country's own fill is mixed toward, and how far.
+   *  Theme-dependent — see GlobePalette.hover. */
+  uniform vec3 uHoverTint;
+  uniform float uHoverAmount;
   /** Index of the SELECTED country, or -1. Distinct from hover: hover is where
    *  the cursor is, selection is what the inspector is showing. */
   uniform float uSelectedId;
@@ -693,11 +705,12 @@ const FILL_FRAG = /* glsl */ `
     col *= mix(uShade, 1.0, pow(facing, 0.55));
 
     // Hover lights the whole country, because the id is per vertex and constant
-    // across every triangle the country owns. Lifting toward white rather than
-    // tinting keeps the country's own hue, so hovering reads as "this one" and
-    // never as "this one changed colour".
+    // across every triangle the country owns. The wash is warm and only
+    // partial, so a hovered country reads as "your cursor is here" rather than
+    // as a colour change — and specifically not as the faintest rung of the
+    // claim ramp, which is the one thing this state must never impersonate.
     if (abs(vId - uHoverId) < 0.5) {
-      col = mix(col, vec3(1.0), ${HOVER_LIFT.toFixed(2)});
+      col = mix(col, uHoverTint, uHoverAmount);
     }
 
     /*
@@ -799,6 +812,9 @@ export interface CountryFillsProps {
   hoveredIso2?: string | null
   /** ISO-3166 alpha-2 of the selected country, or null. */
   selectedIso2?: string | null
+  /** Theme's hover wash. See `GlobePalette.hover`. */
+  hoverTint?: string
+  hoverAmount?: number
 }
 
 export function CountryFills({
@@ -807,6 +823,8 @@ export function CountryFills({
   landColor = GLOBE_PALETTE_LIGHT.land,
   hoveredIso2 = null,
   selectedIso2 = null,
+  hoverTint = HOVER_FALLBACK.tint,
+  hoverAmount = HOVER_FALLBACK.amount,
 }: CountryFillsProps) {
   const mesh = useFillMesh(sources)
   // Everything below is keyed off the mesh's own country list. See `FillMesh`.
@@ -923,6 +941,11 @@ export function CountryFills({
       uColors: { value: colorTexture },
       uCount: { value: Math.max(countries.length, 1) },
       uHoverId: { value: -1 },
+      // Seeded from the fallback and written by the effect below on every
+      // palette change — a uniform write, never a shader rebuild, so flipping
+      // the theme cannot cost a recompile hitch.
+      uHoverTint: { value: new THREE.Color(HOVER_FALLBACK.tint) },
+      uHoverAmount: { value: HOVER_FALLBACK.amount },
       uSelectedId: { value: -1 },
       uSelectTime: { value: 0 },
       uSelectMix: { value: 0 },
@@ -955,6 +978,8 @@ export function CountryFills({
         uColors: shared.uColors,
         uCount: shared.uCount,
         uHoverId: shared.uHoverId,
+        uHoverTint: shared.uHoverTint,
+        uHoverAmount: shared.uHoverAmount,
         uSelectedId: shared.uSelectedId,
         uSelectTime: shared.uSelectTime,
         uSelectMix: shared.uSelectMix,
@@ -995,6 +1020,11 @@ export function CountryFills({
   useEffect(() => {
     materials.shared.uHoverId.value = hoverId
   }, [materials, hoverId])
+
+  useEffect(() => {
+    materials.shared.uHoverTint.value.set(hoverTint)
+    materials.shared.uHoverAmount.value = hoverAmount
+  }, [materials, hoverTint, hoverAmount])
 
   /** Selected ISO -> mesh index, same reasoning as `hoverId`. */
   const selectedId = useMemo(() => {

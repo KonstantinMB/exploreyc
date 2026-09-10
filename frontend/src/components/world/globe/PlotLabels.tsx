@@ -12,6 +12,8 @@ import type { GlobePin } from '../../../lib/worldApi'
 import { latLngToVector3, markerColor, type GlobePalette } from './geo'
 import { anchoredLabelX, clampLabelSpan, plotLabelFade } from './labelLayout'
 import {
+  LABEL_BORDER,
+  LABEL_CHIP_PAD,
   LABEL_GAP,
   LABEL_HEIGHT,
   LABEL_LEADER,
@@ -196,10 +198,16 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
           continue
         }
 
+        // "Promoted" is a filled chip and carries its own padding; "unclaimed"
+        // is plain meta text and does not. Both have to be in the width the
+        // layout resolves, or the pill it places is not the pill that draws.
         const metaWidth = data.metas[i]
-          ? frame.measure(data.metas[i], 'meta') + LABEL_GAP
+          ? frame.measure(data.metas[i], 'meta') +
+            LABEL_GAP +
+            (promoted ? LABEL_CHIP_PAD : 0)
           : 0
         const pillWidth =
+          LABEL_BORDER * 2 +
           LABEL_PAD_X * 2 +
           LABEL_SWATCH +
           LABEL_GAP +
@@ -256,8 +264,16 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
           if (data.metas[i]) {
             meta.textContent = data.metas[i]
             meta.style.display = ''
+            // Paid placement is a disclosure, so it is drawn as a filled chip
+            // that survives any terrain; "unclaimed" is an invitation and stays
+            // quiet meta text.
+            meta.classList.toggle(
+              'world-lod__meta--promoted',
+              data.priority[i] >= PROMOTED_PRIORITY,
+            )
           } else {
             meta.style.display = 'none'
+            meta.classList.remove('world-lod__meta--promoted')
           }
           const swatch = pool.swatches[slot]
           swatch.style.display = ''
