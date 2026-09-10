@@ -66,11 +66,13 @@ export function Navbar() {
 
   const tabClass = (active: boolean) =>
     `relative flex items-center gap-1.5 px-3 py-2 text-sm transition-colors border-b-2 -mb-[1px] whitespace-nowrap ${
-      active ? 'text-[#FB651E] border-[#FB651E]' : 'text-muted-foreground hover:text-foreground border-transparent hover:border-border'
+      active
+        ? 'text-[#FB651E] border-[#FB651E] bg-[#FB651E]/[0.06]'
+        : 'text-muted-foreground hover:text-foreground border-transparent hover:border-border'
     }`;
 
   // Solid panel (no transparency so page content can't bleed through)
-  const panelClass = 'absolute right-0 top-full mt-1 z-50 border border-border bg-background shadow-[0_8px_24px_rgba(0,0,0,0.35)] py-1';
+  const panelClass = 'absolute right-0 top-full mt-1 z-50 border border-border bg-background rounded-sm shadow-[0_8px_24px_rgba(0,0,0,0.35)] py-1';
 
   return (
     <nav className="hidden lg:block sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 font-mono">
@@ -137,7 +139,7 @@ export function Navbar() {
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               onClick={() => setContactFormOpen(true)}
-              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-[#FB651E] hover:border-[#FB651E]/50 border border-border transition-colors"
+              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-[#FB651E] hover:border-[#FB651E]/50 border border-border rounded-sm transition-colors"
               title="Send feedback or bug report"
             >
               <Mail className="w-3 h-3" />
@@ -145,7 +147,7 @@ export function Navbar() {
             </button>
             <button
               onClick={() => setCommandPaletteOpen(true)}
-              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-[#FB651E]/50 border border-border transition-colors"
+              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-[#FB651E]/50 border border-border rounded-sm transition-colors"
               title="Command palette (⌘K)"
             >
               <Command className="w-3 h-3" />
@@ -153,7 +155,7 @@ export function Navbar() {
             </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground border border-border hover:border-[#FB651E]/30 transition-colors"
+              className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground border border-border rounded-sm hover:border-[#FB651E]/30 transition-colors"
               aria-label="Toggle theme"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -193,7 +195,7 @@ export function Navbar() {
             ) : (
               <Link
                 to="/signup"
-                className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold bg-[#FB651E] hover:bg-[#E65C00] text-white transition-colors"
+                className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-sm bg-[#FB651E] hover:bg-[#E65C00] text-white transition-all hover:shadow-[0_0_16px_rgba(251,101,30,0.4)]"
               >
                 <KeyRound className="w-3.5 h-3.5" /> <span className="hidden xl:inline">Get API key</span>
               </Link>
