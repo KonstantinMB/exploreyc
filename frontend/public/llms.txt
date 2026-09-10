@@ -28,7 +28,7 @@
 - Home & semantic search: https://exploreyc.com/
 - API reference (endpoints, auth, rate limits): https://exploreyc.com/api-docs
 - Companies database (filterable table): https://exploreyc.com/database
-- Interactive world map: https://exploreyc.com/map
+- Interactive world map (3D globe, density hotspots, batch timeline, hub tours): https://exploreyc.com/world
 - Analytics (batches, industries, hiring): https://exploreyc.com/analytics
 - Get an API key: https://exploreyc.com/signup
 

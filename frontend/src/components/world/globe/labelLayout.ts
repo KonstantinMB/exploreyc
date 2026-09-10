@@ -238,16 +238,171 @@ export function rampToward(
   return target
 }
 
-/** How many country labels each tier is allowed to ask for. */
-export function countryLabelBudget(tier: LodTier): number {
-  switch (tier) {
-    case 'far':
-      return 6
-    case 'mid':
-      return 14
-    default:
-      return 24
+/**
+ * How many country labels the camera is allowed to ask for, at `distance`.
+ *
+ * This used to take a `LodTier` and return 6 / 14 / 24 — a three-way switch, so
+ * crossing 3.15 put eight country names on screen in one frame and crossing 2.3
+ * put ten more. The pool fades each new label in, but ten simultaneous fades is
+ * a wipe, not a resolve, and it is exactly the "hard switch" the merged globe is
+ * moving away from: the deck.gl map derived every layer's strength from one
+ * continuous zoom number and quantized it, so its layers cross-faded instead of
+ * flipping.
+ *
+ * Same three anchors, interpolated between. Smoothstepped rather than linear so
+ * the count does not accelerate into a tier boundary, and rounded — a budget is
+ * a count — which is what makes the labels arrive ONE at a time, each with its
+ * own 150 ms fade, all the way down the envelope.
+ */
+export function countryLabelBudgetAt(distance: number): number {
+  if (!Number.isFinite(distance)) return 6
+  // far end (>= 3.15) → 6; mid (2.3) → 14; near and below → 24.
+  if (distance >= LOD_TIER_MIN.far) return 6
+  // `smoothstep` requires ascending edges and returns 0/1 flat when handed
+  // descending ones — so the ramps are written low-to-high and inverted, the
+  // same way `urbanFade` and `plotLabelFade` above do it. Written the other way
+  // round this function silently degrades back into the three-way switch it
+  // replaced, which is exactly what it did until a harness measured it.
+  if (distance >= LOD_TIER_MIN.mid) {
+    return Math.round(
+      6 + 8 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance)),
+    )
   }
+  return Math.round(
+    14 + 10 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance)),
+  )
+}
+
+/**
+ * How many CITY names may be drawn at `distance`.
+ *
+ * The city layer had no ceiling — only a population floor that fell as the
+ * camera came in — and on the merged globe that turned out to be a road atlas
+ * wearing the product's clothes: flying to San Francisco drew forty white pills
+ * reading Yakima, Roseburg, Medford, Redding, Bakersfield, and one 42px tile
+ * belonging to the company that had paid the most money on the platform. Every
+ * pill was the same shape, the same colour and the same weight as the paid
+ * one, so the thing being sold was outnumbered forty to one by scenery.
+ *
+ * A city name is orientation, and orientation needs about a dozen of them —
+ * past that it is a hatch pattern made of type, which the layer's own header
+ * already said. So: a hard budget on the same smoothstepped ramp as the country
+ * one. Cities holding paid plots are ranked far above their population (see
+ * `cityPriority`), so a tighter budget spends itself on the contested cities
+ * first — the budget makes the product MORE visible, not less.
+ */
+export function cityLabelBudgetAt(distance: number): number {
+  if (!Number.isFinite(distance)) return 0
+  // Above `far` the layer does not draw at all; mid (2.3) → 8; near and
+  // below → 16.
+  if (distance >= LOD_TIER_MIN.far) return 0
+  if (distance >= LOD_TIER_MIN.mid) {
+    return Math.round(
+      8 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance)),
+    )
+  }
+  return Math.round(
+    8 + 8 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance)),
+  )
+}
+
+/**
+ * …of which at most this many may be countries nobody has bought into.
+ *
+ * WHY THIS EXISTS. `countryLabelBudgetAt` ranks claimed countries above every
+ * unclaimed one, but a budget of six on a planet with three customers still
+ * spends the other three slots on whichever empty landmasses have the most
+ * coastline — and the first thing a visitor read on the merged globe was
+ * "Greenland unclaimed / Canada unclaimed / Mexico unclaimed / Brazil unclaimed
+ * / Chile unclaimed" with one paid pill among them. That is an atlas of
+ * emptiness, and this page is an advertisement: the loudest labels have to be
+ * the places somebody paid for.
+ *
+ * So the empty ones get their own, much tighter ceiling, on the same
+ * smoothstepped ramp as the budget itself — a whisper at orbit, opening up as
+ * the camera comes in and there is room to say more. The invitation is not
+ * deleted, it is stopped from being the headline.
+ *
+ * The caller applies this ONLY when something has actually been claimed; a
+ * globe with nothing sold has no advertisers to protect and falls back to the
+ * full budget, so a cold-start planet still names the places on it.
+ */
+export function unclaimedCountryBudgetAt(distance: number): number {
+  if (!Number.isFinite(distance)) return 2
+  // far end (>= 3.15) → 2; mid (2.3) → 6; near and below → 14.
+  if (distance >= LOD_TIER_MIN.far) return 2
+  if (distance >= LOD_TIER_MIN.mid) {
+    return Math.round(
+      2 + 4 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance)),
+    )
+  }
+  return Math.round(
+    6 + 8 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance)),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Continuous zoom ramps
+// ---------------------------------------------------------------------------
+
+/**
+ * Snap a 0..1 strength to `steps` rungs.
+ *
+ * Ported in spirit from `DeckMap.quantize` (which used twentieths). The point is
+ * not the arithmetic, it is what the arithmetic buys: a value derived from
+ * camera distance changes on every frame of every wheel flick, and anything
+ * expensive keyed on it — an instance buffer, a memoised layer array — would be
+ * rebuilt sixty times a second for changes the eye cannot see. Twentieths are
+ * finer than a fade can be perceived at and coarse enough that a full sweep of
+ * the envelope costs twenty rebuilds instead of six hundred.
+ */
+export function quantize(value: number, steps = 20): number {
+  const k = steps > 0 ? steps : 20
+  return Math.round(clamp01(value) * k) / k
+}
+
+/**
+ * The density layer's window, in camera distance (globe radii).
+ *
+ * These are `DeckMap`'s hexagon stops converted through
+ * `mercatorZoomToDistance` (see `tour.ts`), not numbers picked by eye: the 2D
+ * map faded its aggregate layer in over Mercator zoom 1.9→2.8 and back out over
+ * 3.6→4.6, which is 4.34→2.79 and 2.03→1.51 in globe distance. The shape of the
+ * idea survives the projection change — an aggregate that is useless from orbit,
+ * says something true at continent range, and gets out of the way once the
+ * individual pins are worth looking at.
+ */
+export const DENSITY_IN_FAR = 4.34
+export const DENSITY_IN_NEAR = 2.79
+export const DENSITY_OUT_FAR = 2.03
+export const DENSITY_OUT_NEAR = 1.51
+
+/** Density-layer strength at `distance`, 0..1. Quantize before spending on it. */
+export function densityFade(distance: number): number {
+  if (!Number.isFinite(distance)) return 0
+  const rampIn = clamp01(
+    (DENSITY_IN_FAR - distance) / (DENSITY_IN_FAR - DENSITY_IN_NEAR),
+  )
+  const rampOut = clamp01(
+    (distance - DENSITY_OUT_NEAR) / (DENSITY_OUT_FAR - DENSITY_OUT_NEAR),
+  )
+  return Math.min(rampIn, rampOut)
+}
+
+/**
+ * How much of its size a SEED bead keeps while the density layer is up.
+ *
+ * The other half of a cross-fade: `DeckMap` dimmed its company dots to 15% as
+ * the hexagons arrived (`1 - hexOpacity * 0.85`), because two representations of
+ * the same 5,579 rows drawn at full strength is not a map, it is a smear. Same
+ * coefficient here, and the same 0.15 floor.
+ *
+ * **Paid plots are exempt and always at full size.** They are what the globe is
+ * selling; an aggregate blob is never allowed to stand in front of one. So the
+ * cross-fade runs between the density discs and the SEED field only.
+ */
+export function seedScaleForDensity(densityStrength: number): number {
+  return 1 - 0.85 * clamp01(densityStrength)
 }
 
 // ---------------------------------------------------------------------------

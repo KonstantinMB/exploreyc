@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Home, BarChart3, Wrench, BookOpen, Map as MapIcon, Globe2, DollarSign, Share2, Briefcase,
+  Home, BarChart3, Wrench, BookOpen, Map as MapIcon, DollarSign, Share2, Briefcase,
   Mail, Database, Terminal, Menu, X, Moon, Sun, Command, LogOut, LayoutDashboard, Trophy, Earth,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
@@ -29,8 +29,10 @@ const groups: { title: string; items: Item[] }[] = [
   {
     title: 'More',
     items: [
+      // No "World Map" here — "World" in the Explore group above is the one
+      // globe, and two doors to the same room is a decision nobody can make
+      // correctly.
       { label: 'Leaderboards', icon: Trophy, path: '/founders/leaderboard' },
-      { label: 'World Map', icon: Globe2, path: '/map' },
       { label: 'Tools', icon: Wrench, path: '/tools' },
       { label: 'Founders', icon: BookOpen, path: '/founders' },
       { label: 'Roadmap', icon: MapIcon, path: '/roadmap' },

@@ -11,7 +11,16 @@ import type { GlobePin } from '../../lib/worldApi'
 /** The /api/world/globe plot shape — re-exported under the contract name. */
 export type GlobePlot = GlobePin
 
-export type GlobeFocus = { lat: number; lng: number } | { iso: string } | null
+/**
+ * `distance` is the camera's arrival height in globe radii — how tightly the
+ * jump frames what it flew to. Omitted, the scene keeps its own defaults (1.8
+ * for a coordinate, 2.2 for a country). `globe/tour` computes it for the
+ * region rail from the framing the 2D map used.
+ */
+export type GlobeFocus =
+  | { lat: number; lng: number; distance?: number }
+  | { iso: string; distance?: number }
+  | null
 
 export interface WorldGlobeProps {
   plots: GlobePlot[]
@@ -31,6 +40,16 @@ export interface WorldGlobeProps {
   onSelectSeed?: (pin: GlobePin) => void
   onSelectCountry?: (iso: string) => void
   className?: string
+  /** Company logo tiles on the pins. Default true; forced off in `pickMode`. */
+  logoMarkers?: boolean
+  /** The aggregate city view — one disc per city, orange where money is. */
+  density?: boolean
+  /**
+   * A drag, pinch or wheel STARTED. The page uses it to stop the hub tour: a
+   * camera that fights the visitor for control is the one thing an auto-flight
+   * must never do.
+   */
+  onInteract?: () => void
 }
 
 export const LazyWorldGlobe = lazy(async () => {

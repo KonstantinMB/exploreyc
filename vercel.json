@@ -4,6 +4,13 @@
   "outputDirectory": "frontend/dist",
   "framework": null,
   "installCommand": "cd frontend && npm install",
+  "redirects": [
+    {
+      "source": "/map",
+      "destination": "/world",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",

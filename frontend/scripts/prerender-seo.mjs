@@ -114,21 +114,52 @@ const ROUTES = [
     },
   },
   {
+    /*
+     * This entry now carries TWO search intents, because /map merged into it
+     * and redirects here.
+     *
+     * The first is the product: claim a plot, from $5. The second is the query
+     * volume the retired page owned — "interactive map of YC startups",
+     * "startup map", "3D globe", "density hotspots", "batch timeline", "hub
+     * tours". Dropping /map without folding its language in here would have
+     * quietly handed that traffic to nobody, which is the one way a merge that
+     * improves the product still loses.
+     *
+     * The two do not fight: the title sells the plot, the description opens on
+     * the map language a searcher typed and closes on the offer. "No prize, no
+     * payout, no refund." is a legal string and is reproduced verbatim.
+     */
     path: '/world',
-    title: 'ExploreYC World — claim your startup a plot on the globe',
+    title: 'ExploreYC World — interactive 3D map of startups, claim your plot',
     description:
-      'Plant your startup on a 3D globe from $5. Every dollar scores for your country. World, country and city leaderboards — being #1 in your city is closer than you think. No prize, no payout, no refund.',
-    ogTitle: 'ExploreYC World — own a piece of the startup map',
+      'An interactive map of 8,600+ startups from YC, a16z, Product Hunt & Hacker News on a 3D globe — density hotspots, batch timeline and hub tours. Plant your own startup from $5. Every dollar scores for your country. World, country and city leaderboards — being #1 in your city is closer than you think. No prize, no payout, no refund.',
+    ogTitle: 'ExploreYC World — the interactive startup map, and a plot of your own',
     ogDescription:
-      'Claim a permanent pin for your startup from $5 and put your country on the board. Three leaderboards: world, country, city.',
+      'Every YC, a16z and Product Hunt startup on one 3D globe. Claim a permanent pin for yours from $5 and put your country on the board.',
     ogImage: '/og-world.png',
     ogImageAlt: 'ExploreYC World — a 3D globe of startups competing for country rankings',
-  },
-  {
-    path: '/map',
-    title: 'Interactive map of Y Combinator, a16z & Product Hunt startups | ExploreYC',
-    description:
-      'Explore 8,600+ startups from YC, a16z, Product Hunt & Hacker News on an interactive 2D map and 3D globe — density hotspots, batch timeline and hub tours.',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: 'ExploreYC World',
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Any',
+      url: `${ORIGIN}/world`,
+      description:
+        'An interactive 3D globe of startups from Y Combinator, a16z, Product Hunt and Hacker News, with density hotspots, a batch timeline and tours of the top startup hubs. Companies can claim a permanent named plot at real coordinates from $5.',
+      keywords: [
+        'interactive map',
+        'startup map',
+        '3D globe',
+        'density hotspots',
+        'batch timeline',
+        'hub tours',
+        'Y Combinator',
+        'a16z',
+        'Product Hunt',
+      ],
+      offers: { '@type': 'Offer', price: '5', priceCurrency: 'USD' },
+    },
   },
   {
     path: '/analytics',

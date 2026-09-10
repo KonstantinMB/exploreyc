@@ -134,6 +134,17 @@ const LIST_CLASS =
 const LIST_MAX_PX = 352
 
 /**
+ * The same ceiling for the board in its `feature` size.
+ *
+ * On /world the leaderboard is no longer a 400px rail floating over the globe —
+ * it is a centred section with the page to itself, and a five-row teaser in the
+ * middle of a 768px column reads as a widget rather than as the thing the page
+ * is about. 560px is about ten whole rows, which is enough to show a real
+ * standings table without the section outgrowing a laptop viewport.
+ */
+const FEATURE_LIST_MAX_PX = 560
+
+/**
  * Sizes a board list to a WHOLE number of rows, and says whether more remain.
  *
  * The old rule was a flat `max-h-[19rem]`, which is not a multiple of anything:
@@ -149,7 +160,7 @@ const LIST_MAX_PX = 352
  * change. Recomputed on scroll, on resize, and on the 15s poll's row churn; it
  * settles to "no cap, no fade" the moment every row fits.
  */
-function useBoardViewport<T extends HTMLElement>() {
+function useBoardViewport<T extends HTMLElement>(maxPx: number) {
   const [more, setMore] = useState(false)
   // undefined = the list fits, so it keeps its natural height.
   const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined)
@@ -187,7 +198,7 @@ function useBoardViewport<T extends HTMLElement>() {
       // Does the whole board fit? Then it keeps its natural height and there
       // is nothing to fade.
       const natural = padTop + rows.length * rowH + (rows.length - 1) * gap + padBottom
-      if (natural <= LIST_MAX_PX) {
+      if (natural <= maxPx) {
         setMaxHeight(undefined)
         setMore(false)
         return
@@ -201,7 +212,7 @@ function useBoardViewport<T extends HTMLElement>() {
       // the far end of the scroll content, not at the viewport's edge, so
       // counting it here left ~6px of the next row's border poking out. Six
       // pixels of a row is still a sliced row.
-      const fit = Math.max(1, Math.min(rows.length - 1, Math.floor((LIST_MAX_PX - padTop) / (rowH + gap))))
+      const fit = Math.max(1, Math.min(rows.length - 1, Math.floor((maxPx - padTop) / (rowH + gap))))
       setMaxHeight(Math.floor(padTop + fit * rowH + fit * gap))
       // `more` is the live scroll position, not just "it is capped" — scrolling
       // to the bottom must retire the shade, or it reads as content that never
@@ -221,7 +232,10 @@ function useBoardViewport<T extends HTMLElement>() {
       ro.disconnect()
       mo.disconnect()
     }
-  }, [])
+    // `maxPx` is a dependency, not a captured constant: changing the board's
+    // size has to re-measure, and a callback ref identity change is exactly
+    // how React re-runs one (old(null), then new(el)).
+  }, [maxPx])
 
   return { ref, more, maxHeight }
 }
@@ -260,9 +274,17 @@ function ScrollShade({ show }: { show: boolean }) {
   )
 }
 
-function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
+function CountryBoardList({
+  kind,
+  scope,
+  maxPx,
+}: {
+  kind: BoardKind
+  scope: string
+  maxPx: number
+}) {
   const reduced = useReducedMotion()
-  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>()
+  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>(maxPx)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['world', 'board', kind, scope],
     queryFn: () => worldApi.getBoard(kind, scope).then((r) => r.data),
@@ -380,8 +402,8 @@ function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
   )
 }
 
-function FoundersBoardList({ kind }: { kind: FoundersBoardKind }) {
-  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>()
+function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: number }) {
+  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>(maxPx)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['world', 'founders', kind],
     queryFn: () => worldApi.getFounders(kind).then((r) => r.data),
@@ -475,6 +497,11 @@ export interface WorldBoardsProps {
   scope?: string
   /** Founders tabs are global; hide them on country-scoped panels. */
   includeFounders?: boolean
+  /**
+   * Centrepiece size: a taller list, for the pages where the board has a
+   * section to itself rather than a 400px rail beside the globe.
+   */
+  feature?: boolean
   className?: string
 }
 
@@ -490,9 +517,11 @@ export interface WorldBoardsProps {
 export function WorldBoards({
   scope = 'world',
   includeFounders = true,
+  feature = false,
   className,
 }: WorldBoardsProps) {
   const [tab, setTab] = useState<TabId>('richest')
+  const maxPx = feature ? FEATURE_LIST_MAX_PX : LIST_MAX_PX
 
   // Guard against a founders tab staying selected if the panel is re-rendered
   // country-scoped, which would leave Radix with no matching content.
@@ -552,13 +581,13 @@ export function WorldBoards({
 
         {COUNTRY_TABS.map((t) => (
           <TabsPrimitive.Content key={t.id} value={t.id} className="mt-0 focus:outline-none">
-            <CountryBoardList kind={t.id as BoardKind} scope={scope} />
+            <CountryBoardList kind={t.id as BoardKind} scope={scope} maxPx={maxPx} />
           </TabsPrimitive.Content>
         ))}
         {includeFounders &&
           FOUNDER_TABS.map((t) => (
             <TabsPrimitive.Content key={t.id} value={t.id} className="mt-0 focus:outline-none">
-              <FoundersBoardList kind={t.id as FoundersBoardKind} />
+              <FoundersBoardList kind={t.id as FoundersBoardKind} maxPx={maxPx} />
             </TabsPrimitive.Content>
           ))}
       </TabsPrimitive.Root>

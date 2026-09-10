@@ -4,7 +4,7 @@
  * the case of uniforms. The objects are GPU resources, not React state.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { GlobePin } from '../../../lib/worldApi'
@@ -16,6 +16,7 @@ import {
   tierToHeight,
   type GlobePalette,
 } from './geo'
+import { densityFade, quantize, seedScaleForDensity } from './labelLayout'
 
 /**
  * Every pin on the globe, as one draw call.
@@ -147,6 +148,12 @@ const CAPACITY_STEP = 512
  * hovering a pin is how a visitor discovers a pin is a thing at all.
  */
 const HOVER_TOLERANCE = 0.011
+/**
+ * Seed beads stop answering the cursor once the density cross-fade has taken
+ * them below half size. Half, rather than the 0.15 floor, because a bead that is
+ * on its way out is already too faint to be worth a tooltip.
+ */
+const SEED_PICKABLE_SCALE = 0.5
 
 /**
  * Camera-facing billboard, sized in world units.
@@ -395,6 +402,16 @@ export interface PlotColumnsProps {
    */
   onHitTestReady?: (test: PinHitTest) => void
   reducedMotion?: boolean
+  /**
+   * The density layer is drawing, so the SEED field gets out of its way.
+   *
+   * This is the other half of the cross-fade described in `CityDensity`: as the
+   * discs come up, seed beads shrink to 15% and stop answering the cursor, so
+   * the same 5,579 rows are never drawn twice at full strength. **Paid plots are
+   * untouched at every step of it** — an aggregate blob never stands in front of
+   * something somebody bought.
+   */
+  density?: boolean
 }
 
 export function PlotColumns({
@@ -405,6 +422,7 @@ export function PlotColumns({
   onHoverPin,
   onHitTestReady,
   reducedMotion = false,
+  density = false,
 }: PlotColumnsProps) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
@@ -586,9 +604,18 @@ export function PlotColumns({
   */
   const baseRadii = useRef(new Float32Array(0))
   const paidIndices = useRef<number[]>([])
+  /** 1 for a seed, 0 for a paid plot. Read by the scale ramp and the hit test. */
+  const seedFlags = useRef(new Uint8Array(0))
   /** index -> the clock time its pop started. */
   const pops = useRef(new Map<number, number>())
   const nextPop = useRef(0)
+  /**
+   * How much of its size a seed bead is currently keeping, quantized.
+   *
+   * 1 whenever the density layer is off, which is every caller that does not ask
+   * for it, so the field this ref governs is untouched in the default globe.
+   */
+  const seedScale = useRef(1)
 
   useLayoutEffect(() => {
     const instanced = meshRef.current
@@ -599,7 +626,9 @@ export function PlotColumns({
     const dir = new THREE.Vector3()
     const dirs = new Float32Array(pins.length * 3)
     const radii = new Float32Array(pins.length)
+    const seeds = new Uint8Array(pins.length)
     const paid: number[] = []
+    const scale = seedScale.current
 
     for (let i = 0; i < pins.length; i += 1) {
       const pin = pins[i]
@@ -609,7 +638,9 @@ export function PlotColumns({
         Present and obviously claimable, never mistakable for a stake.
       */
       const isSeed = pin.kind === 'seed'
-      const radius = isSeed ? SEED_RADIUS : tierToHeight(pin.tier) * MARKER_SCALE
+      const radius = isSeed
+        ? SEED_RADIUS * scale
+        : tierToHeight(pin.tier) * MARKER_SCALE
 
       dir.copy(latLngToVector3(pin.lat, pin.lng, 1))
       dirs[i * 3] = dir.x
@@ -617,6 +648,7 @@ export function PlotColumns({
       dirs[i * 3 + 2] = dir.z
 
       radii[i] = radius
+      seeds[i] = isSeed ? 1 : 0
       if (!isSeed) paid.push(i)
 
       // Lifted by most of its own radius so the bead sits *on* the ground
@@ -632,6 +664,7 @@ export function PlotColumns({
 
     directions.current = dirs
     baseRadii.current = radii
+    seedFlags.current = seeds
     paidIndices.current = paid
     pops.current.clear()
     instanced.count = pins.length
@@ -639,6 +672,56 @@ export function PlotColumns({
     if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true
     instanced.computeBoundingSphere()
   }, [pins, palette, capacity])
+
+  /**
+   * Re-scale the SEED beads in place, without rebuilding anything else.
+   *
+   * Only the seeds' matrices are rewritten — their direction, their colour, the
+   * paid index and every paid matrix are left exactly as they were, which is
+   * what makes this safe to call from a frame callback. It runs at most once per
+   * quantized step of the ramp (about twenty times across the whole envelope),
+   * never per frame.
+   */
+  const applySeedScale = useCallback((scale: number) => {
+    const instanced = meshRef.current
+    if (!instanced) return
+    const dirs = directions.current
+    const radii = baseRadii.current
+    const seeds = seedFlags.current
+    if (seeds.length === 0) return
+
+    const dummy = popDummy
+    const dir = popDir
+    for (let i = 0; i < seeds.length; i += 1) {
+      if (seeds[i] === 0) continue
+      const radius = SEED_RADIUS * scale
+      radii[i] = radius
+      dir.set(dirs[i * 3], dirs[i * 3 + 1], dirs[i * 3 + 2])
+      dummy.position.copy(dir).multiplyScalar(GLOBE_RADIUS + radius * 0.62)
+      dummy.scale.setScalar(radius)
+      dummy.updateMatrix()
+      instanced.setMatrixAt(i, dummy.matrix)
+    }
+    instanced.instanceMatrix.needsUpdate = true
+  }, [])
+
+  /**
+   * The cross-fade, driven by one continuous zoom number and quantized.
+   *
+   * Straight out of the deck.gl map, where every layer's strength came from the
+   * same `zoom` and was rounded to twentieths so the expensive work happened on
+   * meaningful steps rather than on every frame of a wheel flick. Here the
+   * expensive work is 5,579 instance matrices, and twentieths turn a per-frame
+   * rewrite into twenty of them.
+   */
+  useFrame(({ camera: cam }) => {
+    const target = density
+      ? quantize(seedScaleForDensity(densityFade(cam.position.length())))
+      : 1
+    if (target === seedScale.current) return
+    seedScale.current = target
+    applySeedScale(target)
+  })
 
   /** Beacon quads, anchored just above each promoted bead. */
   useLayoutEffect(() => {
@@ -688,10 +771,22 @@ export function PlotColumns({
       const count = dirs.length / 3
       if (count === 0) return -1
 
+      /*
+       * A bead the density layer has faded down to a fraction of a pixel is not
+       * a target. Aiming at something you cannot see is not aiming, and a
+       * tooltip for an invisible mark reads as the map hallucinating — so while
+       * the cross-fade is up, seeds drop out of the hover scan AND out of the
+       * click hit test together, and a click on the crowded view falls through
+       * to its country exactly as it does over empty land.
+       */
+      const seeds = seedFlags.current
+      const skipSeeds = seedScale.current < SEED_PICKABLE_SCALE
+
       const tolerance = HOVER_TOLERANCE * camera.position.length()
       let best = tolerance * tolerance
       let id = -1
       for (let i = 0; i < count; i += 1) {
+        if (skipSeeds && seeds[i] === 1) continue
         const dx = dirs[i * 3] - hx
         const dy = dirs[i * 3 + 1] - hy
         const dz = dirs[i * 3 + 2] - hz

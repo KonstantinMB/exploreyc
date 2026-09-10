@@ -38,10 +38,137 @@ export interface GlobePin {
   promoted: boolean
   kind: GlobePinKind
   company_slug: string | null
+
+  // ---- paid layer only (kind === 'plot') ------------------------------------
+
+  /**
+   * Exact stake in cents. Paid plots only — a seed has never been bought, and
+   * `tier` is the only size signal it has.
+   */
+  total_cents?: number
+
+  // ---- imported layer only (kind === 'seed') --------------------------------
+  // Present on seeds, absent on paid plots. These exist so the globe can filter
+  // and render the imported layer with no second request; a fact the scrape
+  // never captured is null, never '' and never a placeholder.
+
+  /** companies.id. Seeds only — the pin's own `id` is `seed-${company_id}`. */
+  company_id?: number
+  /** YC batch as written, e.g. 'Winter 2025' or 'IK12'. Sort with batchSortKey. */
+  batch?: string | null
+  industry?: string | null
+  /**
+   * First ';'-separated segment of companies.all_locations, verbatim — in YC's
+   * data a whole place string ('San Francisco, CA, USA'), not a bare city. It
+   * is what computeHubs() groups and names hubs by.
+   */
+  location?: string | null
+  /**
+   * BOTH LAYERS. On a paid plot it is the plot's own mark falling back to the
+   * linked company's thumbnail — the marker the buyer paid to put on the globe.
+   * On a seed it is the imported company's thumbnail. Null means no logo,
+   * never '' and never a placeholder.
+   */
+  logo_url?: string | null
+  team_size?: number | null
+  is_hiring?: boolean
+  top_company?: boolean
 }
 
+/** The decoded globe: one flat pin list, paid plots first. */
 export interface GlobeResponse {
   plots: GlobePin[]
+}
+
+// ---------------------------------------------------------------------------
+// Seed layer wire format (see backend/world.py, SEED_COLUMNS)
+// ---------------------------------------------------------------------------
+//
+// The imported layer arrives columnar, not as objects, because there are 5,579
+// of it and this query refetches every 60 seconds. Tuples instead of repeated
+// key names, integer indices instead of repeated batch/industry/location
+// strings, and one shared logo directory instead of 5,579 copies of it, take
+// the widened payload to ~563 KiB — below the 759 KiB the *narrow* object form
+// cost before these fields existed. `decodeGlobe` is the only place that knows
+// any of this: everything downstream sees plain GlobePins.
+
+/** [id, lat, lng, name, slug, batch, industry, location, logo, team_size, flags] */
+export type SeedRow = [
+  number, number, number, string, string,
+  number, number, number, string, number, number,
+]
+
+export interface SeedLayerWire {
+  /** Format version. Bumped when the tuple order changes. */
+  v: number
+  /** Column names, in tuple order — self-describing, for humans and for debugging. */
+  cols: string[]
+  batches: string[]
+  industries: string[]
+  locations: string[]
+  /** Shared logo directory, folded out of the rows. '' when there is none. */
+  logo_prefix: string
+  rows: SeedRow[]
+}
+
+/** Raw GET /api/world/globe. Only decodeGlobe should read this shape. */
+export interface GlobeWire {
+  plots: GlobePin[]
+  /** Absent only if the page outlives a backend that predates this format. */
+  seeds?: SeedLayerWire | null
+}
+
+const SEED_FLAG_HIRING = 1
+const SEED_FLAG_TOP_COMPANY = 2
+/** Marks a logo value as relative to `logo_prefix` (backend: SEED_LOGO_FOLD). */
+const SEED_LOGO_FOLD = '*'
+
+/** Dictionary lookup where -1 (and any out-of-range index) means "no value". */
+function at(dict: string[], index: number): string | null {
+  return index >= 0 && index < dict.length ? dict[index] : null
+}
+
+/**
+ * Rebuild the flat pin list the globe renders.
+ *
+ * Total: every wire row becomes exactly one pin. If `seeds` is missing — an old
+ * backend behind a new bundle — the paid layer still renders rather than the
+ * page failing, which is the layer that matters most anyway.
+ */
+export function decodeGlobe(wire: GlobeWire): GlobeResponse {
+  const pins: GlobePin[] = [...(wire.plots ?? [])]
+  const seeds = wire.seeds
+  if (!seeds?.rows?.length) return { plots: pins }
+
+  const { batches, industries, locations, logo_prefix: prefix } = seeds
+  for (const r of seeds.rows) {
+    const [id, lat, lng, name, slug, bi, ii, li, logo, teamSize, flags] = r
+    pins.push({
+      id: `seed-${id}`,
+      lat,
+      lng,
+      name,
+      tier: 0,
+      promoted: false,
+      kind: 'seed',
+      company_slug: slug || null,
+      company_id: id,
+      batch: at(batches, bi),
+      industry: at(industries, ii),
+      location: at(locations, li),
+      // Marked values are relative to the folded directory; everything else
+      // travels whole. Absent stays absent — never a placeholder image.
+      logo_url: logo
+        ? logo.startsWith(SEED_LOGO_FOLD)
+          ? prefix + logo.slice(1)
+          : logo
+        : null,
+      team_size: teamSize >= 0 ? teamSize : null,
+      is_hiring: (flags & SEED_FLAG_HIRING) !== 0,
+      top_company: (flags & SEED_FLAG_TOP_COMPANY) !== 0,
+    })
+  }
+  return { plots: pins }
 }
 
 export type BoardKind = 'richest' | 'planted' | 'rising'
@@ -277,7 +404,15 @@ export interface MineResponse {
 
 export const worldApi = {
   // ---- Public reads ----
-  getGlobe: () => api.get<GlobeResponse>('/api/world/globe'),
+  /**
+   * The globe's pins. The wire format is two layers (see decodeGlobe); this
+   * hands back the same `{ plots: GlobePin[] }` it always did, so callers are
+   * unaware the imported layer travels columnar.
+   */
+  getGlobe: async () => {
+    const res = await api.get<GlobeWire>('/api/world/globe')
+    return { ...res, data: decodeGlobe(res.data) }
+  },
 
   getBoard: (kind: BoardKind, scope: BoardScope = 'world') =>
     api.get<BoardResponse>('/api/world/board', { params: { kind, scope } }),

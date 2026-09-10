@@ -27,18 +27,22 @@ import {
   type GlobePalette,
 } from './geo'
 import { Atmosphere } from './Atmosphere'
+import { CityDensity } from './CityDensity'
 import { CityLabels } from './CityLabels'
 import { CountryBorders, type CountryInfo } from './CountryBorders'
 import { CountryLabels } from './CountryLabels'
+import { LogoMarkers } from './LogoMarkers'
 import { PlotColumns, type PinHitTest } from './PlotColumns'
 import { PlotLabels } from './PlotLabels'
 import { Shockwave } from './Shockwave'
 import {
   CAMERA_MAX_DISTANCE,
   CAMERA_MIN_DISTANCE,
+  MAX_LABELS,
   rotateSpeedForDistance,
   zoomSpeedForDistance,
 } from './labelLayout'
+import { MAX_LOGO_MARKERS } from './LogoMarkers'
 import { LabelSurface, type LodSample } from './useLevelOfDetail'
 import {
   useGlobeCamera,
@@ -321,6 +325,16 @@ interface RigProps {
   reducedMotion: boolean
   /** Nudge the point under the cursor toward the centre while zooming in. */
   zoomToCursor?: boolean
+  /**
+   * The visitor took hold of the camera — a drag, a pinch, a wheel.
+   *
+   * The 2D map called this `onUserInteraction`, and it existed for one reason:
+   * an automated camera (its tour, ours) that keeps yanking the view back while
+   * somebody is trying to look at something is hostile. Fired on the gesture's
+   * START, so a tour stops on the first pixel of the drag rather than at the end
+   * of it.
+   */
+  onInteract?: () => void
 }
 
 /** The two knobs `OrbitLike` does not declare, retuned every frame. */
@@ -338,7 +352,12 @@ const CENTRED = new THREE.Quaternion()
  * rather than from React state. State would re-render the whole scene twice
  * per drag, and this component's siblings include a 22,000-instance mesh.
  */
-function Rig({ focus, reducedMotion, zoomToCursor = true }: RigProps) {
+function Rig({
+  focus,
+  reducedMotion,
+  zoomToCursor = true,
+  onInteract,
+}: RigProps) {
   const controlsRef = useRef<OrbitTunable | null>(null)
   const resumeAt = useRef(0)
   const { flyTo, flying } = useGlobeCamera()
@@ -455,6 +474,7 @@ function Rig({ focus, reducedMotion, zoomToCursor = true }: RigProps) {
       autoRotateSpeed={AUTO_ROTATE_BASE}
       onStart={() => {
         resumeAt.current = Number.POSITIVE_INFINITY
+        onInteract?.()
       }}
       onEnd={() => {
         resumeAt.current = performance.now() + IDLE_RESUME_MS
@@ -725,8 +745,19 @@ function CountryHoverPicker({
 
 // --- scene -----------------------------------------------------------------
 
-/** The `focus` shape the public component accepts. */
-export type WorldGlobeFocus = { lat: number; lng: number } | { iso: string }
+/**
+ * The `focus` shape the public component accepts.
+ *
+ * `distance` is optional on both arms and names the rung of the ladder to arrive
+ * at — without it a coordinate lands at 1.8 and a country at 2.2, which is what
+ * every existing caller keeps getting. It exists because the region jumps ported
+ * from the 2D map are *framings*, not just centres: "Europe" at the same
+ * distance as a single plot is a different tool than the one the old map had.
+ * `tour.ts` converts those framings out of Mercator zoom.
+ */
+export type WorldGlobeFocus =
+  | { lat: number; lng: number; distance?: number }
+  | { iso: string; distance?: number }
 
 export interface GlobeSceneProps {
   pins: GlobePin[]
@@ -756,6 +787,16 @@ export interface GlobeSceneProps {
   onPerformanceDecline?: () => void
   /** Level-of-detail telemetry, throttled to ~4Hz. For a dev harness. */
   onLodSample?: (sample: LodSample) => void
+  /**
+   * Company logos on their pins. On by default, and forced off in pick mode —
+   * a tile that eats a click is the last thing a flow asking for a coordinate
+   * needs. See `LogoMarkers`.
+   */
+  logoMarkers?: boolean
+  /** The city-density overlay. Off by default; see `CityDensity`. */
+  density?: boolean
+  /** The visitor grabbed the camera. Wired to the tour's stop button. */
+  onInteract?: () => void
 }
 
 export function GlobeScene({
@@ -771,6 +812,9 @@ export function GlobeScene({
   onHoverPin,
   onPerformanceDecline,
   onLodSample,
+  logoMarkers = true,
+  density = false,
+  onInteract,
 }: GlobeSceneProps) {
   const reducedMotion = usePrefersReducedMotion()
 
@@ -898,9 +942,18 @@ export function GlobeScene({
     if (!focus) return null
     if ('iso' in focus) {
       const c = countryByIso.get(focus.iso.toUpperCase())
-      return c ? { lat: c.lat, lng: c.lng, distance: 2.2 } : null
+      return c
+        ? { lat: c.lat, lng: c.lng, distance: focus.distance ?? 2.2 }
+        : null
     }
-    return { lat: focus.lat, lng: focus.lng, distance: 1.8 }
+    return {
+      lat: focus.lat,
+      lng: focus.lng,
+      // 1.8 remains the default — a plot, a pick, a search result all want to
+      // arrive at the same rung. A caller that has an opinion (a region jump, a
+      // hub tour stop) says so.
+      distance: focus.distance ?? 1.8,
+    }
   }, [focus, countryByIso])
 
   // ---- picking -------------------------------------------------------------
@@ -925,6 +978,40 @@ export function GlobeScene({
    * that is the honest default for a mark with no page behind it, and it is
    * what every caller that has not opted in keeps getting.
    */
+  /**
+   * Open a pin, or report that nobody upstairs wants it opened.
+   *
+   * Shared by the canvas click and the logo tiles, so a company opens the same
+   * way whether the visitor aimed at its bead or at its logo. Returns false when
+   * the click was not consumed, which is what lets each caller apply its own
+   * fallback — the canvas falls through to the country under the CURSOR, the
+   * tile to the country under the PIN.
+   */
+  const openPin = useCallback(
+    (pin: GlobePin): boolean => {
+      if (pin.kind === 'plot' && onSelectPlot) {
+        const numeric = Number(pin.id)
+        if (Number.isFinite(numeric)) {
+          onSelectPlot(numeric)
+          return true
+        }
+      }
+
+      if (pin.kind === 'seed' && onSelectSeed) {
+        // The feed's pin, not the drawn one: `pins` is jittered, and a
+        // coordinate this file invented must not leave it. Falls back to the
+        // drawn pin only if the id is somehow not in the feed map, which keeps
+        // id/name/company_slug — the three fields a consumer actually needs —
+        // correct either way.
+        onSelectSeed(feedById.get(pin.id) ?? pin)
+        return true
+      }
+
+      return false
+    },
+    [onSelectPlot, onSelectSeed, feedById],
+  )
+
   const handlePick = useCallback(
     (lat: number, lng: number) => {
       if (pickMode) {
@@ -936,29 +1023,34 @@ export function GlobeScene({
       }
 
       const pin = pinHitRef.current?.(lat, lng) ?? null
-      if (pin && pin.kind === 'plot' && onSelectPlot) {
-        const numeric = Number(pin.id)
-        if (Number.isFinite(numeric)) {
-          onSelectPlot(numeric)
-          return
-        }
-      }
-
-      if (pin && pin.kind === 'seed' && onSelectSeed) {
-        // The feed's pin, not the drawn one: `pins` is jittered, and a
-        // coordinate this file invented must not leave it. Falls back to the
-        // drawn pin only if the id is somehow not in the feed map, which keeps
-        // id/name/company_slug — the three fields a consumer actually needs —
-        // correct either way.
-        onSelectSeed(feedById.get(pin.id) ?? pin)
-        return
-      }
+      if (pin && openPin(pin)) return
 
       const iso2 = lookupRef.current?.(lat, lng) ?? null
       if (iso2 && onSelectCountry) onSelectCountry(iso2)
     },
-    [pickMode, onPick, onSelectPlot, onSelectSeed, onSelectCountry, feedById],
+    [pickMode, onPick, openPin, onSelectCountry],
   )
+
+  /** A logo tile was pressed. Same routing, its own country fallback. */
+  const handleSelectPin = useCallback(
+    (pin: GlobePin) => {
+      if (openPin(pin)) return
+      const iso2 = lookupRef.current?.(pin.lat, pin.lng) ?? null
+      if (iso2 && onSelectCountry) onSelectCountry(iso2)
+    },
+    [openPin, onSelectCountry],
+  )
+
+  /**
+   * Which pins are carrying a logo tile this frame, and how wide it is.
+   *
+   * A frame-scoped handoff between two sibling label layers — `LogoMarkers`
+   * writes it, `PlotLabels` reads it to step its pill clear of the tile — held
+   * in a ref because it is rewritten sixty times a second and neither layer is
+   * a React consumer of it. Mount order in the surface below is what makes the
+   * read fresh rather than a frame stale.
+   */
+  const logoClaims = useRef<Map<string, number> | null>(new Map())
 
   const clickable =
     pickMode ||
@@ -1009,6 +1101,10 @@ export function GlobeScene({
         />
       </Suspense>
 
+      {/* Under the pins, over the ground: the aggregate is context for the
+          markers, never something drawn on top of them. */}
+      <CityDensity pins={feedPins} palette={palette} enabled={density} />
+
       <PlotColumns
         pins={pins}
         palette={palette}
@@ -1019,6 +1115,7 @@ export function GlobeScene({
         onHoverPin={handleHoverPin}
         onHitTestReady={handlePinHitReady}
         reducedMotion={reducedMotion}
+        density={density}
       />
 
       {pickMode && <PickTarget reducedMotion={reducedMotion} />}
@@ -1026,7 +1123,11 @@ export function GlobeScene({
       <Shockwave at={pendingPick} reducedMotion={reducedMotion} />
       <Atmosphere color={palette.halo} />
 
-      <Rig focus={resolvedFocus} reducedMotion={reducedMotion} />
+      <Rig
+        focus={resolvedFocus}
+        reducedMotion={reducedMotion}
+        onInteract={onInteract}
+      />
 
       {/*
         After the rig, and that ordering is load-bearing. Frame callbacks at
@@ -1039,6 +1140,16 @@ export function GlobeScene({
         reducedMotion={reducedMotion}
         darkMode={darkMode}
         onSample={onLodSample}
+        /*
+          The overlay's cap is shared by every layer registered with it, and the
+          logo tiles are now one of those layers — at a priority above every text
+          pill. Left at 120 they would simply take the whole budget in a crowded
+          city and the place names would stop being drawn, which is the label
+          system working exactly as designed and a map that is worse for it.
+          Raised by the tiles' own cap, so the type budget is the 120 it always
+          was and the tiles are additional to it rather than carved out of it.
+        */
+        maxLabels={MAX_LABELS + MAX_LOGO_MARKERS}
       >
         <CountryLabels
           countries={countries}
@@ -1050,7 +1161,21 @@ export function GlobeScene({
           onHover={pickMode ? undefined : handleHover}
         />
         <CityLabels plots={paidPins} />
-        <PlotLabels pins={pins} palette={palette} />
+        {/*
+          Ahead of PlotLabels, and that ordering is load-bearing: layers collect
+          in mount order within a single frame, and the pill layer reads the
+          claim map the tile layer has just written. Mounted unconditionally so
+          that turning the tiles off still clears the map on the next frame,
+          rather than leaving every pill stepping around a tile that is gone.
+        */}
+        <LogoMarkers
+          pins={pins}
+          enabled={logoMarkers && !pickMode}
+          onSelectPin={handleSelectPin}
+          onHoverPin={handleHoverPin}
+          claimed={logoClaims}
+        />
+        <PlotLabels pins={pins} palette={palette} logoClaims={logoClaims} />
       </LabelSurface>
     </>
   )

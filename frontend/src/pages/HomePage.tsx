@@ -5,7 +5,7 @@ import { useApp } from '../contexts/AppContext';
 import { apiClient, type Source } from '../lib/api';
 import { SourceBadge } from '../components/ui/SourceBadge';
 import { getSecondMostRecentBatch, batchToShortFormat as batchToShort } from '../lib/batchUtils';
-import { Globe2, Sparkles, ArrowRight, Terminal, ChevronUp, Trophy } from 'lucide-react';
+import { Earth, Sparkles, ArrowRight, Terminal, ChevronUp, Trophy } from 'lucide-react';
 import { HeroAnswerBox } from '../components/HeroAnswerBox';
 import { DatabasePreview } from '../components/DatabasePreview';
 import { FoundersPreview } from '../components/FoundersPreview';
@@ -13,7 +13,6 @@ import { PlatformCapabilities } from '../components/PlatformCapabilities';
 import { ApiShowcase } from '../components/ApiShowcase';
 import { HomeFaq } from '../components/HomeFaq';
 import { EmailSubscription } from '../components/EmailSubscription';
-import { CompanyDetailModal } from '../components/CompanyDetailModal';
 import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
 import { GridPattern } from '../components/ui/grid-pattern';
@@ -32,7 +31,10 @@ const item = {
 };
 
 export function HomePage() {
-  const { stats, selectedCompany, setSelectedCompany } = useApp();
+  // The company detail modal is hosted once in <Layout> (see App.tsx) rather
+  // than per page, so ⌘K → a company opens it from anywhere. HomePage used to
+  // carry its own copy; keeping it would render the same modal twice.
+  const { stats } = useApp();
 
   // Data provenance: which sources the companies come from, with live counts.
   const [sources, setSources] = useState<Source[]>([]);
@@ -257,13 +259,14 @@ export function HomePage() {
               <span className="text-muted-foreground">$</span>
               <h2 className="text-xl font-bold">Companies Database</h2>
             </div>
-            {/* The interactive map now lives on its own page */}
+            {/* One globe. The old 2D company map merged into ExploreYC World,
+                so this is now the only geographic entry point on the site. */}
             <Link
-              to="/map"
+              to="/world"
               className="group inline-flex items-center gap-2 px-4 py-2 border border-border hover:border-[#FB651E]/50 font-mono text-xs bg-background/50 transition-all duration-200 rounded-sm"
             >
-              <Globe2 className="h-4 w-4 text-[#FB651E]" />
-              Explore the interactive world map
+              <Earth className="h-4 w-4 text-[#FB651E]" />
+              See every startup on the 3D globe
               <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
             </Link>
           </div>
@@ -371,13 +374,6 @@ export function HomePage() {
           </motion.div>
         )}
 
-        {selectedCompany && (
-          <CompanyDetailModal
-            company={selectedCompany}
-            open={true}
-            onClose={() => setSelectedCompany(null)}
-          />
-        )}
       </div>
     </div>
   );

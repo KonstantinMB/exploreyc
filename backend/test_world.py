@@ -420,12 +420,190 @@ def test_virtual_seeds_excluded_from_boards_but_on_globe(db):
         conn.execute("""INSERT INTO companies (id, name, slug, latitude, longitude)
                         VALUES (9, 'GhostCo', 'ghostco', 42.7, 23.3)""")
     client = _client(db, uid)
-    globe = client.get("/api/world/globe").json()["plots"]
-    seeds = [p for p in globe if p["kind"] == "seed"]
+    seeds = _decode_seeds(client.get("/api/world/globe").json())
     assert len(seeds) == 1 and seeds[0]["company_slug"] == "ghostco" and seeds[0]["tier"] == 0
     # Boards read only world_plots, so seeds can never appear.
     assert client.get("/api/world/board?kind=planted&scope=world").json()["rows"] == []
     assert client.get("/api/world/board?kind=richest&scope=country:BG").json()["rows"] == []
+
+
+# ---- the globe payload -----------------------------------------------------
+#
+# The merged globe filters and renders the imported layer, so seed pins carry
+# batch/industry/location/logo/team/hiring. They travel columnar (world.py,
+# SEED_COLUMNS) to stop 5,579 pins tripling the payload, so these tests decode
+# the wire exactly the way frontend/src/lib/worldApi.ts does — the helper below
+# is the contract written twice, on purpose, in the two languages that have to
+# agree about it.
+
+def _decode_seeds(body: dict) -> list:
+    """Wire -> the GlobePins the client renders. Mirrors decodeGlobe()."""
+    layer = body["seeds"]
+    assert layer["cols"] == list(world.SEED_COLUMNS), "tuple order is the contract"
+
+    def at(dictionary, i):
+        return dictionary[i] if 0 <= i < len(dictionary) else None
+
+    out = []
+    for cid, lat, lng, name, slug, bi, ii, li, logo, team, flags in layer["rows"]:
+        out.append({
+            "id": f"seed-{cid}", "lat": lat, "lng": lng, "name": name,
+            "tier": 0, "promoted": False, "kind": "seed",
+            "company_slug": slug or None, "company_id": cid,
+            "batch": at(layer["batches"], bi),
+            "industry": at(layer["industries"], ii),
+            "location": at(layer["locations"], li),
+            "logo_url": ((layer["logo_prefix"] + logo[1:])
+                         if logo.startswith(world.SEED_LOGO_FOLD) else logo) if logo else None,
+            "team_size": team if team >= 0 else None,
+            "is_hiring": bool(flags & world.SEED_FLAG_HIRING),
+            "top_company": bool(flags & world.SEED_FLAG_TOP_COMPANY),
+        })
+    return out
+
+
+def _company(db, cid, **cols):
+    cols.setdefault("name", f"Co{cid}")
+    cols.setdefault("slug", f"co{cid}")
+    cols.setdefault("latitude", 42.7)
+    cols.setdefault("longitude", 23.3)
+    with db.get_connection() as conn:
+        conn.execute(
+            f"""INSERT INTO companies (id, {', '.join(cols)})
+                VALUES (?, {', '.join('?' for _ in cols)})""",
+            (cid, *cols.values()))
+
+
+LOGO = "https://bookface-images.s3.amazonaws.com/small_logos/abc123.png"
+
+
+def test_globe_seeds_carry_the_facts_the_filters_need(db):
+    """Every widened field survives the columnar round trip."""
+    _company(db, 1, name="Stripe", slug="stripe", batch="Summer 2009",
+             industry="Fintech", is_hiring=1, team_size=7000, top_company=1,
+             small_logo_thumb_url=LOGO, all_locations="San Francisco, CA, USA")
+    pin = _decode_seeds(_client(db).get("/api/world/globe").json())[0]
+    assert pin == {
+        "id": "seed-1", "lat": 42.7, "lng": 23.3, "name": "Stripe",
+        "tier": 0, "promoted": False, "kind": "seed",
+        "company_slug": "stripe", "company_id": 1,
+        "batch": "Summer 2009", "industry": "Fintech",
+        "location": "San Francisco, CA, USA", "logo_url": LOGO,
+        "team_size": 7000, "is_hiring": True, "top_company": True,
+    }
+
+
+def test_globe_seeds_are_absent_safe_never_placeholders(db):
+    """A company the scrape never filled in reads as null, not '' and not a
+    stand-in string. Filters must be able to tell 'no industry' from 'an
+    industry called nothing', and the logo slot must stay empty rather than
+    render a broken image."""
+    _company(db, 2, name="Sparse", slug="sparse")   # every optional column NULL
+    pin = _decode_seeds(_client(db).get("/api/world/globe").json())[0]
+    assert (pin["batch"], pin["industry"], pin["location"], pin["logo_url"]) == (
+        None, None, None, None)
+    assert pin["team_size"] is None                  # unknown, not 0
+    assert pin["is_hiring"] is False and pin["top_company"] is False
+    assert pin["name"] == "Sparse" and pin["company_slug"] == "sparse"
+
+
+def test_globe_seed_team_size_zero_is_not_unknown(db):
+    """0 is a real value in this data (wound-down companies carry it), so it
+    has to survive the -1 sentinel rather than decode back to null."""
+    _company(db, 3, team_size=0)
+    assert _decode_seeds(_client(db).get("/api/world/globe").json())[0]["team_size"] == 0
+
+
+def test_globe_seed_location_is_the_first_segment_verbatim(db):
+    """computeHubs() groups by this string, and it was ported from the deck.gl
+    map unchanged — so the segment arrives exactly as that map split it."""
+    _company(db, 4, all_locations="Sofia, BG; Remote; New York, NY, USA")
+    assert _decode_seeds(_client(db).get("/api/world/globe").json())[0]["location"] == "Sofia, BG"
+
+
+def test_globe_seed_logos_survive_a_foreign_host_or_a_relative_path(db):
+    """The shared prefix is derived, not hardcoded, and folding is marked
+    rather than guessed. A logo from anywhere else — another CDN, or a
+    root-relative path like the ones resolveMediaUrl() handles — is shipped
+    whole and decodes back byte-identical. A host change in the scrape costs
+    payload, never correctness."""
+    other = "https://cdn.example.org/logos/x.svg"
+    relative = "/static/logos/x.png"          # would break a "://"-sniffing decoder
+    _company(db, 5, small_logo_thumb_url=LOGO)
+    _company(db, 6, small_logo_thumb_url=LOGO)
+    _company(db, 7, small_logo_thumb_url=other)
+    _company(db, 8, small_logo_thumb_url=relative)
+    body = _client(db).get("/api/world/globe").json()
+    by_id = {p["id"]: p for p in _decode_seeds(body)}
+    assert by_id["seed-5"]["logo_url"] == LOGO
+    assert by_id["seed-7"]["logo_url"] == other
+    assert by_id["seed-8"]["logo_url"] == relative
+    # The saving is real: the folded rows do not carry the directory.
+    assert body["seeds"]["logo_prefix"] and LOGO.startswith(body["seeds"]["logo_prefix"])
+    assert not any(body["seeds"]["logo_prefix"] in row[8] for row in body["seeds"]["rows"])
+
+
+def test_globe_seed_layer_is_total_no_truncation(db):
+    """Every seed company produces exactly one pin. If this number ever has to
+    shrink it must be a deliberate product decision, not a quiet slice."""
+    for cid in range(100, 350):
+        _company(db, cid, longitude=23.3 + cid / 1000)
+    body = _client(db).get("/api/world/globe").json()
+    assert len(body["seeds"]["rows"]) == 250
+    assert len({p["id"] for p in _decode_seeds(body)}) == 250
+
+
+def test_globe_paid_plots_keep_objects_and_exact_coordinates(db):
+    """The paid layer is untouched by any of the seed compaction: still full
+    objects under `plots`, still the coordinate the buyer paid for, to the last
+    digit. Seed coordinates are rounded; a plot's never is."""
+    uid = _user(db)
+    plot_id = _plant(db, uid, name="Paid", cents=30_000,
+                     lat=42.698123456, lng=23.321987654)
+    body = _client(db, uid).get("/api/world/globe").json()
+    assert len(body["plots"]) == 1
+    plot = body["plots"][0]
+    assert plot["lat"] == 42.698123456 and plot["lng"] == 23.321987654
+    assert plot == {"id": plot_id, "lat": 42.698123456, "lng": 23.321987654,
+                    "name": "Paid", "tier": 3, "promoted": False,
+                    "kind": "plot", "company_slug": None,
+                    "logo_url": None, "total_cents": 30_000}
+    assert body["seeds"]["rows"] == []
+
+
+def test_globe_paid_plot_carries_its_logo(db):
+    """The paid marker's whole pitch is a branded pin, so the globe payload
+    carries the logo: the plot's own, else the linked company's thumbnail,
+    else null — never '' and never a placeholder."""
+    uid = _user(db)
+    _plant(db, uid, name="Own", cents=5_000,
+           logo_url="https://cdn.example.com/own.png")
+    _company(db, 44, name="Linked", slug="linked",
+             small_logo_thumb_url="https://cdn.example.com/linked.png")
+    _plant(db, uid, name="Linked", cents=5_000, company_id=44)
+    _plant(db, uid, name="Bare", cents=5_000)
+
+    plots = {p["name"]: p for p in _client(db).get("/api/world/globe").json()["plots"]}
+    assert plots["Own"]["logo_url"] == "https://cdn.example.com/own.png"
+    assert plots["Linked"]["logo_url"] == "https://cdn.example.com/linked.png"
+    assert plots["Bare"]["logo_url"] is None
+
+
+def test_globe_claimed_company_leaves_the_seed_layer(db):
+    """Claiming moves a company across the layers, it does not duplicate it —
+    the same guarantee as before the payload was widened."""
+    uid = _user(db)
+    _company(db, 8, name="SeedCo", slug="seedco")
+    assert [p["company_id"] for p in
+            _decode_seeds(_client(db).get("/api/world/globe").json())] == [8]
+
+    fulfill_world_checkout(db, _plot_event(
+        "cs_layer", 1000, _new_plot_md(uid, name="SeedCo", company_id="8"),
+        user_id=uid)["data"]["object"])
+
+    body = _client(db, uid).get("/api/world/globe").json()
+    assert body["seeds"]["rows"] == []
+    assert [p["kind"] for p in body["plots"]] == ["plot"]
 
 
 # ---- promotions ------------------------------------------------------------

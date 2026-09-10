@@ -47,12 +47,10 @@
      press-ink #FFFFFF on press #9A3412 ......... 7.31:1   AA ✓   (promoted chip)
      #1E2631 on ink #EAF0F7 .................... 13.30:1   AA ✓   (sponsor chip)
      accent-ink #180A00 on accent #FB651E ....... 6.45:1   AA ✓   (primary button)
-   SUB-PAGE NAV BAR — `.world-nav` is 88% --w-card over whatever scrolls under
-   it, so its effective surface is a composite; these are measured on the
-   composite rather than on the token
-     muted #56657E on light bar #FDFEFF ......... 5.84:1   AA ✓
-     muted #9FB0C4 on dark bar #1D252F .......... 6.98:1   AA ✓
-     accent-ink #180A00 on accent #FB651E ....... 6.45:1   AA ✓   (active pill)
+   (The SUB-PAGE NAV BAR figures that used to sit here are gone with the bar.
+   `.world-nav` was a World-only nav for the sub-pages back when they rendered
+   outside the app's <Layout>; they are inside it now and wear the real
+   ExploreYC <Navbar>, whose contrast is the main theme's business.)
    MEDALS (top-3 ranks — deliberately NOT re-themed, a gold medal is gold on
    any ground, so one set of figures covers both themes)
      medal-ink #17212F on gold #F0B429 .......... 8.70:1   AA ✓
@@ -811,77 +809,6 @@
   font-weight: 800;
   line-height: 1;
   object-fit: cover;
-}
-
-/* ── Sub-page chrome ─────────────────────────────────────────────────────────
-   The globe is full-bleed and carries no nav ("the map is the page"). Every
-   OTHER World surface wears the site's chrome so it reads as an ExploreYC page
-   rather than a separate product: same brand mark, same orange, same nav
-   vocabulary — in the World's own rounded sans, because the terminal type of
-   the main navbar is the thing this feature is explicitly not. */
-
-.world-nav {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  background-color: color-mix(in srgb, var(--w-card) 88%, transparent);
-  border-bottom: 1px solid var(--w-border);
-  backdrop-filter: saturate(1.4) blur(10px);
-  -webkit-backdrop-filter: saturate(1.4) blur(10px);
-}
-
-/* No color-mix / backdrop-filter? Fall back to the opaque card so the bar is
-   never a translucent smear over scrolling content. */
-@supports not (backdrop-filter: blur(4px)) {
-  .world-nav {
-    background-color: var(--w-card);
-  }
-}
-
-/* The section strip.
-   It has to scroll on a 375px bar — the brand lockup takes ~172px and the five
-   labels want ~260 — and a strip that scrolls with a label sliced mid-word
-   reads as clipping, not as "there is more". The mask fades the last 28px so
-   the cut is deliberate. Scoped to phones on purpose: from 640px the labels fit
-   with room to spare, and a permanent fade over a row that does not scroll is a
-   lie about the affordance. */
-@media (max-width: 639.98px) {
-  .world-nav__links {
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-  }
-}
-
-.world-navlink {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.375rem 0.625rem;
-  border-radius: var(--w-radius-chip);
-  color: var(--w-muted);
-  font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  text-decoration: none;
-  transition: color 120ms ease-out, background-color 120ms ease-out;
-}
-
-.world-navlink:hover {
-  color: var(--w-ink);
-  background-color: var(--w-ground);
-}
-
-/* "You are here" is a filled orange pill, the same signal the board tabs use —
-   and it is not colour-only: the pill is a shape change and the link carries
-   aria-current="page". */
-.world-navlink--active {
-  background-color: var(--w-accent);
-  color: var(--w-accent-ink);
-}
-.world-navlink--active:hover {
-  background-color: var(--w-accent);
-  color: var(--w-accent-ink);
 }
 
 /* ── Celebration (the claimed page) ──────────────────────────────────────────

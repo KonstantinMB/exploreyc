@@ -598,6 +598,169 @@ def _public_plot(plot: dict, is_mine: Optional[bool] = None) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# The seed layer's wire format
+# ---------------------------------------------------------------------------
+#
+# WHY THIS IS NOT JUST A WIDER DICT. The merged globe needs to *filter* the
+# imported layer (batch, industry, hiring, team size) and *render* it (logo,
+# location label), and production ships 5,579 seed pins on a query that
+# refetches every 60 seconds. Measured on a 5,579-row modelled dataset through
+# this exact endpoint:
+#
+#     before, 8 narrow fields per pin, as objects ..............  759 KiB
+#     naive widen, 15 fields per pin, as objects ............... 2184 KiB
+#     this encoding, 15 fields per pin .........................  563 KiB
+#
+# So the payload carries seven new fields and still weighs *less* than the one
+# it replaces. Three things buy that, and none of them drop a single pin:
+#
+#   1. Tuples, not objects. 5,579 copies of `"company_slug":` is a third of a
+#      megabyte of key names. The column order is SEED_COLUMNS, below, and it
+#      is the contract — decoded in frontend/src/lib/worldApi.ts.
+#   2. Interned strings. Batch, industry and location repeat across thousands
+#      of rows, so each becomes a small integer index into a dictionary shipped
+#      once. -1 means "the row has no value", never "" and never a placeholder.
+#   3. A folded logo prefix. Every YC logo lives under the same S3 directory;
+#      that directory is sent once as `logo_prefix` and stripped from the rows,
+#      with a leading "*" marking the ones that were folded. Anything else —
+#      another host, a root-relative path — travels whole and unmarked, so the
+#      scheme degrades to "no saving" rather than to a broken image if the
+#      scrape ever changes host. The marker is what makes that safe: without
+#      it, "/static/logo.png" is indistinguishable from a folded tail and gets
+#      the prefix glued onto the front of it.
+#
+# Paid plots do NOT go through any of this. They stay full objects in `plots`,
+# with their coordinates untouched to the last digit: a plot's position is the
+# spot its buyer paid for. Seeds are rounded to SEED_COORD_DECIMALS (~11 m —
+# three orders of magnitude under the ~7 km jitterSeeds() disc they land in on
+# the client anyway) because nobody bought them.
+
+#: Column order of every tuple in `seeds.rows`. Positional — appending is
+#: safe, reordering or removing is a breaking change; bump SEED_WIRE_VERSION.
+SEED_COLUMNS = (
+    "id",         # companies.id — the client renders the pin id as f"seed-{id}"
+    "lat",        # rounded, see SEED_COORD_DECIMALS
+    "lng",
+    "name",
+    "slug",       # -> GlobePin.company_slug; "" means null
+    "batch",      # index into seeds.batches, -1 = none
+    "industry",   # index into seeds.industries, -1 = none
+    "location",   # index into seeds.locations, -1 = none
+    "logo",       # "" = none; SEED_LOGO_FOLD + tail = logo_prefix + tail; else whole URL
+    "team_size",  # -1 = unknown (0 is a real, distinct value in the data)
+    "flags",      # bitfield: SEED_FLAG_HIRING | SEED_FLAG_TOP_COMPANY
+)
+
+SEED_WIRE_VERSION = 1
+SEED_COORD_DECIMALS = 4
+SEED_FLAG_HIRING = 1
+SEED_FLAG_TOP_COMPANY = 2
+
+#: Marks a logo value as "relative to logo_prefix". No URL and no filesystem
+#: path begins with it, which is the whole reason it was picked.
+SEED_LOGO_FOLD = "*"
+
+
+class _Interner:
+    """Repeated strings -> small integer indices, in first-seen order.
+
+    None and "" both collapse to -1: the payload has one way to say "this row
+    has no industry", so the client has one case to handle."""
+
+    def __init__(self):
+        self.values: list = []
+        self._index: dict = {}
+
+    def index(self, value: Optional[str]) -> int:
+        if not value:
+            return -1
+        found = self._index.get(value)
+        if found is None:
+            found = len(self.values)
+            self._index[value] = found
+            self.values.append(value)
+        return found
+
+
+def _first_location(all_locations: Optional[str]) -> Optional[str]:
+    """The first ';'-separated segment of companies.all_locations, verbatim.
+
+    Verbatim matters: this is what the retiring deck.gl map grouped hubs by,
+    and computeHubs() is being ported to keep that behaviour exactly. In YC's
+    data a segment is a whole place string ("San Francisco, CA, USA"), not a
+    bare city name — hence the field is called `location`, not `city`."""
+    if not all_locations:
+        return None
+    return (all_locations.split(";")[0] or "").strip() or None
+
+
+def _common_logo_prefix(urls) -> str:
+    """The directory prefix shared by most seed logos, or "" if there is none.
+
+    Derived, never hardcoded: whatever host the scrape writes today is what
+    gets folded, and a mixed-host set simply folds the majority. Requires at
+    least two users, so a one-off URL is never mistaken for a prefix."""
+    counts: dict = {}
+    for url in urls:
+        if not url:
+            continue
+        cut = url.rfind("/")
+        if cut <= 0:
+            continue
+        head = url[: cut + 1]
+        counts[head] = counts.get(head, 0) + 1
+    if not counts:
+        return ""
+    prefix, hits = max(counts.items(), key=lambda kv: (kv[1], len(kv[0])))
+    return prefix if hits >= 2 else ""
+
+
+def _encode_seed_layer(companies: list) -> dict:
+    """Serialize seed pins to the columnar shape documented above.
+
+    Total in pins, lossless in facts: every row in `companies` produces exactly
+    one row out. There is no cap, no sampling and no truncation here — if this
+    ever needs to ship fewer pins that has to be a visible, deliberate product
+    decision, not a quiet slice()."""
+    prefix = _common_logo_prefix(c.get("logo_url") for c in companies)
+    batches, industries, locations = _Interner(), _Interner(), _Interner()
+
+    rows = []
+    for c in companies:
+        logo = c.get("logo_url") or ""
+        if prefix and logo.startswith(prefix):
+            logo = SEED_LOGO_FOLD + logo[len(prefix):]
+
+        team_size = c.get("team_size")
+        flags = ((SEED_FLAG_HIRING if c.get("is_hiring") else 0)
+                 | (SEED_FLAG_TOP_COMPANY if c.get("top_company") else 0))
+
+        rows.append([
+            c["id"],
+            round(float(c["lat"]), SEED_COORD_DECIMALS),
+            round(float(c["lng"]), SEED_COORD_DECIMALS),
+            c["name"],
+            c.get("slug") or "",
+            batches.index(c.get("batch")),
+            industries.index(c.get("industry")),
+            locations.index(_first_location(c.get("all_locations"))),
+            logo,
+            int(team_size) if team_size is not None else -1,
+            flags,
+        ])
+
+    return {
+        "v": SEED_WIRE_VERSION,
+        "cols": list(SEED_COLUMNS),
+        "batches": batches.values,
+        "industries": industries.values,
+        "locations": locations.values,
+        "logo_prefix": prefix,
+        "rows": rows,
+    }
+
+
 def _company_brief(row: Optional[dict]) -> Optional[dict]:
     """The linked company's public facts for the plot detail card, or None.
 
@@ -705,24 +868,36 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
 
     @router.get("/api/world/globe")
     def world_globe():
-        """Every pin: claimed plots + virtual seeds from the companies table.
-        Seeds carry no row anywhere — a claimed company drops out of the seed
-        set by construction, and boards never see seeds because boards read
-        only world_plots."""
+        """Every pin on the merged globe, in two layers.
+
+        `plots` — the paid layer, and the product. Full objects, coordinates
+        untouched, one per active world_plot. This is what the page is for, so
+        it is the layer that stays legible on the wire.
+
+        `seeds` — the imported layer: every geo-located company that nobody has
+        claimed yet, as a compact columnar block (see SEED_COLUMNS). Seeds carry
+        no row anywhere — a claimed company drops out of the seed set by
+        construction, and boards never see seeds because boards read only
+        world_plots.
+
+        The client merges the two back into one flat pin list; the split exists
+        purely so 5,579 imported pins can carry filterable facts without the
+        payload tripling. `seeds` is always present, `seeds.rows` may be empty."""
         pins = []
         for p in db.get_world_plots_for_globe():
             pins.append({
                 "id": p["id"], "lat": p["lat"], "lng": p["lng"], "name": p["name"],
                 "tier": _tier_bucket(p["total_cents"]), "promoted": bool(p["promoted"]),
                 "kind": "plot", "company_slug": p.get("company_slug"),
+                # The mark and the money. A paid plot is an advertisement, and
+                # both of these are what it advertises — the globe draws the
+                # logo on the marker and the amount in the hover card, and
+                # neither can wait for a per-plot round trip. `None`, never ''
+                # and never a placeholder, when the buyer supplied no logo.
+                "logo_url": p.get("logo_url") or None,
+                "total_cents": p["total_cents"],
             })
-        for c in db.get_world_seed_companies():
-            pins.append({
-                "id": f"seed-{c['id']}", "lat": c["lat"], "lng": c["lng"],
-                "name": c["name"], "tier": 0, "promoted": False,
-                "kind": "seed", "company_slug": c.get("slug"),
-            })
-        return {"plots": pins}
+        return {"plots": pins, "seeds": _encode_seed_layer(db.get_world_seed_companies())}
 
     @router.get("/api/world/board")
     def world_board(kind: str = "richest", scope: str = "world"):

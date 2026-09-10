@@ -2556,11 +2556,21 @@ class Database:
 
     def get_world_plots_for_globe(self) -> List[Dict]:
         """All active plots for globe rendering: id, lat, lng, name,
-        total_cents, country_iso, company_slug and promoted flag."""
+        total_cents, country_iso, company_slug, logo_url and promoted flag.
+
+        `logo_url` is the plot's own mark, falling back to the linked company's
+        thumbnail — the same precedence the boards use. It rides on the globe
+        payload because a paid plot's logo IS the product: the merged globe
+        sells a branded marker, and a marker that has to wait for a second
+        request per plot renders as an anonymous letter tile for the first
+        second of every visit. There are tens of these rows, not thousands, so
+        the width costs nothing measurable."""
         with self.get_connection() as conn:
             rows = conn.execute(
                 '''SELECT p.id, p.lat, p.lng, p.name, p.total_cents,
                           p.country_iso, p.company_id, co.slug AS company_slug,
+                          COALESCE(NULLIF(p.logo_url, ''),
+                                   NULLIF(co.small_logo_thumb_url, '')) AS logo_url,
                           EXISTS(SELECT 1 FROM world_promotions pr
                                  WHERE pr.plot_id = p.id AND pr.kind = 'featured'
                                    AND pr.status = 'active'
@@ -2578,12 +2588,25 @@ class Database:
 
     def get_world_seed_companies(self) -> List[Dict]:
         """Geo-located companies not yet claimed as plots — the virtual seed
-        pins (id, name, slug, lat, lng). Excluded automatically once a plot
-        row references the company."""
+        pins. Excluded automatically once a plot row references the company.
+
+        Columns: id, name, slug, lat, lng, batch, industry, is_hiring,
+        team_size, top_company, logo_url, all_locations. Everything past lng
+        exists so the merged globe can FILTER and RENDER the imported layer
+        without a second round trip — industry and all_locations in particular
+        are what computeHubs() needs to name a hub something better than
+        'Unknown'. Blank logo strings collapse to NULL so the client never has
+        to distinguish '' from absent.
+
+        The pins are serialized to a compact columnar shape in world.py
+        (_encode_seed_layer); this method stays row-shaped and boring."""
         with self.get_connection() as conn:
             rows = conn.execute(
                 '''SELECT c.id, c.name, c.slug,
-                          c.latitude AS lat, c.longitude AS lng
+                          c.latitude AS lat, c.longitude AS lng,
+                          c.batch, c.industry, c.is_hiring, c.team_size,
+                          c.top_company, c.all_locations,
+                          NULLIF(c.small_logo_thumb_url, '') AS logo_url
                    FROM companies c
                    WHERE c.latitude IS NOT NULL AND c.longitude IS NOT NULL
                      AND NOT EXISTS (SELECT 1 FROM world_plots p

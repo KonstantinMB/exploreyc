@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  Home, BarChart3, Wrench, BookOpen, Map as MapIcon, Globe2, DollarSign, Share2,
+  Home, BarChart3, Wrench, BookOpen, Map as MapIcon, DollarSign, Share2,
   Moon, Sun, Command, Briefcase, Mail, Database, Terminal, ChevronDown,
   LayoutDashboard, LogOut, KeyRound, Trophy, Earth,
 } from 'lucide-react';
@@ -27,9 +27,11 @@ const primaryTabs: NavTab[] = [
 
 const showShareNav = import.meta.env.VITE_SHOW_SHARE_NAV === 'true' || import.meta.env.VITE_SHOW_SHARE_NAV === '1';
 
+// No "Company Map" here. There is one globe and it is the primary "World" tab
+// above; a second entry pointing at the same page is a choice the visitor has
+// to make and cannot get right.
 const moreTabs: NavTab[] = [
   { id: 'leaderboards', label: 'Leaderboards', icon: Trophy, path: '/founders/leaderboard' },
-  { id: 'map', label: 'Company Map', icon: Globe2, path: '/map' },
   { id: 'funding', label: 'Funding', icon: DollarSign, path: '/funding' },
   { id: 'tools', label: 'Tools', icon: Wrench, path: '/tools' },
   { id: 'founders', label: 'Founders', icon: BookOpen, path: '/founders' },
