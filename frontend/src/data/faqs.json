@@ -1,0 +1,50 @@
+[
+  {
+    "q": "Is there an API for Y Combinator company data?",
+    "a": "Yes. ExploreYC provides a free, open-source REST API for Y Combinator company data at api.exploreyc.com/api/v1. Authenticate with an API key and query companies, full-text search, stats and more — returned as structured JSON, no scraping required."
+  },
+  {
+    "q": "Does ExploreYC include a16z and Product Hunt data too?",
+    "a": "Yes. Alongside Y Combinator, ExploreYC aggregates Andreessen Horowitz (a16z) portfolio companies, Product Hunt launches and Hacker News startups — 27,000+ companies in total. You can search across every source at once or filter to a single one with source=yc, source=a16z, and so on."
+  },
+  {
+    "q": "Is the ExploreYC API free?",
+    "a": "Yes, there is a free tier. Create a developer account, generate an API key, and start with 5 requests per day at no cost and no credit card. Paid plans lift that limit when you need more."
+  },
+  {
+    "q": "How much do the paid API plans cost?",
+    "a": "Free gives you 5 requests per day. Pro is $50/month for 500 requests per day, and Max is $500/month for 5,000 requests per day. You can upgrade from your dashboard in a few clicks — billing runs on Stripe."
+  },
+  {
+    "q": "What are the API rate limits?",
+    "a": "Limits are enforced per API key on a rolling 24-hour window. Every response includes X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset headers so you can track your usage, and requests over the limit return HTTP 429 with a Retry-After header."
+  },
+  {
+    "q": "Can I cancel my subscription anytime?",
+    "a": "Yes. Open the billing portal from your developer dashboard to cancel, switch plans or update your card. Cancelling takes effect at the end of the paid period, after which your key returns to the free tier."
+  },
+  {
+    "q": "How often is the data updated?",
+    "a": "Every day. An automated job re-scrapes the sources each morning, so new batches, fresh launches and updated hiring status show up in both the web app and the API without you doing anything."
+  },
+  {
+    "q": "What startup data can I get?",
+    "a": "For every company: name, one-liner, description, batch, industry, country, team size, hiring status, founders, funding, stage, exits and geo-coordinates — available through the API or the filterable web database."
+  },
+  {
+    "q": "Does ExploreYC have a YC jobs board?",
+    "a": "Yes. The hiring board tracks 1,500+ open roles across Y Combinator companies, filterable by role, salary, remote or on-site, batch and location — refreshed daily alongside the company data."
+  },
+  {
+    "q": "What free tools does ExploreYC offer?",
+    "a": "All the tools are free: an idea validator that checks your startup idea against the YC portfolio for market crowding, a success predictor, Batch Wrapped stats, a funding leaderboard, and an interactive world map of startups."
+  },
+  {
+    "q": "Is ExploreYC open source?",
+    "a": "Yes — ExploreYC is an open-source project released under the MIT license. Instead of scraping Y Combinator, a16z or Product Hunt yourself, you can pull clean, structured company data straight from the public API."
+  },
+  {
+    "q": "How do I get started with the API?",
+    "a": "Grab an API key at exploreyc.com/signup, then send a request to the /companies endpoint with your bearer token. The full endpoint reference, authentication details and rate limits are at exploreyc.com/api-docs."
+  }
+]
