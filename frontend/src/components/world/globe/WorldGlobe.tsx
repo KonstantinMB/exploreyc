@@ -124,12 +124,10 @@ function detectLowPower(): boolean {
 /**
  * Both failure states, as a floating card in World's own idiom.
  *
- * It used to be monospace, which was the terminal styling this feature is
- * leaving: this is a sentence explaining what went wrong, and sentences are set
- * in the sans face. `WorldCard` brings the surface, the 16px radius, the
- * hairline border and the elevation with it, so a globe that cannot draw itself
- * still leaves something that looks deliberate — and looks like the rest of the
- * page rather than like a console.
+ * `WorldCard` brings the platform's own card with it — rounded-sm, a hairline
+ * border, the translucent card ground — so a globe that cannot draw itself
+ * still leaves something that looks deliberate, and looks like the rest of the
+ * page.
  */
 function Notice({ children }: { children: ReactNode }) {
   return (
@@ -144,49 +142,54 @@ function Notice({ children }: { children: ReactNode }) {
 /**
  * The two token sets the tooltip paints itself with.
  *
- * Written out rather than read from `--w-*` for the same reason the label pills
- * carry their own: this element is driven by the globe's `darkMode` prop, while
- * the CSS custom properties are driven by the `dark` class on <html>. Those are
- * the same switch today and a light tooltip on a dark globe the day they are
- * not. Values mirror `world.css`; keep them in step by hand.
+ * Values mirror the PLATFORM's — `--card`, `--foreground`, `--muted-foreground`,
+ * `--border`, `--muted` from src/index.css — not the retired World system's
+ * slate-blue set this used to carry (#17212F on #1E2631). One palette on the
+ * page.
+ *
+ * Written out rather than read from the custom properties for the same reason
+ * the label pills carry their own: this element is driven by the globe's
+ * `darkMode` prop, while the CSS custom properties are driven by the `dark`
+ * class on <html>. Those are the same switch today and a light tooltip on a
+ * dark globe the day they are not. Keep them in step with index.css by hand.
  */
 const TOOLTIP_TONE = {
   light: {
     card: '#FFFFFF',
-    ink: '#17212F',
-    muted: '#56657E',
-    border: 'rgba(23, 33, 47, 0.14)',
+    ink: '#0A0A0A',
+    muted: '#737373',
+    border: '#E5E5E5',
     press: '#C2410C',
-    shadow: '0 1px 2px rgba(23, 43, 77, 0.10), 0 8px 24px rgba(23, 43, 77, 0.16)',
-    /* The logo tile's ground, and its fallback letter's — the same muted-on-
-       ground pairing `WorldLogo` uses, measuring 5.4:1 light and 6.0:1 dark. */
-    tile: '#F2F7FC',
+    shadow: '0 1px 2px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.16)',
+    /* The logo tile's ground, and its fallback letter's — `--muted`, the same
+       ground `WorldLogo` puts a fallback letter on. */
+    tile: '#F5F5F5',
   },
   dark: {
-    card: '#1E2631',
-    ink: '#EAF0F7',
-    muted: '#9FB0C4',
-    border: 'rgba(234, 240, 247, 0.20)',
+    card: '#0A0A0A',
+    ink: '#FAFAFA',
+    muted: '#A3A3A3',
+    border: '#262626',
     press: '#9A3412',
     shadow: '0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35)',
-    tile: '#263041',
+    tile: '#262626',
   },
 } as const
 
 type TooltipTone = (typeof TOOLTIP_TONE)[keyof typeof TOOLTIP_TONE]
 
 /**
- * The one face, mirroring --w-sans.
+ * The one face — `body`'s own stack from src/index.css.
  *
- * There is no TOOLTIP_MONO any more, and there must not be one again: the stake
- * band used to be set in a typewriter face here, which was the last monospace
- * left anywhere in the feature and the exact thing the World was redesigned
- * away from. A band like "$50 – $249" needs its digits to line up, not to look
- * typed, and `tabular-nums` (applied at the call site below) does that inside
- * the sans.
+ * This was the retired World system's rounded sans (`ui-rounded, "SF Pro
+ * Rounded", …`), which is what a hover over any pin on the globe rendered in
+ * while every other surface on the page was monospace. ExploreYC is a
+ * terminal-flavoured product; the tooltip is now set in the platform's face
+ * like everything else, and `tabular-nums` at the call site below still lines
+ * a band like "$50 – $249" up.
  */
-const TOOLTIP_SANS =
-  'ui-rounded, "SF Pro Rounded", "Segoe UI Variable", Inter, system-ui, sans-serif'
+const TOOLTIP_FONT =
+  "'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace"
 
 /**
  * What a pin is worth, said honestly.
@@ -206,7 +209,7 @@ function PinTooltipBody({ pin }: { pin: GlobePin }) {
     return (
       <>
         Staked{' '}
-        <span style={{ fontFamily: TOOLTIP_SANS, fontWeight: 600 }}>
+        <span style={{ fontFamily: TOOLTIP_FONT, fontWeight: 600 }}>
           unknown
         </span>
       </>
@@ -217,7 +220,7 @@ function PinTooltipBody({ pin }: { pin: GlobePin }) {
       Staked{' '}
       <span
         style={{
-          fontFamily: TOOLTIP_SANS,
+          fontFamily: TOOLTIP_FONT,
           fontVariantNumeric: 'tabular-nums',
           fontFeatureSettings: '"tnum" 1',
           fontWeight: 700,
@@ -248,7 +251,7 @@ function PinLogo({ pin, tone }: { pin: GlobePin; tone: TooltipTone }) {
     width: 34,
     height: 34,
     flex: 'none' as const,
-    borderRadius: 8,
+    borderRadius: 4,
     border: `1px solid ${tone.border}`,
   }
 
@@ -514,7 +517,22 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
           // PerformanceMonitor walks this down further if the frame rate says
           // so.
           dpr={lowPower ? [1, 1.25] : [1, 2]}
-          camera={{ position: [0.92, 1.12, 3.45], fov: 38, near: 0.1, far: 24 }}
+          /*
+           * THE FIRST FRAME, AIMED AT WHERE THE COMPANIES ARE.
+           *
+           * `[0.92, 1.12, 3.45]` looked at 17.4°N, 75.1°W — the Caribbean, with
+           * the whole of San Francisco 47° off-centre near the limb. Combined
+           * with the idle spin (now retired, see AUTO_ROTATE_BASE in
+           * GlobeScene) the page's usual first impression was open water.
+           *
+           * This is 34°N, 96°W — the middle of North America — computed through
+           * `latLngToVector3(34, -96, 3.45)`. At distance 3.45 the visible cap
+           * is 73° of arc, and the densest part of the feed sits well inside
+           * it: San Francisco 22° off-centre, New York 19°, Boston 21°,
+           * Toronto 16°, Mexico City 15°, with London on the limb at 67°. Every
+           * one of those is a real hub in the data, not a guess.
+           */
+          camera={{ position: [-0.299, 1.9292, 2.8445], fov: 38, near: 0.1, far: 24 }}
           gl={{
             antialias: !lowPower,
             // Transparent, and cleared to nothing: the page shows through, so
@@ -579,12 +597,12 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
             // an industry is a longer line than a stake band.
             maxWidth: '18rem',
             padding: '0.5rem 0.75rem',
-            borderRadius: 12,
+            borderRadius: 4,
             background: tone.card,
             border: `1px solid ${tone.border}`,
             boxShadow: tone.shadow,
             color: tone.ink,
-            fontFamily: TOOLTIP_SANS,
+            fontFamily: TOOLTIP_FONT,
             fontSize: 13,
             lineHeight: 1.4,
           }}
@@ -679,7 +697,7 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
                     display: 'inline-block',
                     marginTop: 6,
                     padding: '2px 7px',
-                    borderRadius: 6,
+                    borderRadius: 2,
                     background: tone.press,
                     color: '#FFFFFF',
                     fontSize: 11,

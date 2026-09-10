@@ -133,6 +133,9 @@ function PlotCard({ pin, plot }: { pin: GlobePin; plot: WorldPlot | undefined })
  *
  * Says exactly what it is — available space with a price — and never dresses
  * itself up as a company that has not bought anything.
+ *
+ * ONE of these renders, and only ever beside plots that HAVE sold: see the
+ * zero-plot branch below, which does not use this card at all.
  */
 function VacantCard() {
   return (
@@ -158,23 +161,86 @@ function VacantCard() {
   )
 }
 
-/** The card that ends an empty grid on an action rather than on a shrug. */
-function ClaimCard() {
+/**
+ * DAY ONE. The state every Product Hunt visitor sees.
+ *
+ * This used to be two grey dashed "Your logo here" ghosts with a small claim
+ * card beside them, and it read exactly like an unfinished grid — three empty
+ * boxes where the product's proof is supposed to be. Nothing was dishonest
+ * about it; it just made the launch look like a page that had failed to load
+ * its data.
+ *
+ * So the zero-plot case stops pretending to be a grid of cards it does not
+ * have. One deliberate panel: the fact, the offer, the three things that
+ * actually happen when you take it, and the price. It is the same pitch, told
+ * as an invitation rather than as three absences — and the honesty is
+ * unchanged, because nothing here invents a company, a logo or an amount. The
+ * `$5` is <Money cents={MIN_STAKE_CENTS}>, the same constant the server
+ * enforces, not a typed number.
+ */
+const FIRST_PLOT_STEPS: readonly [string, string][] = [
+  ['Pick a coordinate', 'Anywhere on Earth. Real lat/lng, named, yours.'],
+  ['Plant your logo', 'It draws on the globe and on your plot page.'],
+  ['Hold it', 'Anyone who wants your spot has to outstake you for it.'],
+]
+
+function FirstPlotPanel() {
   return (
-    <div className={cn(CARD_CLASS, 'border-[#FB651E]/40 bg-[#FB651E]/[0.05]')}>
-      <p className="text-base font-bold leading-snug tracking-tight text-foreground">
-        Nobody has taken a plot yet.
-      </p>
-      <p className="text-sm text-muted-foreground">
-        First one in gets the pick of the planet — and #1 on the board with it.
-      </p>
-      <Link
-        to="/world/claim"
-        className={worldButtonClass('primary', 'md', { block: true, className: 'mt-auto' })}
-      >
-        Claim the first plot
-        <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-      </Link>
+    <div
+      className={cn(
+        WORLD_CARD_CLASS,
+        'border-[#FB651E]/40 bg-[#FB651E]/[0.04] p-5 hover:border-[#FB651E]/40',
+        'hover:shadow-none sm:p-7'
+      )}
+    >
+      <div className="min-w-0">
+        <WorldChip tone="accent" className="mb-3">
+          The planet is empty
+        </WorldChip>
+        <p className="text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl">
+          Nobody has taken a plot yet.
+        </p>
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          Every coordinate on Earth is still open. The first plot on the board is
+          #1 on the board, and it stays there until somebody outstakes it.
+        </p>
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <Link to="/world/claim" className={worldButtonClass('primary', 'lg')}>
+            Claim the first plot
+            <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+          </Link>
+          <p className="text-sm text-muted-foreground">
+            <Money cents={MIN_STAKE_CENTS} className="text-[#FB651E]" /> claims it.
+          </p>
+        </div>
+      </div>
+
+      {/* The three steps, as a numbered list rather than as prose: this is the
+          one place on the page that says what buying actually DOES, and a
+          visitor who is deciding reads a list. Across the panel's full width
+          from `sm` — a column of three parked in the right quarter left a hole
+          in the middle of the panel at wide viewports, which is the same
+          "composition that stops at 1440" problem the stage had. */}
+      <ol className="m-0 mt-6 grid list-none gap-4 border-t border-[#FB651E]/25 p-0 pt-5 sm:grid-cols-3 sm:gap-6">
+        {FIRST_PLOT_STEPS.map(([title, body], i) => (
+          <li key={title} className="flex min-w-0 items-start gap-3">
+            <span
+              aria-hidden
+              className="world-num grid h-6 w-6 shrink-0 place-items-center rounded-sm border border-[#FB651E]/40 bg-background/60 text-xs font-bold text-[#FB651E]"
+            >
+              {i + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-bold leading-tight text-foreground">
+                {title}
+              </span>
+              <span className="mt-1 block text-xs leading-snug text-muted-foreground">
+                {body}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
@@ -223,23 +289,29 @@ export function PaidShowcase({ pins, limit = 6, className }: PaidShowcaseProps) 
     <section aria-label="Plots on the globe" className={cn('min-w-0', className)}>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
+          {/* The line under the heading changes on the empty case, and the
+              second CTA goes away: "Every one of these is a real company that
+              paid" printed over nothing is a sentence about nothing, and a
+              button here is noise beside a panel that is itself one big CTA.
+              No count is quoted — the number of imported companies is a fact
+              the globe's own legend already carries, from the live feed. */}
           <WorldHeading level={2}>On the globe right now</WorldHeading>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every one of these is a real company that paid for its coordinates.
+            {paid.length === 0
+              ? 'Nobody has claimed a coordinate yet. The whole planet is still open.'
+              : 'Every one of these is a real company that paid for its coordinates.'}
           </p>
         </div>
-        <Link to="/world/claim" className={worldButtonClass('primary', 'md')}>
-          Claim your plot — from $5
-          <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-        </Link>
+        {paid.length === 0 ? null : (
+          <Link to="/world/claim" className={worldButtonClass('primary', 'md')}>
+            Claim your plot — from $5
+            <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+          </Link>
+        )}
       </div>
 
       {paid.length === 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <VacantCard />
-          <VacantCard />
-          <ClaimCard />
-        </div>
+        <FirstPlotPanel />
       ) : (
         <ul className="grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3">
           {paid.map((pin, i) => (

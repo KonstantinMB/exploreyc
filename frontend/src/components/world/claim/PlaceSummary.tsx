@@ -135,7 +135,7 @@ export function PlaceSummary({ place, onPickCity }: PlaceSummaryProps) {
             </>
           ) : (
             <>
-              <span className="truncate text-[1.25rem] font-bold leading-tight text-foreground">
+              <span className="truncate text-xl font-bold leading-tight text-foreground">
                 {placeLabel(place.where)}
               </span>
               {/* Whether the pin is close enough to a city to compete on a

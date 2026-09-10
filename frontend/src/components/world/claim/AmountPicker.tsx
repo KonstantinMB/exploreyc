@@ -375,7 +375,7 @@ function ScopeRow({ scope, place, needed, amountCents, onTake }: ScopeRowProps) 
         {/* The largest thing on the screen, and the reason it exists. */}
         <Money
           cents={needed}
-          className="text-[1.75rem] font-bold leading-none tracking-tight text-[#FB651E]"
+          className="text-3xl font-bold leading-none tracking-tight text-[#FB651E]"
         />
         <span className="text-sm leading-snug text-muted-foreground">
           takes #1 in <span className="font-semibold text-foreground">{place}</span>

@@ -153,33 +153,42 @@ export function useLabelSurface(): HTMLDivElement | null {
 // ---------------------------------------------------------------------------
 
 /**
- * The World design system's sans stack, verbatim from `world.css` `--w-sans`.
+ * THE PLATFORM'S FACE. Not a stack of this feature's own.
  *
- * Every string on this map is prose — a city, a country, a company, "unclaimed"
- * — and prose is set in the sans face. The monospace this file used to use
- * everywhere was the terminal idiom the feature is leaving; monospace is now
- * reserved for money and ranks, which live in the boards and the pin tooltip,
- * not here. (The one numeral on a pill, "3 pins", stays sans with tabular
- * figures: it is a sentence with a number in it, not a column to align.)
+ * This used to be `ui-rounded, "SF Pro Rounded", …` — the retired World design
+ * system's rounded sans, kept alive here long after `world.css` dropped it. It
+ * was the single loudest "this is a different app" signal on the page: on macOS
+ * `ui-rounded` resolves to SF Pro Rounded, so the *largest text on the stage* —
+ * every country and city name across the globe — rendered in a soft rounded
+ * sans while the navbar directly above it, the hero beside it, and every other
+ * ExploreYC route were monospace.
+ *
+ * It is now `body`'s own stack from src/index.css, byte for byte. One face on
+ * the page.
  *
  * The string is shared between the injected stylesheet and the canvas probe on
  * purpose: measuring one family and rendering another is the single easiest
  * way to end up with labels that overlap despite a collision test that works.
  */
-const SANS =
-  'ui-rounded, "SF Pro Rounded", "Segoe UI Variable", Inter, system-ui, sans-serif'
+const LABEL_FONT =
+  "'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace"
 
 /**
- * Kept in step with the stylesheet below, by hand. `title` is the country
- * pill's own role and is heavier than the rest because that pill is a button.
+ * Kept in step with the stylesheet below, by hand.
+ *
+ * On the platform's type scale — 12px for a name, 11px for meta — rather than
+ * the 12/13/11 grab-bag this carried. `title` is the country pill's own role
+ * and is the same SIZE as a city name now, distinguished by weight: monospace
+ * is wider than the sans this replaced, and a 13px country pill priced several
+ * neighbours off the map for a difference nobody could see.
  */
 const FONT_SPEC: Record<
   LabelFontRole,
   { weight: string; size: number; family: string }
 > = {
-  name: { weight: '600', size: 12, family: SANS },
-  title: { weight: '700', size: 13, family: SANS },
-  meta: { weight: '600', size: 11, family: SANS },
+  name: { weight: '600', size: 12, family: LABEL_FONT },
+  title: { weight: '700', size: 12, family: LABEL_FONT },
+  meta: { weight: '600', size: 11, family: LABEL_FONT },
 }
 
 /**
@@ -202,9 +211,9 @@ function createMeasurer(host: HTMLElement) {
   // Replaced by `resolve()` with the family the browser actually picked; these
   // are only what gets measured in the frames before that runs.
   const fonts: Record<LabelFontRole, string> = {
-    name: '600 12px system-ui, sans-serif',
-    title: '700 13px system-ui, sans-serif',
-    meta: '600 11px system-ui, sans-serif',
+    name: `600 12px ${LABEL_FONT}`,
+    title: `700 12px ${LABEL_FONT}`,
+    meta: `600 11px ${LABEL_FONT}`,
   }
 
   function resolve() {
@@ -365,23 +374,29 @@ const CSS_ID = 'world-lod-label-styles'
  * The map underneath a label is pale blue in one place, near-white land in
  * another, and a saturated claim fill in a third — there is no single text
  * colour that clears 4.5:1 against all of them. A solid pill removes the
- * question, and the pill's own pairs are the World tokens' own, measured in
- * `world.css` and repeated here:
+ * question, and the pill's own pairs are now the PLATFORM's, mirroring the
+ * `--card` / `--foreground` / `--muted-foreground` / `--border` values
+ * src/index.css declares for `:root` and `.dark`:
  *
- *   light: ink #17212F on card #FFFFFF = 16.22:1,  muted #56657E = 5.90:1
- *   dark:  ink #EAF0F7 on card #1E2631 = 13.30:1,  muted #9FB0C4 = 6.89:1
+ *   light: ink #0A0A0A on card #FFFFFF = 19.83:1,  muted #737373 = 4.74:1
+ *   dark:  ink #FAFAFA on card #0A0A0A = 18.94:1,  muted #A3A3A3 = 7.34:1
  *   Promoted chip: #FFFFFF on #C2410C = 5.18:1 (light) / on #9A3412 = 7.31:1
  *
  * All clear WCAG AA (most AAA) everywhere, at every zoom, over every country.
  *
+ * They used to be the retired World system's slate-blue set (#17212F ink on a
+ * #1E2631 card) — legible, and a second palette. A blue-grey pill floating over
+ * a page whose every other card is neutral is the same "two products on one
+ * screen" problem the rounded sans was.
+ *
  * WHY THE VALUES ARE COPIED RATHER THAN INHERITED. These pills are appended
  * next to the canvas and are driven by the globe's own `darkMode` prop, which
- * is the same boolean the terrain palette reads. Inheriting `--w-*` from an
- * ancestor `.world-root` would instead couple them to the `dark` class on
- * <html>, so a globe rendered with `darkMode` set one way inside a page themed
- * the other would produce dark pills on a light map. Local `--lod-*` tokens,
- * seeded from the same design tokens, keep pills and terrain incapable of
- * disagreeing. Keep them in step with `world.css` by hand.
+ * is the same boolean the terrain palette reads. Inheriting the HSL custom
+ * properties from an ancestor `.world-root` would instead couple them to the
+ * `dark` class on <html>, so a globe rendered with `darkMode` set one way
+ * inside a page themed the other would produce dark pills on a light map.
+ * Local `--lod-*` tokens, seeded from the platform's own values, keep pills and
+ * terrain incapable of disagreeing. Keep them in step with index.css by hand.
  *
  * No backticks anywhere in this stylesheet — it lives inside a template
  * literal and a backtick closes it.
@@ -390,28 +405,27 @@ const LABEL_CSS = `
 .world-lod-surface {
   --lod-card: #ffffff;
   /* A white pill cannot brighten, so the light theme's hover warms instead:
-     the accent at about 5% over white. ink #17212F on it is 15.22:1, muted
-     #56657E is 5.54:1 — both still clear AA. (Dark's #263041 measures 11.57:1
-     and 6.00:1 for the same pair.) */
-  --lod-card-hi: #fff6f1;
-  --lod-ink: #17212f;
-  --lod-muted: #56657e;
-  --lod-border: rgba(23, 33, 47, 0.14);
-  --lod-edge: rgba(23, 33, 47, 0.20);
+     the accent at a few percent over white, the same wash the platform's rows
+     use. ink #0A0A0A on it is 18.9:1, muted #737373 is 4.58:1 — both still
+     clear AA. */
+  --lod-card-hi: #fff8f4;
+  --lod-ink: #0a0a0a;
+  --lod-muted: #737373;
+  --lod-border: #e5e5e5;
   --lod-accent: #fb651e;
   --lod-accent-text: #c2410c;
   --lod-press: #c2410c;
   --lod-press-ink: #ffffff;
-  --lod-shadow: 0 1px 2px rgba(23, 43, 77, 0.10), 0 4px 12px rgba(23, 43, 77, 0.12);
-  --lod-shadow-hi: 0 2px 4px rgba(23, 43, 77, 0.14), 0 10px 22px rgba(23, 43, 77, 0.18);
+  --lod-shadow: 0 1px 2px rgba(0, 0, 0, 0.10), 0 4px 12px rgba(0, 0, 0, 0.12);
+  --lod-shadow-hi: 0 2px 4px rgba(0, 0, 0, 0.14), 0 10px 22px rgba(0, 0, 0, 0.18);
 }
 .world-lod-surface.world-lod-dark {
-  --lod-card: #1e2631;
-  --lod-card-hi: #263041;
-  --lod-ink: #eaf0f7;
-  --lod-muted: #9fb0c4;
-  --lod-border: rgba(234, 240, 247, 0.20);
-  --lod-edge: rgba(0, 0, 0, 0.55);
+  --lod-card: #0a0a0a;
+  /* --muted / --secondary in the dark theme. ink 14.5:1, muted 5.99:1. */
+  --lod-card-hi: #262626;
+  --lod-ink: #fafafa;
+  --lod-muted: #a3a3a3;
+  --lod-border: #262626;
   --lod-accent-text: #fb651e;
   --lod-press: #9a3412;
   --lod-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.35);
@@ -427,18 +441,20 @@ const LABEL_CSS = `
   gap: ${LABEL_GAP}px;
   height: ${LABEL_HEIGHT.city}px;
   padding: 0 ${LABEL_PAD_X}px;
-  /* Chip radius, from the design tokens. The pressable country pill takes the
-     full pill radius below, so shape alone says which labels are buttons. */
-  border-radius: 10px;
+  /* rounded-sm — calc(var(--radius) - 4px), the same 4px every card, button
+     and chip on the platform wears. It used to be 10px here and 9999px on the
+     country pill, i.e. a chip radius and a full pill that exist nowhere else in
+     ExploreYC. Which labels are buttons is said by the chevron, the hard edge
+     and the hover state, none of which needed a bespoke shape to carry them. */
+  border-radius: 4px;
   background: var(--lod-card);
   border: 1px solid var(--lod-border);
   box-shadow: var(--lod-shadow);
   color: var(--lod-ink);
-  font-family: ${SANS};
+  font-family: ${LABEL_FONT};
   font-weight: 600;
   font-size: 12px;
   line-height: 1;
-  letter-spacing: -0.01em;
   white-space: nowrap;
   opacity: 0;
   visibility: hidden;
@@ -452,9 +468,7 @@ const LABEL_CSS = `
 .world-lod--country {
   height: ${LABEL_HEIGHT.country}px;
   padding: 0 ${LABEL_PAD_COUNTRY}px;
-  border-radius: 9999px;
   font-weight: 700;
-  font-size: 13px;
 }
 /*
   Country pills are the one label layer you can press.
@@ -463,15 +477,21 @@ const LABEL_CSS = `
   everywhere, and this opts a single layer back in. City pills stay inert
   deliberately: they are dense, they overlap, and turning them into targets
   would put a hundred small click-eaters over a sphere whose main interaction
-  is a drag. They also keep the chip radius and the flat shadow, so a passive
+  is a drag. They also keep the flat shadow and carry no chevron, so a passive
   caption never wears a button's clothes.
+
+  THE HARD PRESS EDGE IS GONE. This used to layer a "0 3px 0" offset shadow
+  under the pill and collapse it on :active — the retired World design system's
+  physical-button idiom, the exact thing ui.tsx's own header says was removed
+  from every other control ("full-pill buttons with a 4px press edge … All of it
+  is gone"). It survived here because these pills are injected CSS rather than
+  Tailwind. The affordance is now the platform's, and identical to
+  WorldRowButton's: a hairline border that turns orange, the ground washing
+  toward the accent, and the chevron nudging right.
 */
 .world-lod--country.is-pressable {
   pointer-events: auto;
   cursor: pointer;
-  /* The physical edge: a hard offset shadow the press collapses. Layered with
-     the ambient shadow, so the pill is a thing sitting on the map. */
-  box-shadow: 0 3px 0 var(--lod-edge), var(--lod-shadow);
   transition: box-shadow 90ms ease-out, background-color 90ms ease-out,
     border-color 90ms ease-out;
 }
@@ -480,15 +500,13 @@ const LABEL_CSS = `
 
   The frame loop writes a translate3d transform on this exact element sixty
   times a second to position it against the sphere, and anything declared here
-  is overwritten on the next frame. The press is therefore expressed as the
-  edge collapsing while the pill's CHILDREN drop into it — a transform on a
-  descendant is ours to use, and reads as the same physical press the buttons
-  elsewhere in World make.
+  is overwritten on the next frame. Any motion in a state below therefore has to
+  live on a DESCENDANT — which is why the hover nudge is on the chevron.
 */
 .world-lod--country.is-pressable:hover {
   background: var(--lod-card-hi);
   border-color: var(--lod-accent);
-  box-shadow: 0 3px 0 var(--lod-press), var(--lod-shadow-hi);
+  box-shadow: var(--lod-shadow-hi);
 }
 .world-lod--country.is-pressable:focus-visible {
   outline: none;
@@ -498,15 +516,11 @@ const LABEL_CSS = `
      then a hairline of --lod-accent-text so the indicator clears 3:1 against
      pale land as well as against the pill. */
   box-shadow: 0 0 0 2px var(--lod-card), 0 0 0 5px var(--lod-accent),
-    0 0 0 6px var(--lod-accent-text), 0 3px 0 var(--lod-press),
-    var(--lod-shadow-hi);
+    0 0 0 6px var(--lod-accent-text), var(--lod-shadow-hi);
 }
 .world-lod--country.is-pressable:active {
-  box-shadow: 0 1px 0 var(--lod-press), var(--lod-shadow);
-}
-.world-lod--country.is-pressable:active .world-lod__name,
-.world-lod--country.is-pressable:active .world-lod__meta {
-  transform: translateY(2px);
+  background: var(--lod-card);
+  box-shadow: var(--lod-shadow);
 }
 .world-lod__name,
 .world-lod__meta,
@@ -516,7 +530,7 @@ const LABEL_CSS = `
   transition: transform 60ms ease-out, color 90ms ease-out;
 }
 .world-lod__meta {
-  font-family: ${SANS};
+  font-family: ${LABEL_FONT};
   font-weight: 600;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -532,7 +546,7 @@ const LABEL_CSS = `
 */
 .world-lod__meta--promoted {
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--lod-press);
   color: var(--lod-press-ink);
   font-weight: 700;
@@ -576,12 +590,11 @@ const LABEL_CSS = `
 }
 /*
   A pressed pill is always also a hovered pill, and these two rules have equal
-  specificity — so this one has to come last, and has to carry BOTH offsets. Put
-  it above the hover rule and the chevron sits still while the rest of the label
-  drops, which is a press that only half happened.
+  specificity — so this one has to come last or the press would not read at all.
+  The chevron travels a little further in, then springs back on release.
 */
 .world-lod--country.is-pressable:active .world-lod__chevron {
-  transform: translate(2px, 2px);
+  transform: translateX(4px);
 }
 .world-lod--country.is-pressable:hover .world-lod__meta,
 .world-lod--country.is-pressable:focus-visible .world-lod__meta {
@@ -596,8 +609,9 @@ const LABEL_CSS = `
 }
 /*
   Reduced motion: every state above still arrives, it just stops moving. The
-  chevron keeps its colour change, the press keeps its collapsing edge, and the
-  content stops sliding — nothing that carries information is animation-only.
+  chevron keeps its colour change, hover keeps its border and its ground, and
+  the content stops sliding — nothing that carries information is
+  animation-only.
 */
 @media (prefers-reduced-motion: reduce) {
   .world-lod--country.is-pressable,
@@ -606,8 +620,6 @@ const LABEL_CSS = `
   .world-lod__chevron {
     transition-duration: 1ms;
   }
-  .world-lod--country.is-pressable:active .world-lod__name,
-  .world-lod--country.is-pressable:active .world-lod__meta,
   .world-lod--country.is-pressable:active .world-lod__chevron {
     transform: none;
   }

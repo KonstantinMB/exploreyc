@@ -167,53 +167,113 @@ export default function WorldPage() {
             canvas inside a zero-height box is an invisible globe. The floor
             keeps a stage no matter what. */}
         <div className="relative w-full" style={{ height: STAGE_HEIGHT, minHeight: '19rem' }}>
-          <Suspense fallback={<GlobeLoading />}>
-            <LazyWorldGlobe
-              plots={layers.visiblePins}
-              darkMode={darkMode}
-              focus={focus}
-              // Touch the controls and the tour is over. An auto-flight that
-              // keeps yanking the camera back is worse than no tour at all.
-              onInteract={tour.stop}
-              onSelectPlot={(id) => navigate(`/world/p/${id}`)}
-              onSelectSeed={setSeedPin}
-              onSelectCountry={(iso) => navigate(`/world/c/${iso}`)}
-              className="absolute inset-0"
-            />
-          </Suspense>
-
           {/*
-            The scrim. The canvas is cleared to transparent, so the globe sits
-            directly on the page ground and a gradient in that same ground
-            colour reads as depth rather than as a panel laid over the map.
-            Written as an inline gradient because Tailwind's opacity modifier
-            cannot be applied to a CSS variable colour — `color-mix` can.
-            Vertical on phones, where the copy spans the width; horizontal from
-            640px, where it does not.
+            THE STAGE IS A BAND; THE COMPOSITION INSIDE IT IS NOT.
+
+            The border-y band still runs edge to edge, because that is how every
+            other ExploreYC section marks itself off. What used to run edge to
+            edge with it was the *content*: the globe centred in the raw
+            viewport, the hero pinned to its left edge and the region rail to
+            its right. Past about 1440px that stopped being a layout — at 2560
+            the rail sat 24px from the browser edge, roughly 300px outside the
+            column the navbar and every section below use, and the space
+            between the headline and the globe was simply void.
+
+            `container` is the platform's own shell — the exact class, and so
+            the exact responsive max-widths, that <Navbar> and <PageHeader> sit
+            in. Everything on the stage now lives inside it, so the page has one
+            column from the nav to the footer and the composition stops growing
+            at the width it was designed for.
           */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 sm:hidden"
-            style={{
-              backgroundImage:
-                'linear-gradient(to bottom, hsl(var(--background)) 0%, color-mix(in srgb, hsl(var(--background)) 62%, transparent) 42%, transparent 74%)',
-            }}
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 hidden sm:block"
-            style={{
-              backgroundImage:
-                'linear-gradient(105deg, hsl(var(--background)) 0%, color-mix(in srgb, hsl(var(--background)) 70%, transparent) 34%, transparent 62%)',
-            }}
-          />
+          <div className="container relative mx-auto h-full px-0">
+            {/*
+              The canvas box. Full-bleed inside the column below `xl`, where the
+              hero spans the width and the globe is its backdrop; from `xl` up it
+              gives up its left 38% and the page becomes a real two-column
+              layout — copy on the left, globe on the right, neither on top of
+              the other. `xl` rather than `lg` because at 1024 the left third is
+              only ~360px and the two hero buttons wrap onto separate rows in it;
+              1280 is the first width where a real column fits.
+            */}
+            <div className="absolute inset-y-0 left-0 right-0 xl:left-[38%]">
+              <Suspense fallback={<GlobeLoading />}>
+                <LazyWorldGlobe
+                  plots={layers.visiblePins}
+                  darkMode={darkMode}
+                  focus={focus}
+                  // Touch the controls and the tour is over. An auto-flight that
+                  // keeps yanking the camera back is worse than no tour at all.
+                  onInteract={tour.stop}
+                  onSelectPlot={(id) => navigate(`/world/p/${id}`)}
+                  onSelectSeed={setSeedPin}
+                  onSelectCountry={(iso) => navigate(`/world/c/${iso}`)}
+                  className="absolute inset-0"
+                />
+              </Suspense>
+            </div>
+
+            {/*
+              The scrim. The canvas is cleared to transparent, so the globe sits
+              directly on the page ground and a gradient in that same ground
+              colour reads as depth rather than as a panel laid over the map.
+              Written as an inline gradient because Tailwind's opacity modifier
+              cannot be applied to a CSS variable colour — `color-mix` can.
+
+              Both stop at `xl`, and that is the point of the two-column split:
+              a scrim exists to keep copy legible where it lies ON the globe, and
+              from `xl` up it no longer does. Left running, the horizontal one
+              would wash out the globe's own left limb for no reason.
+            */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 sm:hidden"
+              style={{
+                /*
+                  Stronger through the top half than it used to be (62% at 42%,
+                  clear by 74%). On a 375px phone the stage is ~600px and the
+                  pitch occupies the top 250 of it, which is exactly where the
+                  country pills land — and a pill is a SOLID card with its own
+                  border, so at 38% wash it still put a white box and a grey word
+                  behind "No prize, no payout, no refund." A label a visitor
+                  cannot read anyway is worth less than the one line of legal
+                  copy on the page, so the top of the globe goes under the
+                  ground and the sphere keeps its bottom two thirds.
+                */
+                backgroundImage:
+                  'linear-gradient(to bottom, hsl(var(--background)) 0%, hsl(var(--background)) 42%, color-mix(in srgb, hsl(var(--background)) 78%, transparent) 55%, color-mix(in srgb, hsl(var(--background)) 30%, transparent) 70%, transparent 84%)',
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 hidden sm:block xl:hidden"
+              style={{
+                backgroundImage:
+                  'linear-gradient(105deg, hsl(var(--background)) 0%, color-mix(in srgb, hsl(var(--background)) 70%, transparent) 34%, transparent 62%)',
+              }}
+            />
 
           {/* Everything on the glass. The wrapper is inert so a drag that
               starts on empty space still spins the globe; each island opts
               back in. */}
-          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between gap-4 p-4 sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-            <div className="pointer-events-auto max-w-xl">
+          {/* `px-4`, not `px-6`, from `sm` up: that is <Navbar>'s and
+              <PageHeader>'s gutter inside the same `container`, so the chip,
+              the headline and the region rail line up with the nav items above
+              them to the pixel rather than to within eight of them. */}
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between gap-4 p-4 sm:py-6">
+            {/* `flex-1` so this row owns the height the legend row does not
+                want, and `xl:self-center` on the copy inside it so the pitch
+                sits opposite the middle of the globe rather than stranded at
+                the top of a 42rem band with a column of nothing under it. The
+                controls stay pinned to the corner — `items-start` is still the
+                row's default. */}
+            <div className="flex flex-1 items-start justify-between gap-4">
+            {/* `min-w-0` so this column can actually shrink: without it the
+                headline's intrinsic width is the flex floor, and the controls
+                beside it get squeezed past their own content — which is how a
+                row of region chips ends up under the viewport edge. From `xl`
+                the column is bounded to the left third, which is what makes the
+                globe's half genuinely its own. */}
+            <div className="pointer-events-auto min-w-0 max-w-xl xl:max-w-[36%] xl:self-center">
               <WorldChip tone="accent" className="mb-3">
                 Advertising space on a live globe
               </WorldChip>
@@ -253,7 +313,7 @@ export default function WorldPage() {
             <GlobeControls
               onFocus={handleFocus}
               tour={tour}
-              className="pointer-events-auto hidden sm:flex"
+              className="pointer-events-auto hidden shrink-0 sm:flex"
             />
             </div>
 
@@ -318,6 +378,7 @@ export default function WorldPage() {
               <GlobePodium className="pointer-events-auto hidden w-[22rem] max-w-[45%] lg:block" />
             </div>
           </div>
+          </div>
         </div>
       </section>
 
@@ -325,7 +386,7 @@ export default function WorldPage() {
           Renders nothing at all when there is no activity, so an empty product
           gets no empty strip. */}
       <div className="border-b border-border bg-card/40">
-        <div className="mx-auto max-w-6xl px-4 py-2">
+        <div className="container mx-auto px-4 py-2">
           <PulseTicker className="border-0 bg-transparent backdrop-blur-none hover:border-0 hover:shadow-none dark:border-0 dark:bg-transparent" />
         </div>
       </div>
@@ -334,7 +395,7 @@ export default function WorldPage() {
           Fed the WHOLE feed, not `visiblePins`: a filter is a question about
           the imported layer, and it must never be able to empty the window of
           paid placements. */}
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:py-14">
+      <div className="container mx-auto px-4 py-10 sm:py-14">
         <PaidShowcase pins={pins} />
       </div>
 
@@ -363,7 +424,7 @@ export default function WorldPage() {
           renders NOTHING when there are no active promotions — which is the
           state production is in. In a grid that leaves a conspicuous empty
           half; in a flex row the activity card simply takes the width. */}
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-10 sm:py-14 lg:flex-row lg:[&>*]:flex-1">
+      <div className="container mx-auto flex flex-col gap-4 px-4 py-10 sm:py-14 lg:flex-row lg:[&>*]:flex-1">
         <FeaturedRail />
         <WorldCard as="section" aria-label="Recent activity" className="px-4 pb-3 pt-4">
           <WorldHeading level={3} className="mb-1">

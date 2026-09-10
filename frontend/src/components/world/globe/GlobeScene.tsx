@@ -71,8 +71,27 @@ const DRAG_SLOP = 4
 
 const ZOOM_SPEED_BASE = 0.62
 const ROTATE_SPEED_BASE = 0.42
-/** Idle spin, also scaled with distance — at close range the ground whips past. */
-const AUTO_ROTATE_BASE = 0.28
+/**
+ * Idle spin. ZERO, and that is a fix rather than a saving.
+ *
+ * The globe used to turn on its own forever, at 0.28, from the moment it
+ * mounted. A visitor who opened /world and read the headline before looking up
+ * found the planet had drifted a quarter turn west into open Pacific: Russia,
+ * the Philippines, Papua New Guinea and several thousand kilometres of empty
+ * blue, with every YC company off the far side of the world. The most common
+ * first impression of the page was therefore a blank ocean, and no amount of
+ * choosing a good STARTING view fixes a camera that leaves it.
+ *
+ * OrbitControls cannot bounce — clamping the azimuth would stall the spin at a
+ * wall and clamp the visitor's own drag with it — so "alive" is carried by the
+ * things that carry it on purpose instead: the promoted beacons, the pin pops,
+ * the pulse ticker, the region rail and the hub tour. The camera holds the
+ * dense hemisphere until somebody asks it to move.
+ *
+ * Left as a named constant, wired through, and scaled with distance exactly as
+ * before, so restoring an idle drift is one number.
+ */
+const AUTO_ROTATE_BASE = 0
 
 /**
  * How much of the angle between the cursor and the screen centre a single
@@ -369,7 +388,10 @@ function Rig({
     if (!controls) return
 
     controls.autoRotate =
-      !reducedMotion && !flying.current && performance.now() >= resumeAt.current
+      AUTO_ROTATE_BASE > 0 &&
+      !reducedMotion &&
+      !flying.current &&
+      performance.now() >= resumeAt.current
 
     const distance = camera.position.length()
     controls.zoomSpeed = zoomSpeedForDistance(distance, ZOOM_SPEED_BASE)
@@ -470,7 +492,7 @@ function Rig({
       zoomSpeed={ZOOM_SPEED_BASE}
       minDistance={MIN_DISTANCE}
       maxDistance={MAX_DISTANCE}
-      autoRotate={!reducedMotion}
+      autoRotate={AUTO_ROTATE_BASE > 0 && !reducedMotion}
       autoRotateSpeed={AUTO_ROTATE_BASE}
       onStart={() => {
         resumeAt.current = Number.POSITIVE_INFINITY
