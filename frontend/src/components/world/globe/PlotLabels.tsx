@@ -62,13 +62,45 @@ const OFFSCREEN_SLACK = 80
  */
 const PROMOTED_PRIORITY = 1e12
 
+/**
+ * How many top-ranked PAID plots are named at EVERY distance, orbit included —
+ * on top of every promoted pin, which is always named regardless.
+ *
+ * A paid plot whose name only appears once somebody has zoomed into its city is
+ * a paid plot most visitors never see the name of, and the name is most of what
+ * was bought. Twelve is what a globe seen whole can carry without the pills
+ * becoming the terrain; below the fold of the ladder the rest of the paid layer
+ * still arrives on approach exactly as it did.
+ *
+ * Ranked by stake, so the names that survive from orbit are the ones that paid
+ * the most to be there — the same rule the logo tiles use for their slots.
+ */
+const ALWAYS_LABELLED_PAID = 12
+
 export interface PlotLabelsProps {
   pins: readonly GlobePin[]
   palette: GlobePalette
   enabled?: boolean
+  /**
+   * Pin id → half-width, in CSS pixels, of the logo tile drawn on that pin this
+   * frame. Written by `LogoMarkers`, which is mounted ahead of this layer so the
+   * map is fresh rather than a frame stale.
+   *
+   * A pill anchored `LABEL_LEADER` px from the pin's centre lands underneath a
+   * 42px tile centred on the same point. Rather than let the collision pass
+   * resolve that by dropping one of them — which would mean either an advertiser
+   * with no name or a name with no logo — the pill steps out past the tile's
+   * edge, and drops its colour swatch, because the logo IS the swatch.
+   */
+  logoClaims?: React.RefObject<Map<string, number> | null>
 }
 
-export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
+export function PlotLabels({
+  pins,
+  palette,
+  enabled = true,
+  logoClaims,
+}: PlotLabelsProps) {
   const surface = useLabelSurface()
 
   /**
@@ -80,6 +112,8 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
     const count = pins.length
     const dirs = new Float32Array(count * 3)
     const ids = new Array<string>(count)
+    /** The pin's own id, for looking a logo claim up by. */
+    const pinIds = new Array<string>(count)
     const names = new Array<string>(count)
     const metas = new Array<string>(count)
     const colors = new Array<string>(count)
@@ -93,6 +127,7 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
       dirs[i * 3 + 1] = v.y
       dirs[i * 3 + 2] = v.z
       ids[i] = `p${pin.id}`
+      pinIds[i] = pin.id
       names[i] = pin.name
       metas[i] = pin.promoted
         ? 'Promoted'
@@ -113,14 +148,26 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
     scratch.sort((a, b) => priority[b] - priority[a])
     for (let i = 0; i < count; i += 1) order[i] = scratch[i]
 
-    return { count, dirs, ids, names, metas, colors, priority, order }
+    return { count, dirs, ids, pinIds, names, metas, colors, priority, order }
   }, [pins, palette])
 
-  /** How many leading entries of `order` are promoted — they skip the gate. */
-  const promotedCount = useMemo(() => {
-    let n = 0
-    for (let i = 0; i < pins.length; i += 1) if (pins[i].promoted) n += 1
-    return n
+  /**
+   * How many leading entries of `order` skip the distance gate.
+   *
+   * `order` is promoted-first, then paid by tier, then seeds — so the leading
+   * run is exactly the paid layer, best-funded first, and "the top N paid" is a
+   * prefix length rather than a search. Every promoted pin is in it by
+   * construction (they sort above the rest of paid), which is what keeps the
+   * paid-placement disclosure visible at every distance.
+   */
+  const alwaysCount = useMemo(() => {
+    let promoted = 0
+    let paid = 0
+    for (let i = 0; i < pins.length; i += 1) {
+      if (pins[i].promoted) promoted += 1
+      if (pins[i].kind === 'plot') paid += 1
+    }
+    return Math.min(paid, promoted + ALWAYS_LABELLED_PAID)
   }, [pins])
 
   const poolRef = useRef<LabelPool | null>(null)
@@ -136,6 +183,8 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
   }, [surface])
 
   const slotPin = useMemo(() => new Int32Array(PLOT_POOL).fill(-1), [])
+  /** Whether the slot was last dressed with its swatch hidden by a logo tile. */
+  const slotLogo = useMemo(() => new Int8Array(PLOT_POOL).fill(-1), [])
 
   const scratch = useMemo(
     () => ({
@@ -144,6 +193,8 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
       alpha: [] as number[],
       x: [] as number[],
       y: [] as number[],
+      /** Half-width of the logo tile this pill stepped around, or 0. */
+      logo: [] as number[],
     }),
     [],
   )
@@ -156,13 +207,15 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
       s.alpha.length = 0
       s.x.length = 0
       s.y.length = 0
+      s.logo.length = 0
 
       if (!enabled || data.count === 0 || !poolRef.current) return
 
+      const claims = logoClaims?.current ?? null
       const tierAlpha = plotLabelFade(frame.distance)
-      // Promoted pills survive at every distance; the rest of the layer needs
-      // the camera inside the near tier before it exists at all.
-      const limit = tierAlpha <= 0.01 ? promotedCount : data.count
+      // Promoted pins and the best-funded plots survive at every distance; the
+      // rest of the layer needs the camera inside the near tier to exist at all.
+      const limit = tierAlpha <= 0.01 ? alwaysCount : data.count
 
       const { camX, camY, camZ, horizon, horizonTop, width, height } = frame
       const invBand = 1 / Math.max(horizonTop - horizon, 1e-4)
@@ -183,7 +236,7 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
 
         const t = facing >= horizonTop ? 1 : (facing - horizon) * invBand
         const limb = t * t * (3 - 2 * t)
-        const alpha = promoted ? limb : limb * tierAlpha
+        const alpha = k < alwaysCount ? limb : limb * tierAlpha
         if (alpha < 0.02) continue
 
         if (!frame.project(dx, dy, dz, LABEL_RADIUS)) continue
@@ -198,6 +251,18 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
           continue
         }
 
+        /*
+         * A logo tile on this pin takes the swatch's job and the pill's space.
+         *
+         * The tile is the mark now — the same company's own logo, centred on the
+         * bead — so repeating its stake colour in a 9px dot beside it says
+         * nothing, and anchoring the pill at the usual gap would put the name
+         * underneath the tile it belongs to.
+         */
+        const logoHalf = claims?.get(data.pinIds[i]) ?? 0
+        const leader = LABEL_LEADER + logoHalf
+        const markHalf = Math.max(5, logoHalf)
+
         // "Promoted" is a filled chip and carries its own padding; "unclaimed"
         // is plain meta text and does not. Both have to be in the width the
         // layout resolves, or the pill it places is not the pill that draws.
@@ -209,34 +274,48 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
         const pillWidth =
           LABEL_BORDER * 2 +
           LABEL_PAD_X * 2 +
-          LABEL_SWATCH +
-          LABEL_GAP +
+          (logoHalf > 0 ? 0 : LABEL_SWATCH + LABEL_GAP) +
           frame.measure(data.names[i], 'name') +
           metaWidth
 
         // Right of the marker, or mirrored to its left when the frame edge is
         // in the way. A plot name is the one string on this map somebody paid
         // for; rendering half of it is worse than dropping it.
-        const left = anchoredLabelX(px, pillWidth, LABEL_LEADER, width)
+        const left = anchoredLabelX(px, pillWidth, leader, width)
         if (left === null) continue
         const top = clampLabelSpan(py - halfH, pillH, height, halfH - 4)
         if (top === null) continue
 
-        const boxX = Math.min(px - 5, left)
+        /*
+         * The box the pill reserves — and the one place the tile and the pill
+         * had to stop fighting each other.
+         *
+         * Without a logo the box spans the bead AND the pill, because the two
+         * are one mark and nothing may be drawn between them. With a logo it
+         * spans the PILL ONLY: the tile has already reserved its own square in
+         * `LogoMarkers`, at a priority above this one, so a box that reached
+         * back over the bead was guaranteed to collide with it. That collision
+         * resolved backwards in both directions — an ordinary paid plot lost
+         * its name to its own logo and rendered as an anonymous letter tile,
+         * and a PROMOTED plot (priority 1e12, the one thing that outranks a
+         * tile) lost its logo to its own name, so the plot that had paid the
+         * most was the only one on the globe with no mark at all. The pill
+         * already sits a whole `logoHalf` clear of the tile; the box just has
+         * to say so.
+         */
+        const boxX = logoHalf > 0 ? left : Math.min(px - markHalf, left)
+        const boxW =
+          logoHalf > 0
+            ? pillWidth
+            : Math.max(px + markHalf, left + pillWidth) - boxX
         out.push(
-          s.boxes.take(
-            data.ids[i],
-            boxX,
-            top,
-            Math.max(px + 5, left + pillWidth) - boxX,
-            pillH,
-            data.priority[i],
-          ),
+          s.boxes.take(data.ids[i], boxX, top, boxW, pillH, data.priority[i]),
         )
         s.idx.push(i)
         s.alpha.push(alpha)
         s.x.push(left)
         s.y.push(top)
+        s.logo.push(logoHalf > 0 ? 1 : 0)
         taken += 1
       }
     },
@@ -257,8 +336,10 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
         const slot = pool.show(data.ids[i], s.x[k], s.y[k], s.alpha[k])
         if (slot < 0) continue
 
-        if (slotPin[slot] !== i) {
+        const hasLogo = s.logo[k]
+        if (slotPin[slot] !== i || slotLogo[slot] !== hasLogo) {
           slotPin[slot] = i
+          slotLogo[slot] = hasLogo
           pool.names[slot].textContent = data.names[i]
           const meta = pool.metas[slot]
           if (data.metas[i]) {
@@ -276,7 +357,9 @@ export function PlotLabels({ pins, palette, enabled = true }: PlotLabelsProps) {
             meta.classList.remove('world-lod__meta--promoted')
           }
           const swatch = pool.swatches[slot]
-          swatch.style.display = ''
+          // Hidden when a logo tile is standing in for it: two marks for one
+          // company, side by side, is one mark too many.
+          swatch.style.display = hasLogo ? 'none' : ''
           swatch.style.background = data.colors[i]
         }
       }

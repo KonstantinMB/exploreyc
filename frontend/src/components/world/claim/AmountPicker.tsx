@@ -8,7 +8,7 @@
 // "unknown" — there is no code path in this file that invents a number.
 //
 // Every figure on this screen goes through <Money>, so money is the one thing
-// set in the monospace face (tabular alignment is the entire point of a
+// set with tabular numerals (column alignment is the entire point of a
 // numeral) while every label around it stays in the rounded sans.
 
 import { useId, useState } from 'react'
@@ -17,7 +17,7 @@ import { Crown, Info } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import { MIN_STAKE_CENTS, formatDollars } from '../constants'
 import { Money, WorldButton, WorldCard, WorldHeading } from '../ui'
-import { HINT, INPUT, LABEL, MONO, PRESSABLE, SANS } from './styles'
+import { HINT, INPUT, LABEL, PRESSABLE, SANS, TABULAR } from './styles'
 
 /** What each scope currently costs to win. null = unknown, never guessed. */
 export interface AmountContext {
@@ -200,7 +200,7 @@ export function AmountPicker({
               inputMode="decimal"
               autoComplete="off"
               className="w-full min-w-0 bg-transparent text-right text-[1.0625rem] font-semibold text-[color:var(--w-ink)] outline-none"
-              style={MONO}
+              style={TABULAR}
               value={focused ? draft : dollarsString(valueCents)}
               aria-invalid={amountError !== null}
               aria-describedby={amountHintId}

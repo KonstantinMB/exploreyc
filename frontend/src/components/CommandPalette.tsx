@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
   BarChart3,
-  Map,
+  Earth,
   ExternalLink,
   Lightbulb,
   Sparkles,
@@ -52,15 +52,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       action: () => handleNavigation('/'),
     },
     {
-      id: 'explore',
+      // Was "Go to Map", and it went nowhere: it navigated home and scrolled to
+      // an element with id="map" that stopped existing when the map moved onto
+      // its own page. That page has since merged into the globe, so this now
+      // points at the one place a map actually lives.
+      id: 'world',
       type: 'action',
-      label: 'Go to Map',
-      subtitle: 'Interactive map and companies',
-      icon: <Map className="h-4 w-4" />,
-      action: () => {
-        handleNavigation('/');
-        setTimeout(() => document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' }), 100);
-      },
+      label: 'Go to World',
+      subtitle: 'The 3D globe of startups',
+      icon: <Earth className="h-4 w-4" />,
+      action: () => handleNavigation('/world'),
     },
     {
       id: 'analytics',

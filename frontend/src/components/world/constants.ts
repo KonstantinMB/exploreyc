@@ -22,7 +22,8 @@ export function centsToBeat(leaderCents: number | null): number | null {
 
 /**
  * Format an integer cents amount as dollars: 500 -> "$5", 1950 -> "$19.50".
- * Whole-dollar amounts drop the ".00" for terminal-clean numbers.
+ * Whole-dollar amounts drop the ".00" — a board reads better without a
+ * column of decimals nobody staked.
  */
 export function formatDollars(cents: number): string {
   const negative = cents < 0

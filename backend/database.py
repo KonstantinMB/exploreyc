@@ -2556,11 +2556,21 @@ class Database:
 
     def get_world_plots_for_globe(self) -> List[Dict]:
         """All active plots for globe rendering: id, lat, lng, name,
-        total_cents, country_iso, company_slug and promoted flag."""
+        total_cents, country_iso, company_slug, logo_url and promoted flag.
+
+        `logo_url` is the plot's own mark, falling back to the linked company's
+        thumbnail — the same precedence the boards use. It rides on the globe
+        payload because a paid plot's logo IS the product: the merged globe
+        sells a branded marker, and a marker that has to wait for a second
+        request per plot renders as an anonymous letter tile for the first
+        second of every visit. There are tens of these rows, not thousands, so
+        the width costs nothing measurable."""
         with self.get_connection() as conn:
             rows = conn.execute(
                 '''SELECT p.id, p.lat, p.lng, p.name, p.total_cents,
                           p.country_iso, p.company_id, co.slug AS company_slug,
+                          COALESCE(NULLIF(p.logo_url, ''),
+                                   NULLIF(co.small_logo_thumb_url, '')) AS logo_url,
                           EXISTS(SELECT 1 FROM world_promotions pr
                                  WHERE pr.plot_id = p.id AND pr.kind = 'featured'
                                    AND pr.status = 'active'
@@ -2578,12 +2588,25 @@ class Database:
 
     def get_world_seed_companies(self) -> List[Dict]:
         """Geo-located companies not yet claimed as plots — the virtual seed
-        pins (id, name, slug, lat, lng). Excluded automatically once a plot
-        row references the company."""
+        pins. Excluded automatically once a plot row references the company.
+
+        Columns: id, name, slug, lat, lng, batch, industry, is_hiring,
+        team_size, top_company, logo_url, all_locations. Everything past lng
+        exists so the merged globe can FILTER and RENDER the imported layer
+        without a second round trip — industry and all_locations in particular
+        are what computeHubs() needs to name a hub something better than
+        'Unknown'. Blank logo strings collapse to NULL so the client never has
+        to distinguish '' from absent.
+
+        The pins are serialized to a compact columnar shape in world.py
+        (_encode_seed_layer); this method stays row-shaped and boring."""
         with self.get_connection() as conn:
             rows = conn.execute(
                 '''SELECT c.id, c.name, c.slug,
-                          c.latitude AS lat, c.longitude AS lng
+                          c.latitude AS lat, c.longitude AS lng,
+                          c.batch, c.industry, c.is_hiring, c.team_size,
+                          c.top_company, c.all_locations,
+                          NULLIF(c.small_logo_thumb_url, '') AS logo_url
                    FROM companies c
                    WHERE c.latitude IS NOT NULL AND c.longitude IS NOT NULL
                      AND NOT EXISTS (SELECT 1 FROM world_plots p
@@ -2666,12 +2689,14 @@ class Database:
         kind: 'richest' (sum of stakes), 'planted' (plot count) or 'rising'
         (sum of payments in the trailing 24h; delta_cents carries the sum).
         Rows: rank, iso, name, flag_emoji, total_cents, plots_count,
-        delta_cents (None unless rising). Only active plots count, so virtual
-        seeds can never appear."""
+        delta_cents (None unless rising), logo_url (always None — a country is
+        not a company; the UI renders flag_emoji). Only active plots count, so
+        virtual seeds can never appear."""
         if kind == "rising":
             sql = '''
                 SELECT c.iso2 AS iso, c.name, c.flag_emoji,
                        agg.delta_cents, tot.total_cents, tot.plots_count,
+                       NULL AS logo_url,
                        rank() OVER (ORDER BY agg.delta_cents DESC) AS rank
                 FROM (SELECT p.country_iso, SUM(pay.amount_cents) AS delta_cents
                       FROM world_payments pay
@@ -2691,6 +2716,7 @@ class Database:
             sql = f'''
                 SELECT c.iso2 AS iso, c.name, c.flag_emoji,
                        agg.total_cents, agg.plots_count, NULL AS delta_cents,
+                       NULL AS logo_url,
                        rank() OVER (ORDER BY {metric} DESC) AS rank
                 FROM (SELECT country_iso, SUM(total_cents) AS total_cents,
                              COUNT(*) AS plots_count
@@ -2709,7 +2735,11 @@ class Database:
         kind: 'richest' (stake desc), 'planted' (earliest first) or 'rising'
         (payments in trailing 24h, delta_cents carries the sum). Joint ranks
         via rank() over the full filtered set. Rows: rank, plot_id, name, iso,
-        total_cents, delta_cents (None unless rising), created_at."""
+        total_cents, delta_cents (None unless rising), created_at, logo_url.
+
+        logo_url is the plot's own logo, falling back to the linked company's
+        small_logo_thumb_url (one LEFT JOIN, never a per-row lookup). Blank
+        strings collapse to None so a missing logo stays honestly absent."""
         where, params = ["p.status = 'active'"], []
         if country_iso:
             where.append("p.country_iso = ?")
@@ -2718,31 +2748,41 @@ class Database:
             where.append("p.city_id = ?")
             params.append(city_id)
         where_sql = " AND ".join(where)
+        logo_sql = ("COALESCE(NULLIF(p.logo_url, ''), "
+                    "NULLIF(co.small_logo_thumb_url, '')) AS logo_url")
         if kind == "rising":
             sql = f'''
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
                        p.total_cents, agg.delta_cents, p.created_at,
+                       {logo_sql},
                        rank() OVER (ORDER BY agg.delta_cents DESC) AS rank
                 FROM (SELECT plot_id, SUM(amount_cents) AS delta_cents
                       FROM world_payments
                       WHERE created_at >= datetime('now', '-1 day')
                       GROUP BY plot_id) agg
                 JOIN world_plots p ON p.id = agg.plot_id
+                LEFT JOIN companies co ON co.id = p.company_id
                 WHERE {where_sql}
                 ORDER BY rank, p.id LIMIT ?'''
         elif kind == "planted":
             sql = f'''
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
                        p.total_cents, NULL AS delta_cents, p.created_at,
+                       {logo_sql},
                        rank() OVER (ORDER BY p.created_at ASC) AS rank
-                FROM world_plots p WHERE {where_sql}
+                FROM world_plots p
+                LEFT JOIN companies co ON co.id = p.company_id
+                WHERE {where_sql}
                 ORDER BY rank, p.id LIMIT ?'''
         else:
             sql = f'''
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
                        p.total_cents, NULL AS delta_cents, p.created_at,
+                       {logo_sql},
                        rank() OVER (ORDER BY p.total_cents DESC) AS rank
-                FROM world_plots p WHERE {where_sql}
+                FROM world_plots p
+                LEFT JOIN companies co ON co.id = p.company_id
+                WHERE {where_sql}
                 ORDER BY rank, p.id LIMIT ?'''
         with self.get_connection() as conn:
             return [dict(r) for r in conn.execute(sql, (*params, limit)).fetchall()]
@@ -2751,18 +2791,44 @@ class Database:
         """Founder leaderboard over active plots that carry a founder_name.
 
         kind: 'staked' (stake desc) or 'pioneers' (earliest plant first).
-        Rows: rank, founder_name, plot_id, name, total_cents, created_at."""
+        Rows: rank, founder_name, plot_id, name, total_cents, created_at,
+        logo_url (plot logo, else the linked company's thumb, else None)."""
         order = "p.created_at ASC" if kind == "pioneers" else "p.total_cents DESC"
         with self.get_connection() as conn:
             rows = conn.execute(
                 f'''SELECT rank() OVER (ORDER BY {order}) AS rank,
                            p.founder_name, p.id AS plot_id, p.name,
-                           p.total_cents, p.created_at
+                           p.total_cents, p.created_at,
+                           COALESCE(NULLIF(p.logo_url, ''),
+                                    NULLIF(co.small_logo_thumb_url, '')) AS logo_url
                     FROM world_plots p
+                    LEFT JOIN companies co ON co.id = p.company_id
                     WHERE p.status = 'active' AND p.founder_name IS NOT NULL
                       AND p.founder_name != ''
                     ORDER BY rank, p.id LIMIT ?''', (limit,)).fetchall()
             return [dict(r) for r in rows]
+
+    def get_company_brief(self, company_id: int) -> Optional[Dict]:
+        """The handful of company columns the World detail card renders.
+
+        Returns slug, name, logo_url (small_logo_thumb_url, blank -> None),
+        batch, one_liner, industry, team_size, is_hiring — or None when the id
+        matches no row. Missing values stay None; nothing is invented."""
+        if company_id is None:
+            return None
+        with self.get_connection() as conn:
+            row = conn.execute(
+                '''SELECT slug, name,
+                          NULLIF(small_logo_thumb_url, '') AS logo_url,
+                          batch, one_liner, industry, team_size, is_hiring
+                   FROM companies WHERE id = ?''', (company_id,)).fetchone()
+            if not row:
+                return None
+            brief = dict(row)
+            brief["is_hiring"] = bool(brief.get("is_hiring"))
+            brief["team_size"] = (int(brief["team_size"])
+                                  if brief.get("team_size") is not None else None)
+            return brief
 
     def get_world_country_stats(self, iso2: str) -> Optional[Dict]:
         """Country reference row + aggregates: total_cents, plots_count,

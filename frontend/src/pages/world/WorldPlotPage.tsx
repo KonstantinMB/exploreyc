@@ -5,17 +5,28 @@ import { Helmet } from 'react-helmet-async'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { ArrowLeft, ChevronRight, ExternalLink, ImagePlus, Megaphone } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  ChevronRight,
+  ExternalLink,
+  ImagePlus,
+  Megaphone,
+} from 'lucide-react'
 import worldApi, { type PlotPatchRequest, type WorldPlot } from '../../lib/worldApi'
 import {
   Money,
+  Rank,
   WorldButton,
   WorldCard,
   WorldChip,
   WorldHeading,
+  WorldLogo,
+  WorldRowButton,
   worldButtonClass,
   WORLD_FOCUS_CLASS,
 } from '../../components/world/ui'
+import WorldChrome from '../../components/world/WorldChrome'
 import CountUp from '../../components/world/boards/CountUp'
 import { isoFlag, shortDate } from '../../components/world/boards/format'
 import { formatDollars, PROMOTION_TIERS } from '../../components/world/constants'
@@ -29,15 +40,24 @@ import { LazyClaimFlow } from './worldLazy'
 const INPUT_CLASS =
   'world-focus w-full rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-3 py-2 text-[0.9375rem] text-[var(--w-ink)] outline-none transition-colors duration-150 placeholder:text-[var(--w-muted)] focus:border-[var(--w-accent)]'
 
-/** A rank readout. `null` is "unranked", never a placeholder number. */
+/**
+ * A standing. `null` is "unranked", never a placeholder number; a top-three
+ * standing gets the same medal disc as the leaderboard, which is how a plot
+ * owner finds out they are on the podium. See <Rank> for why the medal is
+ * never the only channel.
+ */
 function RankChip({ label, rank }: { label: string; rank: number | null }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
+    <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
       <span className="text-[var(--w-muted)]">{label}</span>
-      {rank != null ? (
-        <span className="world-tokens world-num font-bold text-[var(--w-ink)]">#{rank}</span>
-      ) : (
+      {rank == null ? (
         <span className="font-semibold text-[var(--w-muted)]">unranked</span>
+      ) : rank <= 3 ? (
+        <Rank n={rank} />
+      ) : (
+        <span className="world-tokens world-num text-[0.9375rem] font-extrabold text-[var(--w-ink)]">
+          #{rank}
+        </span>
       )}
     </span>
   )
@@ -363,7 +383,7 @@ export default function WorldPlotPage() {
     return (
       <PlotMessage>
         <p role="status" className="text-sm text-[var(--w-muted)]">
-          Loading this plot…
+          Digging up this plot…
         </p>
       </PlotMessage>
     )
@@ -394,6 +414,7 @@ export default function WorldPlotPage() {
 
   return (
     <div className="world-root min-h-screen">
+      <WorldChrome />
       <Helmet>
         <title>{`${plot.name} — ExploreYC World`}</title>
         <meta
@@ -421,20 +442,17 @@ export default function WorldPlotPage() {
 
         <WorldCard className="mb-4 p-5 sm:p-6">
           <div className="flex items-start gap-4">
-            {plot.logo_url ? (
-              <img
-                src={plot.logo_url}
-                alt=""
-                className="h-14 w-14 shrink-0 rounded-[12px] border border-[var(--w-border)] object-cover"
-              />
-            ) : (
-              <span
-                aria-hidden
-                className="grid h-14 w-14 shrink-0 place-items-center rounded-[12px] border border-[var(--w-border)] bg-[var(--w-ground)] text-xl font-bold text-[var(--w-muted)]"
-              >
-                {plot.name.slice(0, 1).toUpperCase()}
-              </span>
-            )}
+            {/* The plot's own logo if the owner uploaded one, otherwise the
+                imported ExploreYC company thumb — a plot linked to a company
+                should not show a grey letter when the company's real mark is
+                already in the payload. Falls through to the letter only when
+                neither exists. */}
+            <WorldLogo
+              src={plot.logo_url ?? plot.company?.logo_url}
+              name={plot.name}
+              size={56}
+              className="rounded-[12px]"
+            />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {/* min-w-0: WorldHeading's wrapper is itself a flex box, so
@@ -454,16 +472,48 @@ export default function WorldPlotPage() {
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <RankChip label={plot.country_name} rank={countryRank} />
             {plot.city_name && <RankChip label={plot.city_name} rank={cityRank} />}
-            <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
+            <span className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--w-border)] bg-[var(--w-card)] px-2.5 py-1.5 text-[0.8125rem]">
               <span className="text-[var(--w-muted)]">Staked</span>
               <CountUp
                 value={plot.total_cents}
                 format={formatDollars}
-                className="world-tokens world-money text-[var(--w-accent-text)]"
+                className="world-tokens world-money world-score text-[var(--w-accent-text)]"
               />
             </span>
           </div>
         </WorldCard>
+
+        {/* ---- the ExploreYC connection ------------------------------------
+            A plot bought on top of an imported seed pin IS a company in the
+            ExploreYC database, and until now the page said nothing about it —
+            `company_id` sat in the payload with no route out. This is that
+            route: one row, straight to /company/<slug>, with the facts the
+            companies table actually holds and nothing invented for the ones it
+            doesn't. Rendered only when the API returned a company. */}
+        {plot.company ? (
+          <WorldRowButton
+            className="mb-4"
+            to={`/company/${plot.company.slug}`}
+            leading={
+              <WorldLogo src={plot.company.logo_url} name={plot.company.name} size={32} />
+            }
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                {plot.company.name} on ExploreYC
+                <ArrowUpRight className="h-4 w-4 shrink-0 text-[var(--w-muted)]" aria-hidden />
+              </span>
+            }
+            // Batch and industry only. Team size was a third clause here and it
+            // pushed the line 2px past the row at 375px, i.e. into an ellipsis —
+            // and of the three it is the one nobody needs in a link label. It is
+            // still on the profile this row opens.
+            subtitle={
+              [plot.company.batch, plot.company.industry].filter(Boolean).join(' · ') ||
+              'The full company profile'
+            }
+            trailing={plot.company.is_hiring ? <WorldChip tone="accent">Hiring</WorldChip> : null}
+          />
+        ) : null}
 
         {plot.status === 'pending' && (
           <WorldCard className="mb-4 p-4" flat>
@@ -545,7 +595,7 @@ export default function WorldPlotPage() {
         {isMine && (
           <div className="flex flex-col gap-4">
             <WorldHeading level={2} className="mt-2">
-              Manage your plot
+              Your plot, your move
             </WorldHeading>
 
             <OwnerSection

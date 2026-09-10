@@ -2,30 +2,21 @@ import { useQuery } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi from '../../../lib/worldApi'
-import { WorldCard, WorldChip, WorldHeading, WorldRowButton } from '../ui'
+import { WorldCard, WorldChip, WorldHeading, WorldLogo, WorldRowButton } from '../ui'
 
 const PROMOTIONS_POLL_MS = 60_000
 
-/** Square monogram fallback when a promotion has no logo. */
+/**
+ * The mark for a paid placement.
+ *
+ * Was a local img/monogram pair. It is now the shared <WorldLogo>, so a
+ * promoted plot, a leaderboard row, a seed pin's card and the plot page all
+ * draw a company's artwork in one identical box — which is the whole point of
+ * having a tile primitive, and the reason a rail of mixed logos and letters
+ * keeps a straight left edge.
+ */
 function Mark({ name, logoUrl }: { name: string; logoUrl: string | null }) {
-  if (logoUrl) {
-    return (
-      <img
-        src={logoUrl}
-        alt=""
-        className="h-8 w-8 shrink-0 rounded-[8px] border border-[var(--w-border)] object-cover"
-        loading="lazy"
-      />
-    )
-  }
-  return (
-    <span
-      aria-hidden
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] border border-[var(--w-border)] bg-[var(--w-ground)] text-sm font-bold text-[var(--w-muted)]"
-    >
-      {(name || '?').slice(0, 1).toUpperCase()}
-    </span>
-  )
+  return <WorldLogo src={logoUrl} name={name || '?'} size={32} />
 }
 
 export interface FeaturedRailProps {

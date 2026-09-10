@@ -20,15 +20,13 @@
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
-  <url>
-    <loc>https://exploreyc.com/map</loc>
-    <lastmod>2026-07-13</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
+  <!-- /map merged into /world and now redirects there, so it is gone from this
+       file: a sitemap that lists a redirect is telling crawlers to spend their
+       budget on a hop. The map search intent it used to serve lives in the
+       /world <head>, written by scripts/prerender-seo.mjs. -->
   <url>
     <loc>https://exploreyc.com/world</loc>
-    <lastmod>2026-09-09</lastmod>
+    <lastmod>2026-09-10</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Trophy } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi, {
   type BoardKind,
@@ -11,8 +11,16 @@ import worldApi, {
   type FounderRow,
   type FoundersBoardKind,
 } from '../../../lib/worldApi'
-import { formatDollars } from '../constants'
-import { Money, Rank, WorldCard, WorldHeading, WorldRowButton, worldButtonClass } from '../ui'
+import { formatDollars, MIN_STAKE_CENTS } from '../constants'
+import {
+  Money,
+  Rank,
+  WorldCard,
+  WorldHeading,
+  WorldLogo,
+  WorldRowButton,
+  worldButtonClass,
+} from '../ui'
 import { CountUp } from './CountUp'
 import { countryDisplayName, isoFlag, shortDate } from './format'
 
@@ -68,7 +76,14 @@ function MoveArrow({ move }: { move: Move | undefined }) {
   )
 }
 
-/** Tabular value cell. `rising` shows a 24h delta, everything else a total. */
+/**
+ * The score cell. `rising` shows a 24h delta, everything else a total.
+ *
+ * Set in `world-score` — bigger and heavier than the name beside it — because
+ * on a leaderboard the number is not a detail of the row, it IS the row. The
+ * count-up stays; tabular numerals mean it no longer jitters the column width
+ * while it runs.
+ */
 function RowValue({ kind, row }: { kind: BoardKind; row: BoardRow }) {
   if (kind === 'rising') {
     // delta_cents null = genuinely unknown. Say so — never guess a number.
@@ -77,7 +92,7 @@ function RowValue({ kind, row }: { kind: BoardKind; row: BoardRow }) {
       <CountUp
         value={row.delta_cents}
         format={(n) => `+${formatDollars(n)}`}
-        className="world-tokens world-money text-[var(--w-accent-text)]"
+        className="world-tokens world-money world-score text-[var(--w-accent-text)]"
       />
     )
   }
@@ -85,7 +100,7 @@ function RowValue({ kind, row }: { kind: BoardKind; row: BoardRow }) {
     <CountUp
       value={row.total_cents}
       format={formatDollars}
-      className="world-tokens world-money"
+      className="world-tokens world-money world-score"
     />
   )
 }
@@ -106,8 +121,28 @@ const LIST_CLASS =
  * The tallest a board list may grow before it starts scrolling, in CSS pixels.
  * A ceiling, not the height: the real height is snapped down from here to a
  * whole number of rows (see `useBoardViewport`).
+ *
+ * Raised from 304 with the medals. Two reasons, and the second is the real one:
+ * a row is taller now (the top-three disc is 26px where a bare numeral was ~20)
+ * so 304 would have shown one FEWER name than before; and the leaderboard is
+ * the reason anyone comes back, so it should be the biggest thing in the rail
+ * rather than a five-line teaser. 352 lands the boards card at ~542px which,
+ * with the featured rail under it, still fits the 724px the globe rail has
+ * between `top-28` and `bottom-16` on a 900px viewport — i.e. more board, and
+ * the paid placements below it still do not need scrolling to reach.
  */
-const LIST_MAX_PX = 304
+const LIST_MAX_PX = 352
+
+/**
+ * The same ceiling for the board in its `feature` size.
+ *
+ * On /world the leaderboard is no longer a 400px rail floating over the globe —
+ * it is a centred section with the page to itself, and a five-row teaser in the
+ * middle of a 768px column reads as a widget rather than as the thing the page
+ * is about. 560px is about ten whole rows, which is enough to show a real
+ * standings table without the section outgrowing a laptop viewport.
+ */
+const FEATURE_LIST_MAX_PX = 560
 
 /**
  * Sizes a board list to a WHOLE number of rows, and says whether more remain.
@@ -125,7 +160,7 @@ const LIST_MAX_PX = 304
  * change. Recomputed on scroll, on resize, and on the 15s poll's row churn; it
  * settles to "no cap, no fade" the moment every row fits.
  */
-function useBoardViewport<T extends HTMLElement>() {
+function useBoardViewport<T extends HTMLElement>(maxPx: number) {
   const [more, setMore] = useState(false)
   // undefined = the list fits, so it keeps its natural height.
   const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined)
@@ -163,7 +198,7 @@ function useBoardViewport<T extends HTMLElement>() {
       // Does the whole board fit? Then it keeps its natural height and there
       // is nothing to fade.
       const natural = padTop + rows.length * rowH + (rows.length - 1) * gap + padBottom
-      if (natural <= LIST_MAX_PX) {
+      if (natural <= maxPx) {
         setMaxHeight(undefined)
         setMore(false)
         return
@@ -177,7 +212,7 @@ function useBoardViewport<T extends HTMLElement>() {
       // the far end of the scroll content, not at the viewport's edge, so
       // counting it here left ~6px of the next row's border poking out. Six
       // pixels of a row is still a sliced row.
-      const fit = Math.max(1, Math.min(rows.length - 1, Math.floor((LIST_MAX_PX - padTop) / (rowH + gap))))
+      const fit = Math.max(1, Math.min(rows.length - 1, Math.floor((maxPx - padTop) / (rowH + gap))))
       setMaxHeight(Math.floor(padTop + fit * rowH + fit * gap))
       // `more` is the live scroll position, not just "it is capped" — scrolling
       // to the bottom must retire the shade, or it reads as content that never
@@ -197,7 +232,10 @@ function useBoardViewport<T extends HTMLElement>() {
       ro.disconnect()
       mo.disconnect()
     }
-  }, [])
+    // `maxPx` is a dependency, not a captured constant: changing the board's
+    // size has to re-measure, and a callback ref identity change is exactly
+    // how React re-runs one (old(null), then new(el)).
+  }, [maxPx])
 
   return { ref, more, maxHeight }
 }
@@ -236,9 +274,17 @@ function ScrollShade({ show }: { show: boolean }) {
   )
 }
 
-function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
+function CountryBoardList({
+  kind,
+  scope,
+  maxPx,
+}: {
+  kind: BoardKind
+  scope: string
+  maxPx: number
+}) {
   const reduced = useReducedMotion()
-  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>()
+  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>(maxPx)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['world', 'board', kind, scope],
     queryFn: () => worldApi.getBoard(kind, scope).then((r) => r.data),
@@ -249,10 +295,16 @@ function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
   const keyed = rows?.map((r) => ({ id: r.plot_id ?? r.iso, rank: r.rank })) ?? undefined
   const moves = useRankMoves(keyed)
 
-  if (isLoading) return <BoardNote role="status">Loading the board…</BoardNote>
+  if (isLoading) return <BoardNote role="status">Counting the money…</BoardNote>
   if (isError || !data) return <BoardNote role="alert">Board unavailable — retrying.</BoardNote>
   if (data.rows.length === 0) {
-    return <BoardNote>Nothing staked yet. The first plot takes #1.</BoardNote>
+    // Invite, don't report. An empty board is the cheapest #1 anyone will ever
+    // get, and the price is real — MIN_STAKE_CENTS, not a rounded promise.
+    return (
+      <BoardNote>
+        Nobody has staked a cent here yet. {formatDollars(MIN_STAKE_CENTS)} takes #1.
+      </BoardNote>
+    )
   }
 
   return (
@@ -283,9 +335,19 @@ function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
                     <>
                       <Rank n={row.rank} joint={joint} />
                       <MoveArrow move={moves[id]} />
-                      <span aria-hidden className="text-base leading-none">
-                        {isoFlag(row.iso)}
-                      </span>
+                      {/* A country row identifies itself with its flag; a plot
+                          row is a company, so it gets the company's real mark
+                          when the API has one (plot logo, falling back to the
+                          imported ExploreYC thumb) and a letter tile when it
+                          does not. Same 24px box either way — see WorldLogo —
+                          so a board with mixed artwork keeps one name column. */}
+                      {row.plot_id ? (
+                        <WorldLogo src={row.logo_url} name={row.name} size={24} />
+                      ) : (
+                        <span aria-hidden className="text-base leading-none">
+                          {isoFlag(row.iso)}
+                        </span>
+                      )}
                     </>
                   }
                   title={label}
@@ -327,12 +389,12 @@ function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
           ))}
         {kind === 'planted' && (
           <p className="text-[0.8125rem] text-[var(--w-muted)]">
-            Every plot counts — small countries can win this.
+            One plot, one point. Small countries win this one.
           </p>
         )}
         {kind === 'rising' && (
           <p className="text-[0.8125rem] text-[var(--w-muted)]">
-            Stakes gained in the last 24 hours.
+            Who moved in the last 24 hours.
           </p>
         )}
       </div>
@@ -340,18 +402,18 @@ function CountryBoardList({ kind, scope }: { kind: BoardKind; scope: string }) {
   )
 }
 
-function FoundersBoardList({ kind }: { kind: FoundersBoardKind }) {
-  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>()
+function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: number }) {
+  const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>(maxPx)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['world', 'founders', kind],
     queryFn: () => worldApi.getFounders(kind).then((r) => r.data),
     refetchInterval: BOARD_POLL_MS,
   })
 
-  if (isLoading) return <BoardNote role="status">Loading founders…</BoardNote>
+  if (isLoading) return <BoardNote role="status">Rounding up the founders…</BoardNote>
   if (isError || !data) return <BoardNote role="alert">Board unavailable — retrying.</BoardNote>
   if (data.rows.length === 0) {
-    return <BoardNote>No founders on the board yet. Plant a plot to appear here.</BoardNote>
+    return <BoardNote>Nobody is on this board yet. Plant something and it is yours.</BoardNote>
   }
 
   return (
@@ -363,7 +425,12 @@ function FoundersBoardList({ kind }: { kind: FoundersBoardKind }) {
           <li key={row.plot_id}>
             <WorldRowButton
               to={`/world/p/${row.plot_id}`}
-              leading={<Rank n={row.rank} joint={joint} />}
+              leading={
+                <>
+                  <Rank n={row.rank} joint={joint} />
+                  <WorldLogo src={row.logo_url} name={row.name} size={24} />
+                </>
+              }
               title={row.founder_name || row.name}
               subtitle={row.name}
               trailing={
@@ -375,7 +442,7 @@ function FoundersBoardList({ kind }: { kind: FoundersBoardKind }) {
                   <CountUp
                     value={row.total_cents}
                     format={formatDollars}
-                    className="world-tokens world-money"
+                    className="world-tokens world-money world-score"
                   />
                 )
               }
@@ -430,6 +497,11 @@ export interface WorldBoardsProps {
   scope?: string
   /** Founders tabs are global; hide them on country-scoped panels. */
   includeFounders?: boolean
+  /**
+   * Centrepiece size: a taller list, for the pages where the board has a
+   * section to itself rather than a 400px rail beside the globe.
+   */
+  feature?: boolean
   className?: string
 }
 
@@ -445,9 +517,11 @@ export interface WorldBoardsProps {
 export function WorldBoards({
   scope = 'world',
   includeFounders = true,
+  feature = false,
   className,
 }: WorldBoardsProps) {
   const [tab, setTab] = useState<TabId>('richest')
+  const maxPx = feature ? FEATURE_LIST_MAX_PX : LIST_MAX_PX
 
   // Guard against a founders tab staying selected if the panel is re-rendered
   // country-scoped, which would leave Radix with no matching content.
@@ -469,7 +543,14 @@ export function WorldBoards({
     <WorldCard as="section" aria-label="World leaderboards" className={cn('overflow-hidden', className)}>
       <TabsPrimitive.Root value={active} onValueChange={(v) => setTab(v as TabId)}>
         <div className="flex flex-col gap-3 px-4 pb-1 pt-4">
-          <WorldHeading level={3}>Leaderboard</WorldHeading>
+          {/* A trophy, because this is a scoreboard and it should say so at a
+              glance. aria-hidden: the word "Leaderboard" is right there. */}
+          <WorldHeading level={3}>
+            <span className="inline-flex items-center gap-2">
+              <Trophy className="h-[1.125rem] w-[1.125rem] text-[var(--w-accent-text)]" aria-hidden />
+              Leaderboard
+            </span>
+          </WorldHeading>
           {/* Five pills in a 368px rail have to occupy two rows. Left to
               `flex-wrap` alone that read as an accident — a ragged remainder of
               "Staked, Pioneers" hanging under the country tabs. Captioning the
@@ -500,13 +581,13 @@ export function WorldBoards({
 
         {COUNTRY_TABS.map((t) => (
           <TabsPrimitive.Content key={t.id} value={t.id} className="mt-0 focus:outline-none">
-            <CountryBoardList kind={t.id as BoardKind} scope={scope} />
+            <CountryBoardList kind={t.id as BoardKind} scope={scope} maxPx={maxPx} />
           </TabsPrimitive.Content>
         ))}
         {includeFounders &&
           FOUNDER_TABS.map((t) => (
             <TabsPrimitive.Content key={t.id} value={t.id} className="mt-0 focus:outline-none">
-              <FoundersBoardList kind={t.id as FoundersBoardKind} />
+              <FoundersBoardList kind={t.id as FoundersBoardKind} maxPx={maxPx} />
             </TabsPrimitive.Content>
           ))}
       </TabsPrimitive.Root>

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Database, Globe2, BarChart3, Briefcase, BookOpen, Wrench, ArrowRight, Sparkles,
+  Database, Earth, BarChart3, Briefcase, BookOpen, Wrench, ArrowRight, Sparkles,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 
@@ -26,11 +26,15 @@ const CAPABILITIES: Capability[] = [
     glow: 'group-hover:shadow-[0_0_24px_rgba(251,101,30,0.15)]',
   },
   {
-    cmd: '$ map --world',
-    title: 'Interactive World Map',
-    desc: 'Watch YC spread across the globe — 2D map, 3D globe, density hotspots, batch timeline.',
-    to: '/map',
-    icon: Globe2,
+    // The 2D map is gone — it merged into the 3D globe at /world — so the copy
+    // no longer promises it. What replaced it is worth more anyway: a startup
+    // can own a named plot on this globe, which is the only card here selling
+    // something rather than showing something.
+    cmd: '$ world --globe',
+    title: 'ExploreYC World',
+    desc: 'Every startup on one 3D globe — density hotspots, batch timeline, hub tours. Claim a permanent plot for yours from $5.',
+    to: '/world',
+    icon: Earth,
     accent: 'text-sky-400 group-hover:border-sky-400/50',
     glow: 'group-hover:shadow-[0_0_24px_rgba(56,189,248,0.15)]',
   },

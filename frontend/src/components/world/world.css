@@ -11,10 +11,17 @@
    is `darkMode: ["class"]`. So `.dark .world-root` is the override hook — no new
    mechanism, no media query.
 
-   TYPE RULE (non-negotiable #2): prose / headings / labels / buttons use
-   --w-sans. Monospace is reserved for numerals, money and ranks, where tabular
-   alignment is the whole point. The only classes that touch --w-mono are
-   .world-num / .world-money / .world-rank.
+   TYPE RULE (non-negotiable #2): ONE face, --w-sans, for everything — prose,
+   headings, labels, buttons, money, ranks, dates. There is no monospace token
+   in this file and nothing in the feature may reintroduce one: a typewriter
+   face is the single loudest "this is a terminal" signal a UI can send, and
+   this is a board game, not a shell.
+   Numerals still have to line up in a column, and they do it the typographic
+   way instead: .world-num / .world-money / .world-rank set
+   `font-variant-numeric: tabular-nums` (plus the `tnum` feature for faces that
+   only expose it there), which locks every digit to the same advance width
+   inside the rounded sans. $5, $420 and $3,480 stack cleanly and none of it
+   looks typed.
 
    ── MEASURED CONTRAST (WCAG 2.1 relative luminance; every figure below was
       computed from these exact hex values, not estimated) ─────────────────────
@@ -40,6 +47,23 @@
      press-ink #FFFFFF on press #9A3412 ......... 7.31:1   AA ✓   (promoted chip)
      #1E2631 on ink #EAF0F7 .................... 13.30:1   AA ✓   (sponsor chip)
      accent-ink #180A00 on accent #FB651E ....... 6.45:1   AA ✓   (primary button)
+   (The SUB-PAGE NAV BAR figures that used to sit here are gone with the bar.
+   `.world-nav` was a World-only nav for the sub-pages back when they rendered
+   outside the app's <Layout>; they are inside it now and wear the real
+   ExploreYC <Navbar>, whose contrast is the main theme's business.)
+   MEDALS (top-3 ranks — deliberately NOT re-themed, a gold medal is gold on
+   any ground, so one set of figures covers both themes)
+     medal-ink #17212F on gold #F0B429 .......... 8.70:1   AA ✓
+     medal-ink #17212F on silver #C3CCD9 ....... 10.01:1   AA ✓ AAA ✓
+     medal-ink #17212F on bronze #D98B4A ........ 5.98:1   AA ✓
+     gold-edge #B07D05 on card ......... 3.63:1 L / 4.20:1 D   ✓ SC 1.4.11
+     silver-edge #7A889C on card ....... 3.60:1 L / 4.23:1 D   ✓ SC 1.4.11
+     bronze-edge #A4622F on card ....... 4.81:1 L / 3.17:1 D   ✓ SC 1.4.11
+     (the edge is the medal's 1px border, i.e. its boundary against the card —
+      the FILLS themselves are 1.5–2.7:1 on the light card, which is why the
+      boundary is a real border and not a tinted haze. The rank digit sits
+      inside the disc at 6–10:1, so the rank is never carried by hue: it is
+      carried by the numeral, and the medal only says "top three".)
 
    ── TEXT ON ORANGE: two tokens, not one ─────────────────────────────────────
      The brief's palette said "accent text on orange = #FFFFFF". White on
@@ -98,6 +122,19 @@
   --w-press-ink: #ffffff;
   --w-shadow: 0 1px 2px rgba(23, 43, 77, 0.06), 0 8px 24px rgba(23, 43, 77, 0.08);
 
+  /* Medals. NOT re-declared in the dark block on purpose: a gold medal is the
+     same gold on any table, and the measured figures in the header hold on
+     both cards. `--w-medal-ink` is the same near-black as the light `--w-ink`
+     rather than `var(--w-ink)`, precisely so it does NOT flip to off-white in
+     dark mode and vanish into the fill. */
+  --w-gold: #f0b429;
+  --w-gold-edge: #b07d05;
+  --w-silver: #c3ccd9;
+  --w-silver-edge: #7a889c;
+  --w-bronze: #d98b4a;
+  --w-bronze-edge: #a4622f;
+  --w-medal-ink: #17212f;
+
   /* Derived aliases — composed only from the tokens above. */
   --w-accent-text: var(--w-press);
   --w-tint: rgba(251, 101, 30, 0.1);
@@ -113,8 +150,9 @@
   --w-radius-card: 16px;
   --w-radius-chip: 10px;
   --w-radius-pill: 9999px;
+  /* The only face in the feature. There is deliberately no --w-mono to reach
+     for; see TYPE RULE in the header. */
   --w-sans: ui-rounded, "SF Pro Rounded", "Segoe UI Variable", Inter, system-ui, sans-serif;
-  --w-mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace;
 }
 
 .dark .world-root,
@@ -157,24 +195,49 @@
   color: var(--w-muted);
 }
 
-/* ── Numerals — the ONLY monospace in the system ──────────────────────────── */
+/* ── Numerals — same face as everything else, but tabular ─────────────────────
+   These used to be set in a monospace token, which is the one typographic tell
+   that made the whole feature read as a terminal. The column alignment they
+   were there for is a font FEATURE, not a font: `tabular-nums` locks every
+   digit to one advance width inside the rounded sans, so a leaderboard of
+   $5 / $420 / $3,480 still stacks in a clean right-aligned column and none of
+   it looks typed. `font-feature-settings: "tnum"` is the belt to that braces —
+   a couple of the fallback faces expose tnum only through the low-level
+   property. */
 
 .world-num,
 .world-money,
 .world-rank {
-  font-family: var(--w-mono);
+  font-family: var(--w-sans);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   letter-spacing: -0.01em;
 }
 
 .world-money {
-  font-weight: 600;
+  font-weight: 700;
   color: inherit;
 }
 
-/* "unknown" is prose, so it goes back to the sans face (rule 2) and reads as
-   the honest absence of a number rather than a suspicious zero. */
+/* Score type. A number on a board is not a data point, it is the score — so on
+   the surfaces where the amount IS the row (leaderboards, the staked readout,
+   the win screen) it is set bigger and heavier than the name beside it.
+   Composed with .world-money, never instead of it. */
+.world-score {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.world-score--xl {
+  font-size: clamp(2.25rem, 1.4rem + 3.2vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+/* "unknown" is prose, so it drops the tabular treatment and the weight and
+   reads as the honest absence of a number rather than a suspicious zero. */
 .world-unknown {
   font-family: var(--w-sans);
   font-weight: 500;
@@ -185,8 +248,65 @@
   display: inline-block;
   min-width: 2.25ch;
   text-align: right;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--w-muted);
+}
+
+/* ── Medals — the top three ──────────────────────────────────────────────────
+   Rank 1, 2 and 3 get a physical little disc instead of a bare numeral. Two
+   things make this safe under SC 1.4.1 (use of colour):
+     1. the DIGIT is still inside the disc, so the rank itself is never carried
+        by hue — a monochrome print, a colour-blind reader and a screen reader
+        all get "2";
+     2. the SHAPE is the top-three signal, not the colour — ranks 4+ are a
+        plain numeral, so "is this a medal position" survives with no colour
+        perception at all.
+   The visually-hidden "Rank 2" / "Joint rank 2" string that ui.tsx puts inside
+   is the third channel.
+   The disc borrows the button's physicality — a 1px metal border plus a 2px
+   hard edge under it — because the fills themselves are pale on a white card
+   (1.5–2.7:1) and a fill that faint needs a real boundary, not a hint of one.
+   Figures for every pair are in the header table. */
+
+.world-rank--medal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.625rem;
+  height: 1.625rem;
+  padding: 0 0.3125rem;
+  border: 1px solid var(--_medal-edge);
+  border-radius: var(--w-radius-pill);
+  background-color: var(--_medal-fill);
+  box-shadow: 0 2px 0 var(--_medal-edge);
+  color: var(--w-medal-ink);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.world-rank--gold {
+  --_medal-fill: var(--w-gold);
+  --_medal-edge: var(--w-gold-edge);
+}
+.world-rank--silver {
+  --_medal-fill: var(--w-silver);
+  --_medal-edge: var(--w-silver-edge);
+}
+.world-rank--bronze {
+  --_medal-fill: var(--w-bronze);
+  --_medal-edge: var(--w-bronze-edge);
+}
+
+/* Forced-colours mode flattens every fill to the system palette, which would
+   erase the three medals into one identical box. The digit inside still says
+   which is which, and the border keeps the "top three" shape. */
+@media (forced-colors: active) {
+  .world-rank--medal {
+    border: 2px solid CanvasText;
+    box-shadow: none;
+  }
 }
 
 /* ── Card ─────────────────────────────────────────────────────────────────── */
@@ -555,6 +675,38 @@
   color: var(--w-ink);
 }
 
+/* NARROW SCREENS: give the name column its pixels back.
+   The medal disc and the bigger score type each took a few pixels off the one
+   part of a board row that cannot afford them, and at 375px that was the
+   difference between "United States" and "United Stat…". Nothing here changes
+   what a row SAYS — it trims the gaps, the row's own side padding and 1px off
+   the score's type — and it buys back about 20px, which is enough for the two
+   longest country names in the set. The medal keeps a 24px disc, still a
+   comfortable touch target inside a 44px+ row.
+   Measured at 375px: with these, "United States" and "United Kingdom" both
+   render whole again; without them both ellipsed. */
+@media (max-width: 26.25rem) {
+  .world-row {
+    gap: 0.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.625rem;
+  }
+
+  .world-row__leading {
+    gap: 0.375rem;
+  }
+
+  .world-rank--medal {
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 0.25rem;
+  }
+
+  .world-score {
+    font-size: 1rem;
+  }
+}
+
 /* Affordance glyph — says "this navigates", not just "this is highlighted". */
 .world-row__chevron {
   flex: none;
@@ -636,6 +788,110 @@
 .world-link:focus-visible {
   outline: none;
   box-shadow: var(--w-focus-ring);
+}
+
+/* ── Company logo tile ───────────────────────────────────────────────────────
+   Every place the World shows a real ExploreYC company — a seed pin's card,
+   a leaderboard row, the plot page — uses this one tile, so an imported logo
+   and a letter fallback occupy exactly the same box and a board never reflows
+   because one row happens to have artwork. `object-fit: cover` because YC
+   thumbs are not a consistent aspect ratio. */
+
+.world-logo {
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  background-color: var(--w-ground);
+  border: 1px solid var(--w-border);
+  border-radius: 8px;
+  color: var(--w-muted);
+  font-weight: 800;
+  line-height: 1;
+  object-fit: cover;
+}
+
+/* ── Celebration (the claimed page) ──────────────────────────────────────────
+   A plant is the one genuinely good moment in the product, so it gets a pop, a
+   shockwave ring and a short confetti burst. Every one of them is decoration
+   over content that is already complete and legible: React does not render the
+   confetti at all under prefers-reduced-motion, and the media query below is
+   the belt to that braces for anything that slips through. Nothing here
+   animates forever — a looping celebration is a distraction, not a reward. */
+
+@keyframes world-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes world-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes world-confetti {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--_cx, 0), var(--_cy, 0), 0) rotate(var(--_cr, 180deg));
+    opacity: 0;
+  }
+}
+
+.world-pop {
+  animation: world-pop 460ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+.world-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--w-radius-pill);
+  border: 3px solid var(--w-accent);
+  animation: world-ring 900ms ease-out 120ms both;
+  pointer-events: none;
+}
+
+.world-confetti {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  animation: world-confetti 1100ms cubic-bezier(0.2, 0.6, 0.3, 1) both;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world-pop,
+  .world-ring,
+  .world-confetti {
+    animation: none;
+  }
+  /* The ring and confetti exist only to move. With movement off they are not
+     "a still version of a celebration", they are litter — so they go. */
+  .world-ring,
+  .world-confetti {
+    display: none;
+  }
 }
 
 /* ── Focus utility ────────────────────────────────────────────────────────────

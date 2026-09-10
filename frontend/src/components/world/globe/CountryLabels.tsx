@@ -11,7 +11,11 @@ import * as THREE from 'three'
 import { flagEmoji } from './countries'
 import { latLngToVector3 } from './geo'
 import type { CountryInfo } from './CountryBorders'
-import { clampLabelSpan, countryLabelBudget } from './labelLayout'
+import {
+  clampLabelSpan,
+  countryLabelBudgetAt,
+  unclaimedCountryBudgetAt,
+} from './labelLayout'
 import {
   LABEL_BORDER,
   LABEL_CHEVRON,
@@ -117,6 +121,9 @@ export function CountryLabels({
     const names = new Array<string>(count)
     const metas = new Array<string>(count)
     const priority = new Float32Array(count)
+    /** Paid pins in each country, parallel to the arrays above. 0 = unclaimed. */
+    const held = new Float32Array(count)
+    let claimed = 0
     const v = new THREE.Vector3()
 
     for (let i = 0; i < count; i += 1) {
@@ -127,7 +134,9 @@ export function CountryLabels({
       dirs[i * 3 + 2] = v.z
       ids[i] = `k${row.iso2}`
 
-      const held = counts.get(row.iso2) ?? 0
+      const heldHere = counts.get(row.iso2) ?? 0
+      held[i] = heldHere
+      if (heldHere > 0) claimed += 1
       const flag = flagEmoji(row.iso2)
       names[i] = flag ? `${flag} ${row.name}` : row.name
       /*
@@ -136,9 +145,9 @@ export function CountryLabels({
        * where other countries visibly are not is the sentence that invites the
        * first bid.
        */
-      metas[i] = held > 0 ? pinCountText(held) : 'unclaimed'
+      metas[i] = heldHere > 0 ? pinCountText(heldHere) : 'unclaimed'
       priority[i] =
-        held > 0 ? CLAIMED_PRIORITY_BASE + held * 1e3 : row.weight
+        heldHere > 0 ? CLAIMED_PRIORITY_BASE + heldHere * 1e3 : row.weight
     }
 
     // Most important first, so the tier budget is a prefix of this array.
@@ -148,7 +157,7 @@ export function CountryLabels({
     scratch.sort((a, b) => priority[b] - priority[a])
     for (let i = 0; i < count; i += 1) order[i] = scratch[i]
 
-    return { count, dirs, ids, names, metas, priority, order }
+    return { count, dirs, ids, names, metas, priority, held, claimed, order }
   }, [countries, counts])
 
   const poolRef = useRef<LabelPool | null>(null)
@@ -231,15 +240,33 @@ export function CountryLabels({
 
       if (!enabled || data.count === 0 || !poolRef.current) return
 
-      const budget = Math.min(countryLabelBudget(frame.tier), COUNTRY_POOL)
+      // Continuous in camera distance, not stepped per tier — country names now
+      // arrive one at a time as the camera descends instead of eight at once on
+      // a tier boundary. See `countryLabelBudgetAt`.
+      const budget = Math.min(countryLabelBudgetAt(frame.distance), COUNTRY_POOL)
+      /*
+       * The empty countries get their own, much tighter ceiling — but only once
+       * somebody has actually bought something. With nothing claimed there are
+       * no advertisers to protect and the atlas is the best thing on offer, so
+       * the cap lifts to the whole budget. See `unclaimedCountryBudgetAt`.
+       */
+      const emptyBudget = data.claimed > 0
+        ? Math.min(unclaimedCountryBudgetAt(frame.distance), budget)
+        : budget
       const { camX, camY, camZ, horizon, horizonTop, width, height } = frame
       const invBand = 1 / Math.max(horizonTop - horizon, 1e-4)
       const pillH = LABEL_HEIGHT.country
       const halfH = pillH / 2
 
       let taken = 0
+      let empties = 0
       for (let k = 0; k < data.count && taken < budget; k += 1) {
         const i = data.order[k]
+        // `order` puts every claimed country first, so once the empty tail is
+        // full there is nothing left worth walking — but `continue`, not
+        // `break`: a later empty country may still be the one on screen while
+        // the ones already counted were behind the horizon.
+        if (data.held[i] === 0 && empties >= emptyBudget) continue
         const o = i * 3
         const dx = data.dirs[o]
         const dy = data.dirs[o + 1]
@@ -318,6 +345,7 @@ export function CountryLabels({
         s.x.push(left)
         s.y.push(top)
         taken += 1
+        if (data.held[i] === 0) empties += 1
       }
     },
 

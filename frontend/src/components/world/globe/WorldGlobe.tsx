@@ -13,6 +13,7 @@ import { Canvas } from '@react-three/fiber'
 import type { GlobePin } from '../../../lib/worldApi'
 import { WorldCard } from '../ui'
 import { paletteFor, stakeBand } from './geo'
+import { logoLetter, safeImageUrl } from './logos'
 import { GlobeScene, type WorldGlobeFocus } from './GlobeScene'
 
 /**
@@ -39,8 +40,42 @@ export interface WorldGlobeProps {
   pickMode?: boolean
   onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
+  /**
+   * A seed bead was clicked — an imported company with nothing staked on it.
+   *
+   * Optional, and its absence is a real behaviour rather than a gap: without it
+   * a seed click falls through to its country, exactly as it always has. The
+   * pin carries the feed's own coordinates and its `id`, `name` and
+   * `company_slug`; there is no plot id, because there is no plot yet.
+   */
+  onSelectSeed?: (pin: GlobePin) => void
   onSelectCountry?: (iso: string) => void
   className?: string
+  /**
+   * Company logos drawn on their pins. Default true.
+   *
+   * Paid plots take every slot before any imported company gets one, and the
+   * best-funded of them carry their logo at every zoom — see `LogoMarkers`.
+   * Forced off in pick mode, where a tile would eat a click meant for a
+   * coordinate.
+   */
+  logoMarkers?: boolean
+  /**
+   * The city-density overlay: one disc per city, sized by how many pins snapped
+   * to it, orange where somebody has paid and slate where nobody has. Default
+   * false. As it comes up the SEED beads fade down to make room; paid plots
+   * never change size for it.
+   */
+  density?: boolean
+  /**
+   * The visitor took hold of the camera — a drag, a pinch, a wheel — at the
+   * START of the gesture.
+   *
+   * The hook a hub tour hangs its stop on. An automated camera that keeps
+   * pulling the view back while somebody is trying to look at something is
+   * hostile, so `useHubTour().stop` belongs here.
+   */
+  onInteract?: () => void
 }
 
 let webglProbe: boolean | null = null
@@ -123,6 +158,9 @@ const TOOLTIP_TONE = {
     border: 'rgba(23, 33, 47, 0.14)',
     press: '#C2410C',
     shadow: '0 1px 2px rgba(23, 43, 77, 0.10), 0 8px 24px rgba(23, 43, 77, 0.16)',
+    /* The logo tile's ground, and its fallback letter's — the same muted-on-
+       ground pairing `WorldLogo` uses, measuring 5.4:1 light and 6.0:1 dark. */
+    tile: '#F2F7FC',
   },
   dark: {
     card: '#1E2631',
@@ -131,13 +169,24 @@ const TOOLTIP_TONE = {
     border: 'rgba(234, 240, 247, 0.20)',
     press: '#9A3412',
     shadow: '0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35)',
+    tile: '#263041',
   },
 } as const
 
+type TooltipTone = (typeof TOOLTIP_TONE)[keyof typeof TOOLTIP_TONE]
+
+/**
+ * The one face, mirroring --w-sans.
+ *
+ * There is no TOOLTIP_MONO any more, and there must not be one again: the stake
+ * band used to be set in a typewriter face here, which was the last monospace
+ * left anywhere in the feature and the exact thing the World was redesigned
+ * away from. A band like "$50 – $249" needs its digits to line up, not to look
+ * typed, and `tabular-nums` (applied at the call site below) does that inside
+ * the sans.
+ */
 const TOOLTIP_SANS =
   'ui-rounded, "SF Pro Rounded", "Segoe UI Variable", Inter, system-ui, sans-serif'
-const TOOLTIP_MONO =
-  'ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace'
 
 /**
  * What a pin is worth, said honestly.
@@ -168,15 +217,88 @@ function PinTooltipBody({ pin }: { pin: GlobePin }) {
       Staked{' '}
       <span
         style={{
-          fontFamily: TOOLTIP_MONO,
+          fontFamily: TOOLTIP_SANS,
           fontVariantNumeric: 'tabular-nums',
-          fontWeight: 600,
+          fontFeatureSettings: '"tnum" 1',
+          fontWeight: 700,
         }}
       >
         {band}
       </span>
     </>
   )
+}
+
+/**
+ * The company's mark, or a letter in the same box.
+ *
+ * Mounted with `key={pin.id}` so a failed load never carries over to the next
+ * company: the fallback is per-company state, and a shared component instance
+ * would show the letter for whoever is hovered after a broken image.
+ *
+ * `alt=""` because the name is rendered as text right beside it. The tooltip is
+ * `aria-hidden` regardless — it describes a bead that is not itself a keyboard
+ * target — but the attribute is the honest one either way.
+ */
+function PinLogo({ pin, tone }: { pin: GlobePin; tone: TooltipTone }) {
+  const [failed, setFailed] = useState(false)
+  const url = safeImageUrl(pin.logo_url)
+
+  const box = {
+    width: 34,
+    height: 34,
+    flex: 'none' as const,
+    borderRadius: 8,
+    border: `1px solid ${tone.border}`,
+  }
+
+  if (!url || failed) {
+    return (
+      <span
+        style={{
+          ...box,
+          display: 'grid',
+          placeItems: 'center',
+          background: tone.tile,
+          color: tone.muted,
+          fontWeight: 800,
+          fontSize: 14,
+          lineHeight: 1,
+        }}
+      >
+        {logoLetter(pin.name)}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      style={{
+        ...box,
+        objectFit: 'contain',
+        // Logos are drawn for white. Giving them white in both themes is what
+        // keeps a transparent PNG legible on a dark tooltip.
+        background: '#FFFFFF',
+      }}
+    />
+  )
+}
+
+/**
+ * The second line: what this company IS, in the words the feed actually has.
+ *
+ * The deck.gl map put `one_liner` here, and the globe feed does not carry one —
+ * it carries `industry`, which is the one-line descriptor this payload has, and
+ * is present on seeds only. Nothing is invented when it is missing: the line
+ * simply is not drawn.
+ */
+function metaLine(pin: GlobePin): string {
+  return [pin.batch, pin.industry].filter(Boolean).join(' • ')
 }
 
 class GlobeBoundary extends Component<
@@ -205,8 +327,12 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
   pickMode = false,
   onPick,
   onSelectPlot,
+  onSelectSeed,
   onSelectCountry,
   className,
+  logoMarkers = true,
+  density = false,
+  onInteract,
 }) => {
   const [lowPower, setLowPower] = useState(detectLowPower)
   const handleDecline = useCallback(() => setLowPower(true), [])
@@ -416,9 +542,13 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
               pickMode={pickMode}
               onPick={onPick}
               onSelectPlot={onSelectPlot}
+              onSelectSeed={onSelectSeed}
               onSelectCountry={onSelectCountry}
               onHoverPin={handleHoverPin}
               onPerformanceDecline={lowPower ? undefined : handleDecline}
+              logoMarkers={logoMarkers}
+              density={density}
+              onInteract={onInteract}
             />
           </Suspense>
         </Canvas>
@@ -444,7 +574,10 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
             top: 0,
             zIndex: 3,
             pointerEvents: 'none',
-            maxWidth: '15rem',
+            // Wider than the 15rem it carried as a two-line card: the logo takes
+            // 34px plus its gap off the front of every row, and a batch beside
+            // an industry is a longer line than a stake band.
+            maxWidth: '18rem',
             padding: '0.5rem 0.75rem',
             borderRadius: 12,
             background: tone.card,
@@ -456,42 +589,109 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
             lineHeight: 1.4,
           }}
         >
-          <div
-            style={{
-              fontWeight: 700,
-              letterSpacing: '-0.01em',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {hoverPin.name}
-          </div>
-          <div style={{ color: tone.muted, fontSize: 12, fontWeight: 600 }}>
-            <PinTooltipBody pin={hoverPin} />
-          </div>
           {/*
-            Paid placement is disclosed wherever the pin is surfaced, and this
-            is one of those places. White on --w-press: 5.18:1 light, 7.31:1
-            dark.
+            The deck.gl map's tooltip content, on the globe's tooltip mechanism.
+
+            What was ported is the CONTENT — the logo, the name, a descriptor,
+            the batch and the place — because a hover that says only "Staked $50
+            – $249" tells a visitor nothing about the company they are pointing
+            at, and this globe is meant to sell companies. What was kept is the
+            MECHANISM: this element is positioned by a direct DOM write from a
+            cached rect on every pointermove, never by React state, so a tooltip
+            over a 5,579-instance mesh costs one transform per pointer event.
+
+            Every string below is interpolated by React, which escapes it. The
+            donor built its tooltip as an HTML string and needed an explicit
+            `escapeHtml` on every field; there is no such string here, and there
+            must not be one — `dangerouslySetInnerHTML` on scraped company names
+            is exactly the bug that function existed to prevent.
           */}
-          {hoverPin.promoted && (
-            <div
-              style={{
-                display: 'inline-block',
-                marginTop: 6,
-                padding: '2px 7px',
-                borderRadius: 6,
-                background: tone.press,
-                color: '#FFFFFF',
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.01em',
-              }}
-            >
-              Promoted
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <PinLogo key={hoverPin.id} pin={hoverPin} tone={tone} />
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  letterSpacing: '-0.01em',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {hoverPin.name}
+              </div>
+
+              {metaLine(hoverPin) && (
+                <div
+                  style={{
+                    color: tone.muted,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {metaLine(hoverPin)}
+                </div>
+              )}
+
+              {/*
+                The place, verbatim as the feed sends it — "San Francisco, CA,
+                USA" — because that whole string is what the hub layer groups
+                and names by, and showing a shortened version here would make
+                the tooltip and the hub card disagree about where a company is.
+              */}
+              {hoverPin.location && (
+                <div
+                  style={{
+                    color: tone.muted,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {hoverPin.location}
+                </div>
+              )}
+
+              <div
+                style={{
+                  color: tone.muted,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  marginTop: 2,
+                }}
+              >
+                <PinTooltipBody pin={hoverPin} />
+              </div>
+
+              {/*
+                Paid placement is disclosed wherever the pin is surfaced, and
+                this is one of those places. White on --w-press: 5.18:1 light,
+                7.31:1 dark.
+              */}
+              {hoverPin.promoted && (
+                <div
+                  style={{
+                    display: 'inline-block',
+                    marginTop: 6,
+                    padding: '2px 7px',
+                    borderRadius: 6,
+                    background: tone.press,
+                    color: '#FFFFFF',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.01em',
+                  }}
+                >
+                  Promoted
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
