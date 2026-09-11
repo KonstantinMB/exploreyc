@@ -6,7 +6,7 @@
  * there is no pure-React formulation of that.
  */
 
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { flagEmoji } from './countries'
 import { latLngToVector3 } from './geo'
@@ -40,9 +40,17 @@ import {
  *
  * The donor wrote the leading startup's name here, from a standings feed this
  * globe does not receive. What it does know — the pins — still lets the layer
- * make the product's argument: a country holding paid pins is labelled with
- * its pin count and wins priority over every empty giant, and an unclaimed
- * country reads as an invitation.
+ * make the product's argument: a country holding paid stakes is labelled with
+ * how many are bidding on it, and wins priority over every empty giant.
+ *
+ * NOTHING ON THIS LAYER SAYS "UNCLAIMED". It used to: every country with no
+ * stakes carried the word as its meta line, which meant the most common thing
+ * written across the map was a label for the absence of a product. It is also
+ * not information — the fill already says who owns what, in colour, at a
+ * glance — and a world covered in the same negative word reads as a dead
+ * product rather than as an open one. An empty country now carries its name and
+ * nothing else, and the countries with real numbers are the ones with a second
+ * line.
  */
 
 /** DOM nodes kept. The budget never exceeds this. */
@@ -62,6 +70,16 @@ const OFFSCREEN_SLACK = 80
 const CLAIMED_PRIORITY_BASE = 1e9
 
 /**
+ * Priority for the SELECTED country. Above everything, unconditionally.
+ *
+ * The one country the panel is about is the one country whose pill must never
+ * lose a collision — it is the anchor tying the panel's heading to a shape on
+ * the sphere, and a selection whose label got culled by a bigger neighbour
+ * leaves the visitor reading about a country they cannot find.
+ */
+const SELECTED_PRIORITY = 1e12
+
+/**
  * How much of the pill must still sit over the country's centroid after the
  * pill has been pushed away from a viewport edge.
  *
@@ -79,8 +97,16 @@ const ANCHOR_KEEP = 10
 export interface CountryLabelsProps {
   /** Every country in the current topology, from `CountryBorders`. */
   countries: readonly CountryInfo[]
-  /** iso2 → paid pin count. Absent or zero = unclaimed. */
+  /** iso2 → paid pin count. Absent or zero = nobody is bidding yet. */
   counts: ReadonlyMap<string, number>
+  /**
+   * ISO-3166 alpha-2 of the country the panel is showing, or null.
+   *
+   * Its pill takes the accent border the territory itself is wearing, is
+   * announced as the current one, and jumps to the front of the priority queue
+   * so a collision can never cull it.
+   */
+  selectedIso2?: string | null
   enabled?: boolean
   /**
    * Fired with the ISO-3166 alpha-2 when a pill is pressed.
@@ -102,6 +128,7 @@ export interface CountryLabelsProps {
 export function CountryLabels({
   countries,
   counts,
+  selectedIso2 = null,
   enabled = true,
   onActivate,
   onHover,
@@ -114,6 +141,8 @@ export function CountryLabels({
    * countries inside a frame callback would be thousands of allocations a
    * second for data that changes every ten seconds at most.
    */
+  const selected = selectedIso2 ? selectedIso2.toUpperCase() : null
+
   const data = useMemo(() => {
     const count = countries.length
     const dirs = new Float32Array(count * 3)
@@ -121,7 +150,7 @@ export function CountryLabels({
     const names = new Array<string>(count)
     const metas = new Array<string>(count)
     const priority = new Float32Array(count)
-    /** Paid pins in each country, parallel to the arrays above. 0 = unclaimed. */
+    /** Paid pins in each country, parallel to the arrays above. 0 = no bids. */
     const held = new Float32Array(count)
     let claimed = 0
     const v = new THREE.Vector3()
@@ -140,14 +169,23 @@ export function CountryLabels({
       const flag = flagEmoji(row.iso2)
       names[i] = flag ? `${flag} ${row.name}` : row.name
       /*
-       * The meta is the product in three words. A country with pins carries
-       * its count; a country without them says so, and "unclaimed" on a map
-       * where other countries visibly are not is the sentence that invites the
-       * first bid.
+       * The meta is a COUNT OF REAL BIDS or it is nothing at all.
+       *
+       * "12 bidding" is a fact about the board — it came from the paid pins the
+       * feed shipped, one per stake — and it is the same sentence the country
+       * panel opens with, so the map and the panel say the same thing in the
+       * same words. There is deliberately no branch producing a string for a
+       * country with no stakes: silence is the honest rendering of "no data
+       * here yet", and it leaves the claimed countries as the only ones on the
+       * map carrying a number.
        */
-      metas[i] = heldHere > 0 ? pinCountText(heldHere) : 'unclaimed'
+      metas[i] = heldHere > 0 ? biddingText(heldHere) : ''
       priority[i] =
-        heldHere > 0 ? CLAIMED_PRIORITY_BASE + heldHere * 1e3 : row.weight
+        row.iso2 === selected
+          ? SELECTED_PRIORITY
+          : heldHere > 0
+            ? CLAIMED_PRIORITY_BASE + heldHere * 1e3
+            : row.weight
     }
 
     // Most important first, so the tier budget is a prefix of this array.
@@ -158,7 +196,7 @@ export function CountryLabels({
     for (let i = 0; i < count; i += 1) order[i] = scratch[i]
 
     return { count, dirs, ids, names, metas, priority, held, claimed, order }
-  }, [countries, counts])
+  }, [countries, counts, selected])
 
   const poolRef = useRef<LabelPool | null>(null)
 
@@ -205,6 +243,21 @@ export function CountryLabels({
   }, [onHover, surface])
 
   const slotCountry = useMemo(() => new Int32Array(COUNTRY_POOL).fill(-1), [])
+
+  /**
+   * Forget which country each slot holds whenever the data is rebuilt.
+   *
+   * `commit` only rewrites a slot's text when the slot changes OWNER, which is
+   * the right economy for a frame loop and the wrong one when the strings
+   * themselves move underneath it. The board refetches every sixty seconds; a
+   * country that went from nothing to "1 bidding" while its pill stayed on
+   * screen would keep the old text — an empty label on a country that has just
+   * been bid on, which is precisely the number this layer exists to show.
+   * Clearing the map forces one rewrite on the next frame and nothing after it.
+   */
+  useEffect(() => {
+    slotCountry.fill(-1)
+  }, [data, slotCountry])
 
   const scratch = useMemo(
     () => ({
@@ -301,12 +354,16 @@ export function CountryLabels({
          * resolved, which is how the edge clamp starts letting pills hang off
          * the frame again.
          */
+        const meta = data.metas[i]
         const pillWidth =
           LABEL_BORDER * 2 +
           LABEL_PAD_COUNTRY * 2 +
           frame.measure(data.names[i], 'title') +
-          LABEL_GAP +
-          frame.measure(data.metas[i], 'meta') +
+          // An empty meta costs nothing — not its width and not the flex gap in
+          // front of it, which is only in the box model when the span is
+          // displayed. Charging for a gap that is not drawn is how a country
+          // with no bids ends up with a pill that is visibly too wide for it.
+          (meta ? LABEL_GAP + frame.measure(meta, 'meta') : 0) +
           chevronWidth
 
         /*
@@ -356,6 +413,8 @@ export function CountryLabels({
       pool.begin()
 
       const s = scratch
+      const selectedId = selected ? `k${selected}` : null
+
       for (let k = 0; k < s.idx.length; k += 1) {
         const i = s.idx[k]
         if (!placed.has(data.ids[i])) continue
@@ -367,9 +426,33 @@ export function CountryLabels({
 
         if (slotCountry[slot] !== i) {
           slotCountry[slot] = i
+          const meta = data.metas[i]
           pool.names[slot].textContent = data.names[i]
-          pool.metas[slot].textContent = data.metas[i]
-          pool.metas[slot].style.display = ''
+          pool.metas[slot].textContent = meta
+          // Hidden rather than emptied: an empty flex child still spends the
+          // pill's gap, and `collect` above sized the rectangle on the
+          // assumption that it does not.
+          pool.metas[slot].style.display = meta ? '' : 'none'
+        }
+
+        /*
+         * The selected pill, outside the slot-identity guard above.
+         *
+         * Selection can change while a slot keeps the same country — clicking
+         * the territory rather than its label does exactly that — so this
+         * cannot ride along with the text write. `classList.toggle` with an
+         * explicit boolean is idempotent and touches no attribute when the
+         * answer has not moved, so paying it on 26 nodes a frame is free.
+         *
+         * `aria-current` only where the pill is a real button: on an inert,
+         * aria-hidden caption it would be an announcement nobody can act on.
+         */
+        const isSelected = data.ids[i] === selectedId
+        pool.nodes[slot].classList.toggle('is-selected', isSelected)
+        if (isSelected && onActivate) {
+          pool.nodes[slot].setAttribute('aria-current', 'true')
+        } else {
+          pool.nodes[slot].removeAttribute('aria-current')
         }
       }
 
@@ -380,6 +463,13 @@ export function CountryLabels({
   return null
 }
 
-function pinCountText(n: number): string {
-  return n === 1 ? '1 pin' : `${n} pins`
+/**
+ * How many stakes are on a country's board, in the panel's own words.
+ *
+ * "1 bidding" and not "1 bid": the panel's headline is "12 bidding · #1 pays
+ * $51", the pill is the same sentence at map scale, and two phrasings for one
+ * number is how a visitor starts wondering whether they are two numbers.
+ */
+function biddingText(n: number): string {
+  return `${n} bidding`
 }

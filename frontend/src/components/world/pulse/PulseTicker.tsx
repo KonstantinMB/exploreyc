@@ -6,6 +6,7 @@ import { cn } from '../../../lib/utils'
 import worldApi, { type PulseEvent } from '../../../lib/worldApi'
 import { Money, WorldCard } from '../ui'
 import { isoFlag, timeAgo } from '../boards/format'
+import { nameFor } from '../country/names'
 
 const PULSE_POLL_MS = 15_000
 const ROTATE_MS = 4_000
@@ -18,10 +19,16 @@ function usePulse() {
   })
 }
 
-const VERB: Record<PulseEvent['type'], string> = {
-  plant: 'planted in',
-  topup: 'topped up in',
-  promotion: 'promoted in',
+/**
+ * Two grammars per verb, because `country_iso` is nullable: a global featured
+ * promotion belongs to no country, and "promoted in" trailing off into a
+ * fallback globe glyph is a broken sentence. Same table, same reasoning, as
+ * activity/ActivityPanel.tsx.
+ */
+const VERB: Record<PulseEvent['type'], { in: string; alone: string }> = {
+  plant: { in: 'planted in', alone: 'planted a plot' },
+  topup: { in: 'topped up in', alone: 'topped up' },
+  promotion: { in: 'promoted in', alone: 'promoted worldwide' },
 }
 
 /** Tinted disc behind the event glyph so the icon reads as a badge, not a bullet. */
@@ -38,12 +45,18 @@ function EventIcon({ type }: { type: PulseEvent['type'] }) {
 }
 
 function EventLine({ event, now }: { event: PulseEvent; now: number }) {
+  const code = (event.country_iso ?? '').trim().toUpperCase()
+  const iso = /^[A-Z]{2}$/.test(code) ? code : null
   return (
     <span className="flex min-w-0 items-center gap-2.5 text-xs">
       <EventIcon type={event.type} />
-      <span aria-hidden className="shrink-0 text-base leading-none">
-        {isoFlag(event.country_iso)}
-      </span>
+      {/* No country, no flag — rather than the fallback globe glyph, which
+          reads as a real place nobody can name. */}
+      {iso ? (
+        <span aria-hidden className="shrink-0 text-base leading-none">
+          {isoFlag(iso)}
+        </span>
+      ) : null}
       {/* The amount sits OUTSIDE the truncating span. Inside it, a long name
           ate the figure — "TerminalStack promoted in US +…" — and the figure is
           the one part of this line that has to stay honest and readable. Now
@@ -51,7 +64,9 @@ function EventLine({ event, now }: { event: PulseEvent; now: number }) {
       <span className="min-w-0 flex-1 truncate">
         <span className="font-semibold text-foreground">{event.name}</span>{' '}
         <span className="text-muted-foreground">
-          {VERB[event.type]} {event.country_iso}
+          {/* The country's NAME, not its code. "promoted in US" is a database
+              value; "promoted in United States of America" is a sentence. */}
+          {iso ? `${VERB[event.type].in} ${nameFor(iso)}` : VERB[event.type].alone}
         </span>
       </span>
       <Money
@@ -94,8 +109,9 @@ export function PulseTicker({ className }: { className?: string }) {
   return (
     <WorldCard
       className={cn('overflow-hidden px-3 py-2', className)}
-      // Rotating content must not spam screen readers (no aria-live); the
-      // static PulseList is the accessible surface for the full feed.
+      // Rotating content must not spam screen readers (no aria-live). The
+      // accessible surface for this feed is <ActivityPanel>, which renders the
+      // same events as a static list and is on /world unconditionally.
     >
       {/* Both the outgoing and the incoming event occupy the SAME grid cell, so
           they cross over each other. This used to be `mode="wait"` in block
@@ -120,46 +136,6 @@ export function PulseTicker({ className }: { className?: string }) {
         </AnimatePresence>
       </div>
     </WorldCard>
-  )
-}
-
-/** Stacked pulse feed for drawers / country pages — readable and static. */
-export function PulseList({ className, rows = 6 }: { className?: string; rows?: number }) {
-  const { data, isLoading } = usePulse()
-  const [now, setNow] = useState(() => Date.now())
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 20_000)
-    return () => clearInterval(id)
-  }, [])
-
-  if (isLoading) {
-    return (
-      <p role="status" className={cn('text-sm text-muted-foreground', className)}>
-        Loading recent activity…
-      </p>
-    )
-  }
-  const events = data?.events?.slice(0, rows) ?? []
-  if (events.length === 0) {
-    return (
-      <p className={cn('text-sm text-muted-foreground', className)}>
-        Nothing planted yet. The first plot takes its country.
-      </p>
-    )
-  }
-
-  return (
-    <ul className={cn('flex flex-col', className)}>
-      {events.map((event, i) => (
-        <li
-          key={`${event.at}-${i}`}
-          className="min-w-0 border-b border-border py-2 last:border-b-0"
-        >
-          <EventLine event={event} now={now} />
-        </li>
-      ))}
-    </ul>
   )
 }
 

@@ -785,7 +785,14 @@ def _board_row(row: dict) -> dict:
 
     logo_url is optional imagery, never a claim: a plot row carries its own
     logo or the linked company's thumb, a country row carries None (the UI
-    renders a flag emoji), and an absent logo stays None rather than ''."""
+    renders a flag emoji), and an absent logo stays None rather than ''.
+
+    tagline is the plot's own one-liner (falling back to the linked company's),
+    and it behaves exactly like logo_url: present when the owner wrote one,
+    None otherwise. It is additive — a country-board row has no tagline and
+    gets None — and it exists because a ranked list of bare domains tells a
+    reader who paid but not who they are. Never synthesised: a plot with no
+    words of its own renders no second line at all."""
     return {
         "rank": row["rank"],
         "iso": row.get("iso"),
@@ -794,6 +801,7 @@ def _board_row(row: dict) -> dict:
         "plot_id": row.get("plot_id"),
         "delta_cents": row.get("delta_cents"),
         "logo_url": row.get("logo_url") or None,
+        "tagline": row.get("tagline") or None,
     }
 
 

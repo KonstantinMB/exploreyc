@@ -39,6 +39,14 @@ export interface WorldGlobeProps {
    */
   onSelectSeed?: (pin: GlobePin) => void
   onSelectCountry?: (iso: string) => void
+  /**
+   * The country the page currently has a panel open for, highlighted on the
+   * sphere. The globe does NOT own this — it reads it and draws it, and the
+   * page is the only thing that writes it. That split is what lets a country be
+   * selected from the picker, the activity feed or a click on the map without
+   * three sources of truth for "which country is open".
+   */
+  selectedIso?: string | null
   className?: string
   /** Company logo tiles on the pins. Default true; forced off in `pickMode`. */
   logoMarkers?: boolean

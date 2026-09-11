@@ -19,7 +19,7 @@ import { Trophy } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi from '../../../lib/worldApi'
 import { formatDollars } from '../constants'
-import { WorldCard } from '../ui'
+import { WorldCard, WORLD_PANEL_SURFACE } from '../ui'
 import { WorldPodium, type PodiumEntry } from './WorldPodium'
 import { countryDisplayName, isoFlag } from './format'
 
@@ -50,7 +50,7 @@ export function GlobePodium({ className }: { className?: string }) {
     <WorldCard
       flat
       aria-label="Top three countries"
-      className={cn('overflow-hidden bg-card/90 backdrop-blur-md', className)}
+      className={cn('overflow-hidden', WORLD_PANEL_SURFACE, className)}
     >
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <span className="inline-flex items-center gap-1.5 font-mono text-xs font-bold">
