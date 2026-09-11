@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
@@ -26,11 +25,11 @@ import { formatDollars, MIN_STAKE_CENTS } from '../constants'
 import {
   Money,
   Rank,
+  WorldButton,
   WorldCard,
   WorldHeading,
   WorldLogo,
   WorldRowButton,
-  worldButtonClass,
 } from '../ui'
 import { CountUp } from './CountUp'
 import { WorldPodium, type PodiumEntry } from './WorldPodium'
@@ -295,10 +294,12 @@ function CountryBoardList({
   kind,
   scope,
   maxPx,
+  onClaim,
 }: {
   kind: BoardKind
   scope: string
   maxPx: number
+  onClaim?: () => void
 }) {
   const reduced = useReducedMotion()
   const { ref: listRef, more, maxHeight } = useBoardViewport<HTMLOListElement>(maxPx)
@@ -407,14 +408,17 @@ function CountryBoardList({
       </div>
 
       <div className="border-t border-border p-3">
+        {/* THE CONVERSION LINE IS A BUTTON, NOT A ROUTE.
+            It used to be a link to the coordinate-picking
+            wizard at /world/claim, now deleted. The page that owns this board owns the way in
+            instead: on /world that is the country picker below the globe, on a
+            country page it is that country's stake modal. */}
         {kind === 'richest' &&
           (data.cents_to_beat != null ? (
-            // The conversion line is the point of the board, so it is a real
-            // button rather than a small orange note.
-            <Link to="/world/claim" className={worldButtonClass('primary', 'md', { block: true })}>
+            <WorldButton variant="primary" size="md" block onClick={onClaim}>
               <Money cents={data.cents_to_beat} /> takes #1
               <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-            </Link>
+            </WorldButton>
           ) : (
             // No leader figure from the API means no price. We say "unknown"
             // and still offer the way in — we do not invent a number to put on
@@ -423,13 +427,10 @@ function CountryBoardList({
               <p className="text-xs text-muted-foreground">
                 Price to take #1: <Money cents={null} />
               </p>
-              <Link
-                to="/world/claim"
-                className={worldButtonClass('secondary', 'md', { block: true })}
-              >
+              <WorldButton variant="secondary" size="md" block onClick={onClaim}>
                 Claim a plot — from $5
                 <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-              </Link>
+              </WorldButton>
             </div>
           ))}
         {kind === 'planted' && (
@@ -582,6 +583,11 @@ export interface WorldBoardsProps {
    * section to itself rather than a 400px rail beside the globe.
    */
   feature?: boolean
+  /**
+   * Press on the board's conversion button. The board never navigates on its
+   * own any more — the page decides what "claim a plot" means where it stands.
+   */
+  onClaim?: () => void
   className?: string
 }
 
@@ -597,6 +603,7 @@ export function WorldBoards({
   scope = 'world',
   includeFounders = true,
   feature = false,
+  onClaim,
   className,
 }: WorldBoardsProps) {
   const [tab, setTab] = useState<TabId>('richest')
@@ -657,7 +664,12 @@ export function WorldBoards({
 
         {COUNTRY_TABS.map((t) => (
           <TabsPrimitive.Content key={t.id} value={t.id} className="mt-0 focus:outline-none">
-            <CountryBoardList kind={t.id as BoardKind} scope={scope} maxPx={maxPx} />
+            <CountryBoardList
+              kind={t.id as BoardKind}
+              scope={scope}
+              maxPx={maxPx}
+              onClaim={onClaim}
+            />
           </TabsPrimitive.Content>
         ))}
         {includeFounders &&

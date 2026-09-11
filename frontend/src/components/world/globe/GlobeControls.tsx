@@ -23,7 +23,14 @@
  * second source of truth to disagree with the first.
  */
 
-import { WorldButton, WorldCard, WorldChip, WORLD_FOCUS_CLASS } from '../ui'
+import {
+  WorldButton,
+  WorldCard,
+  WorldChip,
+  WORLD_FOCUS_CLASS,
+  WORLD_OVERLAY_PILL,
+  WORLD_OVERLAY_SURFACE,
+} from '../ui'
 import { cn } from '../../../lib/utils'
 import { GLOBE_REGIONS, focusRegion, type GlobeFocusPoint, type HubTour } from './tour'
 
@@ -46,7 +53,11 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
       <div
         role="group"
         aria-label="Jump to a region"
-        className="flex items-center gap-0.5 rounded-sm border border-border/80 bg-card/80 p-1 backdrop-blur-sm dark:border-white/10"
+        // The overlay pill, so this rail is exactly as tall as the stats strip
+        // above it and the Layers trigger in the opposite corner. `px-1`
+        // overrides the pill's own `px-3`: the padding here belongs to the
+        // buttons inside, which are the real hit targets.
+        className={cn(WORLD_OVERLAY_PILL, 'gap-0.5 px-1')}
       >
         {GLOBE_REGIONS.map((r) => (
           <button
@@ -60,8 +71,8 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
               onFocus(focusRegion(r))
             }}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5',
-              'text-xs font-semibold text-foreground',
+              'inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5',
+              'cursor-pointer text-xs font-semibold text-foreground',
               'transition-colors hover:bg-[#FB651E]/[0.05] motion-reduce:transition-none',
               WORLD_FOCUS_CLASS
             )}
@@ -74,7 +85,7 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
 
       {tour.hubs.length === 0 ? null : tour.active && tour.hub ? (
         <WorldCard
-          className="w-[15.5rem] px-3 py-2.5"
+          className={cn(WORLD_OVERLAY_SURFACE, 'w-[15.5rem] px-3 py-2.5')}
           aria-live="polite"
           aria-atomic="true"
         >
@@ -98,7 +109,14 @@ export function GlobeControls({ onFocus, tour, className }: GlobeControlsProps) 
           </div>
         </WorldCard>
       ) : (
-        <WorldButton variant="secondary" size="sm" onClick={tour.start}>
+        // Not `size="sm"`: that is 2rem tall, and this pill sits directly
+        // under a 2.25rem one. The overlay geometry wins over the button scale.
+        <WorldButton
+          variant="secondary"
+          size="sm"
+          className={cn(WORLD_OVERLAY_SURFACE, 'min-h-[2.25rem] px-3')}
+          onClick={tour.start}
+        >
           Tour the hubs
         </WorldButton>
       )}

@@ -20,7 +20,7 @@ import { Globe2 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import worldApi from '../../../lib/worldApi'
 import { formatDollars } from '../constants'
-import { InfoTip, WorldCard, WORLD_PANEL_SURFACE } from '../ui'
+import { InfoTip, WORLD_OVERLAY_PILL } from '../ui'
 
 /** The server's own page size for the country board (backend/database.py). */
 const BOARD_LIMIT = 100
@@ -43,11 +43,10 @@ export function WorldStats({ className }: { className?: string }) {
   const plus = capped ? '+' : ''
 
   return (
-    <WorldCard
-      flat
-      aria-label="World totals"
-      className={cn('flex items-center gap-2 px-2.5 py-1.5', WORLD_PANEL_SURFACE, className)}
-    >
+    // One of the overlay pills — same height, padding, radius and skin as the
+    // region rail above it and the Layers trigger opposite. See
+    // WORLD_OVERLAY_PILL in ../ui.
+    <div aria-label="World totals" className={cn(WORLD_OVERLAY_PILL, className)}>
       <Globe2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-[#FB651E]" />
       <p className="font-mono text-[11px] leading-tight">
         <span className="world-num font-bold text-foreground">
@@ -68,7 +67,7 @@ export function WorldStats({ className }: { className?: string }) {
         Countries with at least one plot in them, and everything staked across
         {capped ? ' the top 100 of them' : ' all of them'}. Updated every minute.
       </InfoTip>
-    </WorldCard>
+    </div>
   )
 }
 

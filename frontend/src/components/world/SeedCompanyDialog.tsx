@@ -29,22 +29,31 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUpRight, ChevronRight, Users } from 'lucide-react'
 import { apiClient } from '../../lib/api'
-import type { GlobePin } from '../../lib/worldApi'
+import worldApi, { type GlobePin } from '../../lib/worldApi'
 import {
   WorldButton,
   WorldChip,
   WorldLogo,
-  worldButtonClass,
   WORLD_FOCUS_CLASS,
 } from './ui'
 
 export interface SeedCompanyDialogProps {
   /** The seed pin that was clicked, or null when nothing is open. */
   pin: GlobePin | null
+  /**
+   * Stake on the country this pin stands in.
+   *
+   * The claim wizard this button used to open (/world/claim?company=slug) is
+   * deleted, and with it the idea that a purchase is about a coordinate. The
+   * unit is the COUNTRY now, so the dialog resolves which country the pin is
+   * standing in — through the same `/api/world/where` the server uses — and
+   * hands that up. The page selects it, the panel opens, the modal follows.
+   */
+  onClaimCountry: (iso: string) => void
   onClose: () => void
 }
 
-export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
+export function SeedCompanyDialog({ pin, onClaimCountry, onClose }: SeedCompanyDialogProps) {
   const slug = pin?.company_slug ?? null
 
   const companyQuery = useQuery({
@@ -55,11 +64,17 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
   })
   const company = companyQuery.data
 
-  // The claim flow already supports both halves of this: /world/claim reads
-  // ?company=<slug>, resolves the company, prefills name/url/tagline and flies
-  // the globe to its coordinates. So there is no new claim path here — this is
-  // a link into the one that exists.
-  const claimHref = slug ? `/world/claim?company=${encodeURIComponent(slug)}` : '/world/claim'
+  // Which country this dot stands in. Rounded to the pin's own coordinates so
+  // two pins in one city share a cache entry.
+  const whereQuery = useQuery({
+    queryKey: ['world', 'where', pin?.lat, pin?.lng],
+    queryFn: () => worldApi.getWhere(pin!.lat, pin!.lng).then((r) => r.data),
+    enabled: pin != null,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const iso = whereQuery.data?.country_iso ?? null
+  const countryName = whereQuery.data?.country_name ?? null
 
   return (
     <DialogPrimitive.Root open={pin != null} onOpenChange={(open) => !open && onClose()}>
@@ -146,10 +161,19 @@ export function SeedCompanyDialog({ pin, onClose }: SeedCompanyDialogProps) {
           </div>
 
           <div className="flex flex-col gap-2 p-5 pt-4">
-            <Link to={claimHref} className={worldButtonClass('primary', 'md', { block: true })}>
-              Claim this spot — from $5
+            {/* Names the country when we know it and says nothing about one
+                when we do not — there is no invented place name here. Disabled
+                only while the lookup is genuinely unresolved. */}
+            <WorldButton
+              variant="primary"
+              size="md"
+              block
+              disabled={iso == null}
+              onClick={() => iso && onClaimCountry(iso)}
+            >
+              {countryName ? <>Stake on {countryName} — from $5</> : <>Stake on this country — from $5</>}
               <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-            </Link>
+            </WorldButton>
             <div className="flex items-center justify-between gap-3">
               <p className="text-[11px] leading-tight text-muted-foreground">
                 No prize, no payout, no refund.

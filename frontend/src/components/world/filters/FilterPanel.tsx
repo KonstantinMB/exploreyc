@@ -24,7 +24,7 @@ import { useState, type ReactNode } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Check, SlidersHorizontal } from 'lucide-react'
 import { cn } from '../../../lib/utils'
-import { WorldButton, WorldChip, WORLD_FOCUS_CLASS } from '../ui'
+import { WorldButton, WorldChip, WORLD_FOCUS_CLASS, WORLD_OVERLAY_SURFACE } from '../ui'
 import { YC_LAYER_AUTO_THRESHOLD, type WorldLayers } from './layers'
 
 /** Tabular integers, so counts in a column do not wobble. */
@@ -319,7 +319,14 @@ export function WorldFilterPanel({ layers, className }: WorldFilterPanelProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Trigger asChild>
-        <WorldButton variant="secondary" size="sm" className={cn('gap-2 px-3', className)}>
+        {/* An overlay pill, not a `sm` button: it stacks under the legend in
+            the globe's bottom-left corner and the two have to be the same
+            height, padding and skin. See WORLD_OVERLAY_PILL in ../ui. */}
+        <WorldButton
+          variant="secondary"
+          size="sm"
+          className={cn(WORLD_OVERLAY_SURFACE, 'min-h-[2.25rem] gap-2 px-3', className)}
+        >
           <SlidersHorizontal className="h-4 w-4" aria-hidden />
           {/* The button's accessible name is its own text, so the state has to
               be IN the text: a badge is a shape, and "2" on its own is not a

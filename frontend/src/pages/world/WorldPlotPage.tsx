@@ -1,10 +1,9 @@
 // /world/p/:id — plot permalink (share target). Owner sees manage controls.
-import { Suspense, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import * as DialogPrimitive from '@radix-ui/react-dialog'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -31,7 +30,7 @@ import {
 import CountUp from '../../components/world/boards/CountUp'
 import { isoFlag, shortDate } from '../../components/world/boards/format'
 import { formatDollars, PROMOTION_TIERS } from '../../components/world/constants'
-import { LazyClaimFlow } from './worldLazy'
+import TopUpModal from '../../components/world/stake/TopUpModal'
 
 /**
  * Text input styled from the World tokens. There is no world.css input class to
@@ -583,8 +582,14 @@ export default function WorldPlotPage() {
           <WorldCard className="mb-4 p-5">
             <p className="mb-4 text-sm">{toBeatLine}</p>
             <div className="flex flex-wrap items-center gap-3">
-              <Link to="/world/claim" className={worldButtonClass('primary', 'lg')}>
-                Claim your own plot — from $5
+              {/* Straight at the country this plot is in: that panel is where
+                  the stake modal opens from, and it is the only purchase path
+                  there is. */}
+              <Link
+                to={`/world/c/${plot.country_iso}`}
+                className={worldButtonClass('primary', 'lg')}
+              >
+                Claim your own plot in {plot.country_name} — from $5
                 <ChevronRight className="h-5 w-5" aria-hidden />
               </Link>
               <p className="text-[11px] text-muted-foreground">
@@ -634,47 +639,14 @@ export default function WorldPlotPage() {
         )}
       </div>
 
-      {/* Top-up flow: ClaimFlow with initial.plotId (text fields ignored server-side) */}
-      <DialogPrimitive.Root open={topUpOpen} onOpenChange={setTopUpOpen}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-[1001] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none" />
-          {/* `world-root` re-declared here: Radix portals this to document.body,
-              outside the page tree, so the tokens would otherwise be lost. */}
-          <DialogPrimitive.Content className="world-root fixed left-1/2 top-1/2 z-[1001] flex max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-sm border border-border focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none">
-            {/* Header pinned, body scrolled — same split as the boards sheet, so
-                the close control can never scroll out of reach on a short
-                viewport. */}
-            <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3 sm:p-6 sm:pb-3">
-              <div className="min-w-0">
-                <DialogPrimitive.Title className="font-mono text-base font-bold sm:text-lg">
-                  Top up {plot.name}
-                </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-xs text-muted-foreground">
-                  Every dollar counts for {plot.country_name}. No prize, no payout, no refund.
-                </DialogPrimitive.Description>
-              </div>
-              <DialogPrimitive.Close asChild>
-                <WorldButton variant="secondary" size="sm">
-                  Close
-                </WorldButton>
-              </DialogPrimitive.Close>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6 sm:pb-6">
-              {topUpOpen && (
-                <Suspense
-                  fallback={
-                    <p role="status" className="py-6 text-center text-sm text-muted-foreground">
-                      Loading the claim flow…
-                    </p>
-                  }
-                >
-                  <LazyClaimFlow initial={{ plotId: plot.id }} />
-                </Suspense>
-              )}
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
+      {/* TOP-UP. One number, then Stripe. This used to be the entire claim
+          wizard rendered inside a dialog with `initial.plotId` set — four gated
+          steps and a seven-field identity form so that an owner could type one
+          amount. The wizard is deleted; <TopUpModal> is the amount. */}
+      {topUpOpen ? (
+        <TopUpModal plot={plot} centsToBeat={toBeat} onClose={() => setTopUpOpen(false)} />
+      ) : null}
+
     </div>
   )
 }

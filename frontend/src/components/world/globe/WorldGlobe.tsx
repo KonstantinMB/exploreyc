@@ -49,12 +49,9 @@ export interface WorldGlobeProps {
    * What it draws: the chosen country keeps its colour and gains an accent
    * outline while every other country drains toward unclaimed land, its pill
    * takes a selected state, and the camera eases onto it in 420ms without
-   * zooming in. Ignored in `pickMode`.
+   * zooming in.
    */
   selectedIso?: string | null
-  /** Click the globe → lat/lng for the claim flow. Crosshair affordance. */
-  pickMode?: boolean
-  onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
   /**
    * A seed bead was clicked — an imported company with nothing staked on it.
@@ -72,8 +69,6 @@ export interface WorldGlobeProps {
    *
    * Paid plots take every slot before any imported company gets one, and the
    * best-funded of them carry their logo at every zoom — see `LogoMarkers`.
-   * Forced off in pick mode, where a tile would eat a click meant for a
-   * coordinate.
    */
   logoMarkers?: boolean
   /**
@@ -344,8 +339,6 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
   darkMode,
   focus,
   selectedIso = null,
-  pickMode = false,
-  onPick,
   onSelectPlot,
   onSelectSeed,
   onSelectCountry,
@@ -505,10 +498,6 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
         position: 'relative',
         width: '100%',
         height: '100%',
-        // The globe is clickable and, in pick mode, that has to read from the
-        // cursor alone. Set here rather than on the canvas element so it
-        // survives context loss.
-        cursor: pickMode ? 'crosshair' : undefined,
         // /world sets viewport behaviour so pinch does not fight the controls;
         // this keeps single-finger drags on the canvas from scrolling the page.
         touchAction: 'none',
@@ -575,8 +564,6 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
               darkMode={darkMode}
               focus={focus}
               selectedIso={selectedIso}
-              pickMode={pickMode}
-              onPick={onPick}
               onSelectPlot={onSelectPlot}
               onSelectSeed={onSelectSeed}
               onSelectCountry={onSelectCountry}

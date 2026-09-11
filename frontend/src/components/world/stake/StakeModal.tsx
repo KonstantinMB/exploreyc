@@ -17,9 +17,11 @@
  *
  * The coordinate is derived (see ./derivePoint.ts) and confirmed against the
  * same server geography checkout will use, so a country-level purchase can
- * never land in the sea. Refining that coordinate is still possible — it moved
- * to /world/claim, AFTER payment, which is where a preference belongs rather
- * than in front of a $5 decision.
+ * never land in the sea. NOBODY IS ASKED FOR A COORDINATE any more, before
+ * payment or after it: the wizard that used to ask — and the pulsing orange
+ * target ring that came with it — is deleted. The optional fields it collected
+ * (one line, link, logo, founder name, title, founder link) are edited on the
+ * plot's own page once the buyer owns something.
  *
  * THE ONE THING THIS FLOW CANNOT SKIP is the account: `POST /api/world/checkout`
  * is authed, because a plot belongs to somebody who has to be able to come back
@@ -35,7 +37,6 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { AxiosError } from 'axios'
 import { ArrowRight, Crown, Loader2, MapPin } from 'lucide-react'
@@ -46,14 +47,15 @@ import { useDevAuth } from '../../../contexts/DevAuthContext'
 import { MIN_STAKE_CENTS, formatDollars } from '../constants'
 import { InfoTip, Money, WorldButton, worldButtonClass } from '../ui'
 import { isoFlag } from '../boards/format'
-import { INPUT, SECTION_LABEL, TABULAR } from '../claim/styles'
+import { INPUT, SECTION_LABEL, TABULAR } from '../styles'
 import {
   MAX_STAKE_CENTS,
+  dollarsString,
   parseDollarsToCents,
   paymentToTakeFirst,
   validateAmountCents,
-} from '../claim/AmountPicker'
-import { AuthStep } from '../claim/AuthStep'
+} from './amount'
+import { AuthStep } from './AuthStep'
 import { nameFor } from '../country/names'
 import { derivePoint } from './derivePoint'
 import { KIND_LABEL, PLACEHOLDER, parseIdentity, type StakeKind } from './identity'
@@ -71,16 +73,11 @@ export interface StakeModalProps {
   onClose: () => void
 }
 
-/** Whole dollars for the input, without a trailing ".00" nobody typed. */
-function dollarsString(cents: number): string {
-  return cents % 100 === 0 ? String(Math.round(cents / 100)) : (cents / 100).toFixed(2)
-}
-
 function messageFrom(err: unknown): string {
   const e = err as AxiosError<{ detail?: string }>
   const detail = e?.response?.data?.detail
   if (detail === 'ocean') {
-    return 'That spot came back as open water. Pick a point on the globe instead.'
+    return 'That spot came back as open water. Try another country.'
   }
   if (typeof detail === 'string' && detail.length > 0) return detail
   if (e?.response?.status) return `Checkout could not start (${e.response.status}).`
@@ -203,7 +200,7 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
     }
     if (!resolved || !resolved.confirmed) {
       setCheckoutError(
-        `We could not place a plot inside ${countryName} automatically. Pick the point yourself and the rest of this is the same.`,
+        `We could not place a plot inside ${countryName} automatically. Try again in a moment, or stake on another country.`,
       )
       setSubmitting(false)
       return
@@ -481,26 +478,18 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
 
                 {/* What was chosen on the buyer's behalf, said out loud. A
                     derived coordinate that nobody mentions is a surprise on the
-                    plot page; mentioned, it is a convenience with an escape. */}
+                    plot page. There is no "pick it yourself" escape here any
+                    more, because there is no coordinate picker any more — the
+                    country IS the unit. */}
                 <p className="mt-3 flex items-start gap-1.5 text-xs leading-snug text-muted-foreground">
                   <MapPin aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     {pointQuery.isPending ? (
                       <>Finding you a spot in {name}…</>
                     ) : point?.confirmed ? (
-                      <>
-                        We will plant it inside {name} for you.{' '}
-                        <Link to="/world/claim" className="world-link">
-                          Pick the exact point instead
-                        </Link>
-                      </>
+                      <>We will plant it inside {name} for you.</>
                     ) : (
-                      <>
-                        We could not place a spot in {name} automatically —{' '}
-                        <Link to="/world/claim" className="world-link">
-                          pick a point on the globe
-                        </Link>
-                      </>
+                      <>We could not place a spot in {name} automatically yet.</>
                     )}
                   </span>
                 </p>

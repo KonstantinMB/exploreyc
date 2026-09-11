@@ -14,7 +14,7 @@
  * $5 floor.
  */
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery } from '@tanstack/react-query'
@@ -25,6 +25,7 @@ import { DotPattern } from '../../components/ui/dot-pattern'
 import {
   Money,
   Rank,
+  WorldButton,
   WorldCard,
   WorldChip,
   WorldHeading,
@@ -34,6 +35,7 @@ import {
   WORLD_FOCUS_CLASS,
 } from '../../components/world/ui'
 import WorldBoards from '../../components/world/boards/WorldBoards'
+import StakeModal from '../../components/world/stake/StakeModal'
 import CountUp from '../../components/world/boards/CountUp'
 import { isoFlag } from '../../components/world/boards/format'
 import FeaturedRail from '../../components/world/featured/FeaturedRail'
@@ -130,6 +132,16 @@ export default function WorldCountryPage() {
   })
 
   const country = countryQuery.data
+
+  /**
+   * THE PURCHASE, ON THIS PAGE.
+   *
+   * Every "claim a plot here" on this page used to leave for /world/claim — the
+   * coordinate-picking wizard, now deleted. They open the same <StakeModal> the
+   * globe's country panel opens instead, already pointed at this country, so a
+   * cold visitor arriving on a share link never has to go and find the globe.
+   */
+  const [staking, setStaking] = useState(false)
 
   if (iso.length !== 2 || countryQuery.isError) {
     return (
@@ -273,13 +285,10 @@ export default function WorldCountryPage() {
                   </span>
                 )}
               </p>
-              <Link
-                to="/world/claim"
-                className={worldButtonClass('primary', 'lg', { block: true })}
-              >
+              <WorldButton variant="primary" size="lg" block onClick={() => setStaking(true)}>
                 Claim a plot here — from $5
                 <ChevronRight className="h-5 w-5" aria-hidden />
-              </Link>
+              </WorldButton>
               <NoPrizeNote className="mt-2 text-center text-[11px] leading-tight text-muted-foreground" />
             </WorldCard>
           </div>
@@ -297,7 +306,12 @@ export default function WorldCountryPage() {
               Plots here, ranked by what is staked on them.
             </p>
           </div>
-          <WorldBoards scope={`country:${iso}`} includeFounders={false} feature />
+          <WorldBoards
+            scope={`country:${iso}`}
+            includeFounders={false}
+            feature
+            onClaim={() => setStaking(true)}
+          />
         </div>
       </section>
 
@@ -323,10 +337,10 @@ export default function WorldCountryPage() {
                   <Money cents={MIN_STAKE_CENTS} className="text-[#FB651E]" /> takes
                   #1.
                 </p>
-                <Link to="/world/claim" className={worldButtonClass('primary', 'md')}>
+                <WorldButton variant="primary" size="md" onClick={() => setStaking(true)}>
                   Plant the first one
                   <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-                </Link>
+                </WorldButton>
               </div>
             ) : (
               <ul className="flex flex-col">
@@ -383,7 +397,11 @@ export default function WorldCountryPage() {
                       <WorldRowButton
                         // An unclaimed city has no plot to open, so the row
                         // becomes the claim affordance instead of going inert.
-                        to={city.top_plot ? `/world/p/${city.top_plot.id}` : '/world/claim'}
+                        // It ACTS — opening this country's stake card — rather
+                        // than pointing at a coordinate picker that no longer
+                        // exists.
+                        to={city.top_plot ? `/world/p/${city.top_plot.id}` : undefined}
+                        onClick={city.top_plot ? undefined : () => setStaking(true)}
                         title={city.name}
                         subtitle={city.top_plot ? `#1: ${city.top_plot.name}` : 'Unclaimed'}
                         trailing={
@@ -418,16 +436,27 @@ export default function WorldCountryPage() {
               the top, next to the button that acts on it. Repeating a price two
               screens later is how a page starts sounding like a pitch. */}
           <p className="mx-auto mb-6 mt-2 max-w-lg text-base text-muted-foreground">
-            Pick a coordinate in {country.name}, put your logo on it, and hold it against anyone
-            who wants it more.
+            Stake on {country.name}, put your logo on it, and hold it against anyone who wants it
+            more.
           </p>
-          <Link to="/world/claim" className={worldButtonClass('primary', 'lg')}>
+          <WorldButton variant="primary" size="lg" onClick={() => setStaking(true)}>
             Claim a plot here — from $5
             <ChevronRight className="h-5 w-5" aria-hidden />
-          </Link>
+          </WorldButton>
           <NoPrizeNote className="mt-3 text-xs text-muted-foreground" />
         </div>
       </section>
+
+      {/* THE PURCHASE. One link, one amount, Stripe — the same card the globe's
+          country panel opens. */}
+      {staking ? (
+        <StakeModal
+          iso={iso}
+          countryName={country.name}
+          centsToBeat={priceCents}
+          onClose={() => setStaking(false)}
+        />
+      ) : null}
     </div>
   )
 }

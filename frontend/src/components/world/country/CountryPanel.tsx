@@ -30,6 +30,7 @@
  * product does not do.
  */
 
+import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Crown } from 'lucide-react'
@@ -46,7 +47,7 @@ import {
   WorldChip,
   WorldLogo,
   WORLD_FOCUS_CLASS,
-  WORLD_PANEL_SURFACE,
+  WORLD_OVERLAY_SURFACE,
 } from '../ui'
 import { isoFlag } from '../boards/format'
 import { nameFor } from './names'
@@ -66,6 +67,31 @@ const ROWS = 8
 
 export function CountryPanel({ iso, onClaim, onClose, className }: CountryPanelProps) {
   const code = iso.trim().toUpperCase()
+  const panelRef = useRef<HTMLElement>(null)
+
+  /**
+   * THE PANEL TAKES FOCUS WHEN IT OPENS, and it has to.
+   *
+   * This panel lives in the globe stage, near the TOP of the document. The
+   * country picker that opens it lives a section further DOWN. So a keyboard
+   * user who picked Bulgaria from the list got a panel that was, in tab order,
+   * entirely behind them: the next Tab continued past the picker and the only
+   * way to reach the thing they had just asked for was to Shift+Tab back
+   * through the whole page. Measured, not theorised — it is what made the
+   * keyboard route to checkout fail end to end.
+   *
+   * Focusing the section (not a control inside it) announces the landmark's
+   * name — "Bulgaria — claimed territory" — without pressing anything, and the
+   * next Tab lands on Close, then the rows, then the claim button. Scroll is
+   * deliberately NOT prevented: for a click on the globe the panel is already
+   * in view and this is a no-op, and for the picker it takes the visitor back
+   * up to the country they just chose, which is where they wanted to be.
+   *
+   * Re-runs on `code`, so switching countries re-announces the new one.
+   */
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [code])
 
   const countryQuery = useQuery({
     queryKey: ['world', 'country', code],
@@ -145,12 +171,20 @@ export function CountryPanel({ iso, onClaim, onClose, className }: CountryPanelP
   return (
     <WorldCard
       as="section"
+      ref={panelRef}
+      // -1, not 0: the panel is a focus TARGET when it opens, never a stop on
+      // the way past it.
+      tabIndex={-1}
       // The landmark's name tracks the eyebrow: a country nobody has staked in
       // is not "claimed territory", and a screen reader should hear the same
       // fact the heading above the list is showing.
       aria-label={`${name} — ${plots.length > 0 ? 'claimed territory' : 'unclaimed territory'}`}
       flat
-      className={cn('flex min-h-0 flex-col overflow-hidden', WORLD_PANEL_SURFACE, className)}
+      className={cn(
+        'flex min-h-0 flex-col overflow-hidden focus:outline-none',
+        WORLD_OVERLAY_SURFACE,
+        className,
+      )}
     >
       {header}
 

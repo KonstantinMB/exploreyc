@@ -9,6 +9,11 @@
       "source": "/map",
       "destination": "/world",
       "permanent": true
+    },
+    {
+      "source": "/world/claim",
+      "destination": "/world",
+      "permanent": true
     }
   ],
   "rewrites": [

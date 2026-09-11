@@ -1,4 +1,6 @@
-// The claim checkout API (`POST /api/world/checkout`) carries no logo field —
+// Post-checkout logo handoff.
+//
+// The checkout API (`POST /api/world/checkout`) carries no logo field —
 // logos are uploaded per-plot via `POST /api/world/plots/{id}/logo`, and at
 // checkout time the plot does not exist yet. So a logo chosen in the wizard is
 // stashed here (sessionStorage: survives the Stripe round-trip in the same

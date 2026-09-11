@@ -1,4 +1,8 @@
-// Shared field styling for the claim wizard.
+// Shared field styling for the World's form controls.
+//
+// Lived in `claim/styles.ts` until the claim wizard was deleted; it moved up a
+// level because the two things that still use it — <StakeModal> and
+// <CountryPicker> — are not part of any wizard.
 //
 // The primitives in ../ui.tsx cover buttons, cards, headings, chips and
 // numerals. Form controls are the gap: `<input>`, `<textarea>` and `<select>`
@@ -17,7 +21,7 @@
 //   - Focus comes from `world-focus`, the platform's orange ring.
 
 import type { CSSProperties } from 'react'
-import { cn } from '../../../lib/utils'
+import { cn } from '../../lib/utils'
 
 /** The platform face. Form controls need it applied explicitly. */
 export const SANS: CSSProperties = {

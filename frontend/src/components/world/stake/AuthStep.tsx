@@ -1,4 +1,4 @@
-// Inline login/signup step, shown when the wizard is reached without a dev
+// Inline login/signup step, shown when the stake modal is reached without a dev
 // session. Reuses the exact API calls of DevLoginPage/SignupPage — the
 // DevAuthContext `login`/`signup` methods (POST /api/dev/login|signup, token
 // into localStorage) — and mirrors their validation: email required, password
@@ -7,10 +7,10 @@
 //
 // Two structural notes, both deliberate:
 //
-//   1. There is NO <form> in here. This step renders inside the wizard's form,
+//   1. There is NO <form> in here. This step may render inside another form,
 //      and a nested form is invalid HTML whose submit event bubbles into the
-//      wizard's own handler. Instead Enter is handled explicitly on the field
-//      group: it logs you in, and it is stopped from reaching the wizard.
+//      outer handler. Instead Enter is handled explicitly on the field group:
+//      it logs you in, and it is stopped from reaching anything outside.
 //      Because that also removes the browser's constraint validation, the two
 //      rules the server enforces are checked here in code.
 //   2. The account toggle is a pair of `aria-pressed` buttons, not an ARIA tab
@@ -23,7 +23,7 @@ import { AlertCircle, KeyRound, Loader2 } from 'lucide-react'
 
 import { useDevAuth } from '../../../contexts/DevAuthContext'
 import { WorldButton, WorldHeading } from '../ui'
-import { ERROR_TEXT, HINT, INPUT, LABEL, SANS } from './styles'
+import { ERROR_TEXT, HINT, INPUT, LABEL, SANS } from '../styles'
 
 type Mode = 'login' | 'signup'
 
@@ -65,8 +65,8 @@ export function AuthStep() {
       } else {
         await signup(email, password, company || undefined)
       }
-      // No navigation: the surrounding ClaimFlow sees the session appear and
-      // advances to the amount step on its own.
+      // No navigation: the surrounding card sees the session appear and puts
+      // the buyer back on the form with everything they typed still in it.
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(
@@ -202,7 +202,7 @@ export function AuthStep() {
           </p>
         ) : null}
 
-        {/* type="button": this step is inside the wizard's form and must never
+        {/* type="button": this step may sit inside another form and must never
             submit it. The click handler is the only way in. */}
         <WorldButton type="button" variant="primary" size="md" block disabled={loading} onClick={() => void submit()}>
           {loading ? (

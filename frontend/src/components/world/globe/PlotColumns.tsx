@@ -42,8 +42,10 @@ import { densityFade, quantize, seedScaleForDensity } from './labelLayout'
  *    pulsing beacon ring so it reads from any distance. The always-visible
  *    "Promoted" text lives in `PlotLabels`, which never drops promoted pills.
  *
- * Whichever bead the cursor finds also gets an orange halo, so "which of these
- * am I about to click" is answered before the tooltip says a word.
+ * NOTHING IS DRAWN AT THE POINTER. The bead the cursor finds is reported up
+ * through `onHoverPin` and answered in HTML (a tooltip and a pointer cursor);
+ * the orange hover halo that used to ring it is deleted, along with the
+ * pick-mode ghost. The map's hover feedback is the country border and fill.
  *
  * Hover is deliberately *not* wired through r3f pointer events, which raycast
  * every registered object on every pointermove. The mesh opts out and this
@@ -85,8 +87,8 @@ import { densityFade, quantize, seedScaleForDensity } from './labelLayout'
  *   tier 3 ($250-$999) ....... 19.6px
  *   tier 4 ($1,000+) ......... 24.4px
  *
- * Everything sized against a marker — the beacon, the ghost, the hover
- * tolerance — is pinned to this number below and moves with it.
+ * Everything sized against a marker — the beacon, the hover tolerance — is
+ * pinned to this number below and moves with it.
  */
 const MARKER_SCALE = 0.48
 
@@ -154,14 +156,8 @@ const popDir = new THREE.Vector3()
  * silently stopped meaning that the moment MARKER_SCALE moved.
  */
 const MAX_MARKER_RADIUS = tierToHeight(4) * MARKER_SCALE
-/** Ghost marker radius. Larger than any real pin — it is a cursor, not a bid. */
-const GHOST_RADIUS = MAX_MARKER_RADIUS * 1.15
 /** Beacon quad half-width, in globe radii. Sized to ring the biggest bead. */
 const BEACON_RADIUS = MAX_MARKER_RADIUS * 2
-/** Hover halo half-width, as a multiple of the pin's own radius. */
-const HALO_GAIN = 2.6
-/** …and never smaller than this, so a hovered seed still gets a real ring. */
-const HALO_MIN = 0.02
 /** Instance capacity is rounded up to this, so a trickle of new pins does not
  *  reallocate the buffer on every arrival. */
 const CAPACITY_STEP = 512
@@ -196,8 +192,7 @@ const SEED_PICKABLE_SCALE = 0.5
  * The instance matrix is read directly rather than applied: column 3 is the
  * centre, and the length of column 0 is the radius. Offsetting in *view* space
  * after the model-view transform is what makes the quad face the camera.
- * Written to work with and without instancing, so the pending-pick ghost can
- * share the material and stay identical to a real marker.
+ * Written to work with and without instancing.
  */
 const MARKER_VERT = /* glsl */ `
   uniform float uScale;
@@ -341,60 +336,20 @@ const BEACON_FRAG = /* glsl */ `
   }
 `
 
-/**
- * The hover halo: a ring around the bead the cursor has found.
+/*
+ * THE HOVER HALO IS GONE, along with the pick-mode ghost and its base ring.
  *
- * The same camera-facing quad as everything else here, drawn without instancing
- * — there is only ever one hovered pin — and positioned by moving the mesh
- * itself. Its job is to answer "which of these am I about to click?" before the
- * tooltip has said anything, so it is YC orange and it is unmissable at the
- * size the pins are now drawn.
+ * It was a pulsing orange donut drawn at whichever bead the cursor came within
+ * ~15px of, which on a globe carrying 5,579 seed pins reads as an orange ring
+ * chasing the pointer across the map — the exact thing the owner asked three
+ * times to have removed. Hover feedback on this map is now the country's
+ * emphasised BORDER and its FILL (see CountryBorders / CountryFills), plus the
+ * pointer cursor and the tooltip the wrapper draws in HTML. Nothing in this
+ * scene is drawn at the pointer any more.
  *
- * Under reduced motion the ring simply holds still; the *presence* of the ring
- * is the information, the breathing is decoration.
+ * The hover SCAN below survives: it feeds `onHoverPin` (the tooltip) and the
+ * cursor shape. It draws nothing.
  */
-const HALO_VERT = /* glsl */ `
-  uniform float uScale;
-
-  varying vec2 vQuad;
-
-  void main() {
-    vQuad = position.xy;
-    // Never instanced: the mesh's own transform is the pin's position.
-    vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-    mv.xy += position.xy * uScale;
-    gl_Position = projectionMatrix * mv;
-  }
-`
-
-const HALO_FRAG = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uTime;
-  uniform float uStatic;
-  /** 1 while the pointer is held down on the hovered pin. */
-  uniform float uPress;
-
-  varying vec2 vQuad;
-
-  void main() {
-    float d = length(vQuad);
-    if (d > 1.0) discard;
-
-    float r = uStatic > 0.5 ? 0.74 : 0.70 + 0.05 * sin(uTime * 3.6);
-    // The press: the ring snaps in against the bead. A canvas has no :active,
-    // so the only way a pin can acknowledge being pressed is to draw it — and a
-    // control that does not acknowledge the press is a control people click
-    // twice.
-    r *= mix(1.0, 0.82, uPress);
-    float ring = 1.0 - smoothstep(0.0, 0.13, abs(d - r));
-    // A faint wash inside the ring so the halo reads as a highlighted target
-    // rather than as a second, hollow pin.
-    float wash = (1.0 - smoothstep(0.0, r, d)) * 0.16;
-
-    gl_FragColor = vec4(uColor, clamp(ring * 0.9 + wash, 0.0, 1.0));
-    #include <colorspace_fragment>
-  }
-`
 
 function makeMarkerMaterial(
   scale: number,
@@ -427,16 +382,6 @@ export type PinHitTest = (lat: number, lng: number) => GlobePin | null
 export interface PlotColumnsProps {
   pins: readonly GlobePin[]
   palette: GlobePalette
-  /** Ghost marker at the coordinate the visitor is choosing. */
-  pendingPick?: { lat: number; lng: number } | null
-  /**
-   * Turn the hover scan (and with it the halo) off.
-   *
-   * Pick mode does exactly this: the visitor is choosing a coordinate, every
-   * pixel is a valid answer, and ringing whichever existing pin happens to be
-   * nearby would promise an action the click will not perform.
-   */
-  hoverEnabled?: boolean
   onHoverPin?: (pin: GlobePin | null) => void
   /**
    * Handed back on mount: resolves a surface coordinate to the nearest pin
@@ -460,8 +405,6 @@ export interface PlotColumnsProps {
 export function PlotColumns({
   pins,
   palette,
-  pendingPick,
-  hoverEnabled = true,
   onHoverPin,
   onHitTestReady,
   reducedMotion = false,
@@ -506,11 +449,6 @@ export function PlotColumns({
     material.uniforms.uScale.value = f
   })
 
-  const ghostMaterial = useMemo(
-    () => makeMarkerMaterial(GHOST_RADIUS, YC_ORANGE),
-    [],
-  )
-
   const beaconMaterial = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -537,67 +475,12 @@ export function PlotColumns({
     beaconMaterial.uniforms.uStatic.value = reducedMotion ? 1 : 0
   }, [beaconMaterial, reducedMotion])
 
-  /**
-   * The hover halo's material. One mesh, moved to whichever pin is under the
-   * cursor — see the hover scan below.
-   */
-  const haloMaterial = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        vertexShader: HALO_VERT,
-        fragmentShader: HALO_FRAG,
-        uniforms: {
-          uScale: { value: HALO_MIN },
-          uColor: { value: new THREE.Color(YC_ORANGE) },
-          uTime: { value: 0 },
-          uStatic: { value: reducedMotion ? 1 : 0 },
-          uPress: { value: 0 },
-        },
-        transparent: true,
-        depthWrite: false,
-        // Over everything: the halo is a cursor state, and a cursor state that
-        // can be occluded by the bead it is ringing is not a cursor state. Only
-        // ever drawn on the near hemisphere, because that is where the hover
-        // raycast can hit.
-        depthTest: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      }),
-    // Reduced motion flips a uniform below rather than rebuilding the shader.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  )
-
-  useEffect(() => {
-    haloMaterial.uniforms.uStatic.value = reducedMotion ? 1 : 0
-  }, [haloMaterial, reducedMotion])
-
-  /** Halo half-width in world units before the zoom compensation below. */
-  const haloBaseRef = useRef(HALO_MIN)
-
   useFrame((state) => {
     beaconMaterial.uniforms.uTime.value = state.clock.elapsedTime
-    haloMaterial.uniforms.uTime.value = state.clock.elapsedTime
-    // Beacon and halo track the marker's own screen-size compensation, so a
-    // promoted ring and a hover ring never drift out of step with their bead.
+    // The beacon tracks the marker's own screen-size compensation, so a
+    // promoted ring never drifts out of step with its bead.
     beaconMaterial.uniforms.uScale.value = markerScaleRef.current
-    haloMaterial.uniforms.uScale.value =
-      haloBaseRef.current * markerScaleRef.current
   })
-
-  const ghostRingGeometry = useMemo(() => new THREE.RingGeometry(0.72, 1, 40), [])
-  const ghostRingMaterial = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color(YC_ORANGE),
-        transparent: true,
-        opacity: 0.75,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        toneMapped: false,
-      }),
-    [],
-  )
 
   const capacity = Math.max(
     CAPACITY_STEP,
@@ -615,21 +498,9 @@ export function PlotColumns({
     () => () => {
       geometry.dispose()
       material.dispose()
-      ghostMaterial.dispose()
       beaconMaterial.dispose()
-      haloMaterial.dispose()
-      ghostRingGeometry.dispose()
-      ghostRingMaterial.dispose()
     },
-    [
-      geometry,
-      material,
-      ghostMaterial,
-      beaconMaterial,
-      haloMaterial,
-      ghostRingGeometry,
-      ghostRingMaterial,
-    ],
+    [geometry, material, beaconMaterial],
   )
 
   // ---- instance transforms -------------------------------------------------
@@ -860,9 +731,6 @@ export function PlotColumns({
     onHitTestReady(test)
   }, [onHitTestReady, nearestPin])
 
-  /** The mesh carrying the hover halo. Moved, not rebuilt, as hover changes. */
-  const haloRef = useRef<THREE.Mesh>(null)
-
   useEffect(() => {
     const el = gl.domElement
     // pointermove rather than pointerenter: synthetic pointer input, and a
@@ -873,48 +741,18 @@ export function PlotColumns({
     }
     const leave = () => {
       hoverState.current.inside = false
-      haloMaterial.uniforms.uPress.value = 0
       if (hoverState.current.id !== -1) {
         hoverState.current.id = -1
-        if (haloRef.current) haloRef.current.visible = false
         onHoverPin?.(null)
       }
     }
-    // The press state, which a canvas cannot express with CSS. Only ever set
-    // when a pin is actually under the pointer, so a drag of the globe that
-    // starts over empty ocean does not flash a ring at nothing.
-    const down = () => {
-      if (hoverState.current.id !== -1) {
-        haloMaterial.uniforms.uPress.value = 1
-      }
-    }
-    const up = () => {
-      haloMaterial.uniforms.uPress.value = 0
-    }
     el.addEventListener('pointermove', move, { passive: true })
     el.addEventListener('pointerleave', leave)
-    el.addEventListener('pointerdown', down, { passive: true })
-    el.addEventListener('pointerup', up, { passive: true })
-    el.addEventListener('pointercancel', up, { passive: true })
     return () => {
       el.removeEventListener('pointermove', move)
       el.removeEventListener('pointerleave', leave)
-      el.removeEventListener('pointerdown', down)
-      el.removeEventListener('pointerup', up)
-      el.removeEventListener('pointercancel', up)
     }
-    // Deliberately NOT gated on `onHoverPin` any more: the halo is hover
-    // feedback the globe owes the visitor whether or not anybody upstairs
-    // wants a tooltip out of it.
-  }, [gl, haloMaterial, onHoverPin])
-
-  /** Drop the halo the moment hover is switched off (entering pick mode). */
-  useEffect(() => {
-    if (hoverEnabled) return
-    hoverState.current.id = -1
-    if (haloRef.current) haloRef.current.visible = false
-    onHoverPin?.(null)
-  }, [hoverEnabled, onHoverPin])
+  }, [gl, onHoverPin])
 
   /*
     Paid pins surface from the map, one at a time, forever.
@@ -997,8 +835,6 @@ export function PlotColumns({
   })
 
   useFrame((state) => {
-    if (!hoverEnabled) return
-
     const h = hoverState.current
     if (!h.inside) return
 
@@ -1017,65 +853,9 @@ export function PlotColumns({
       h.id = id
       onHoverPin?.(id === -1 ? null : (pins[id] ?? null))
     }
-
-    /*
-     * Park the halo on the hovered bead.
-     *
-     * Only ever at the scan rate, and that is enough: a pin's position is fixed
-     * in WORLD space — the camera orbits, the planet does not — so the halo has
-     * nothing to chase between scans. The quad re-faces the camera in the
-     * vertex shader every frame regardless, and its size is re-applied every
-     * frame beside the beacon, so a wheel zoom stays smooth.
-     */
-    const halo = haloRef.current
-    if (!halo) return
-    if (id === -1) {
-      halo.visible = false
-      return
-    }
-    const dirs = directions.current
-    const radius = baseRadii.current[id] ?? HALO_MIN
-    halo.position.set(dirs[id * 3], dirs[id * 3 + 1], dirs[id * 3 + 2])
-    halo.position.multiplyScalar(GLOBE_RADIUS + radius * 0.62)
-    halo.visible = true
-    haloBaseRef.current = Math.max(HALO_MIN, radius * HALO_GAIN)
+    // Nothing is drawn here. The scan's only outputs are `onHoverPin` (the
+    // HTML tooltip) and the cursor shape the scene derives from it.
   })
-
-  // ---- ghost ---------------------------------------------------------------
-
-  const ghostRef = useRef<THREE.Group>(null)
-
-  useLayoutEffect(() => {
-    const ghost = ghostRef.current
-    if (!ghost || !pendingPick) return
-    // Orient the whole group so its local +Y is the surface normal; the marker
-    // and the base ring then sit at fixed local offsets. The marker itself is a
-    // billboard and ignores the rotation, but it still needs the position.
-    const dir = latLngToVector3(pendingPick.lat, pendingPick.lng, 1)
-    ghost.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
-  }, [pendingPick])
-
-  /**
-   * The ghost is STILL. It used to breathe.
-   *
-   * A `0.5 + 0.5 * sin(t * 3.4)` ran its radius up and down 16% and its ring's
-   * opacity between 0.45 and 0.80, forever, with no end state — one of the
-   * three orange animations that used to stack on a picked point (the others
-   * were a cursor-tracking target ring and a shockwave, both now deleted). It
-   * was arguing for attention it had already won: the mark is at the exact
-   * coordinate the visitor just clicked, on a map they are looking at.
-   *
-   * So it is a plain marker now, written once when the pick moves rather than
-   * sixty times a second. The size difference against a real bead — it is
-   * larger than any stake on the ladder — plus the ring under it is what still
-   * says "not placed yet", and that reading survives `prefers-reduced-motion`,
-   * a screenshot, and being looked at for more than four seconds.
-   */
-  useLayoutEffect(() => {
-    if (!pendingPick) return
-    ghostMaterial.uniforms.uScale.value = GHOST_RADIUS
-    ghostRingMaterial.opacity = 0.7
-  }, [pendingPick, ghostMaterial, ghostRingMaterial])
 
   return (
     <group>
@@ -1098,41 +878,7 @@ export function PlotColumns({
               frustumCulled={false}
             />
           )}
-          {/* One halo, parked on whichever bead the cursor found. Starts
-              invisible; the hover scan owns it from there. */}
-          <mesh
-            ref={haloRef}
-            geometry={geometry}
-            material={haloMaterial}
-            visible={false}
-            renderOrder={9}
-            frustumCulled={false}
-          />
         </>
-      )}
-
-      {pendingPick && (
-        <group ref={ghostRef}>
-          <mesh
-            geometry={geometry}
-            material={ghostMaterial}
-            position={[0, GLOBE_RADIUS + GHOST_RADIUS * 0.62, 0]}
-            renderOrder={7}
-            frustumCulled={false}
-          />
-          <mesh
-            geometry={ghostRingGeometry}
-            material={ghostRingMaterial}
-            position={[0, GLOBE_RADIUS + 0.001, 0]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            // Wide enough to sit outside the bead. At the bead's own radius it
-            // is simply hidden underneath it, which took a zoom to notice —
-            // and the beads are five times the size they were.
-            scale={0.095}
-            renderOrder={7}
-            frustumCulled={false}
-          />
-        </group>
       )}
     </group>
   )
