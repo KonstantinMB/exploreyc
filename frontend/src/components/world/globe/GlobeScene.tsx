@@ -708,9 +708,6 @@ export interface GlobeSceneProps {
    * territory exactly as a click would.
    */
   selectedIso?: string | null
-  /** Click-to-place mode for the claim flow. */
-  pickMode?: boolean
-  onPick?: (p: { lat: number; lng: number }) => void
   onSelectPlot?: (id: number) => void
   /**
    * A seed was clicked — an imported company nobody has staked yet.
@@ -731,11 +728,7 @@ export interface GlobeSceneProps {
   onPerformanceDecline?: () => void
   /** Level-of-detail telemetry, throttled to ~4Hz. For a dev harness. */
   onLodSample?: (sample: LodSample) => void
-  /**
-   * Company logos on their pins. On by default, and forced off in pick mode —
-   * a tile that eats a click is the last thing a flow asking for a coordinate
-   * needs. See `LogoMarkers`.
-   */
+  /** Company logos on their pins. On by default. See `LogoMarkers`. */
   logoMarkers?: boolean
   /** The city-density overlay. Off by default; see `CityDensity`. */
   density?: boolean
@@ -749,8 +742,6 @@ export function GlobeScene({
   darkMode,
   focus,
   selectedIso = null,
-  pickMode = false,
-  onPick,
   onSelectPlot,
   onSelectSeed,
   onSelectCountry,
@@ -934,22 +925,14 @@ export function GlobeScene({
 
   // ---- picking -------------------------------------------------------------
 
-  /** Ghost marker at the last picked spot, pick mode only. */
-  const [pendingPick, setPendingPick] = useState<{
-    lat: number
-    lng: number
-  } | null>(null)
-
-  useEffect(() => {
-    if (!pickMode) setPendingPick(null)
-  }, [pickMode])
-
   /**
    * THE COUNTRY IS THE UNIT. That is what this whole file is arranged around.
    *
-   * A click resolves in strict order: pick mode wins outright (the refinement
-   * flow asked for a coordinate and gets exactly the pixel that was clicked),
-   * then a PAID plot under the cursor, then the country, then nothing.
+   * A click resolves in strict order: a PAID plot under the cursor, then the
+   * country, then nothing. There is no coordinate-picking mode any more — the
+   * target ring, the ghost marker and the crosshair that went with it are
+   * deleted, and the only hover feedback the map gives is the country's border
+   * and fill.
    *
    * What changed, and why: a seed bead no longer eats a ground click. There are
    * 5,579 of them scattered over land, each answering the cursor within about
@@ -999,14 +982,6 @@ export function GlobeScene({
 
   const handlePick = useCallback(
     (lat: number, lng: number) => {
-      if (pickMode) {
-        if (!onPick) return
-        // A fresh object each time, so the ghost re-arms on a repeat pick.
-        setPendingPick({ lat, lng })
-        onPick({ lat, lng })
-        return
-      }
-
       /*
        * THE VISITOR HAS TAKEN OVER.
        *
@@ -1029,7 +1004,7 @@ export function GlobeScene({
       const iso2 = lookupRef.current?.(lat, lng) ?? null
       if (iso2 && onSelectCountry) onSelectCountry(iso2)
     },
-    [pickMode, onPick, openPin, onSelectCountry, onInteract],
+    [openPin, onSelectCountry, onInteract],
   )
 
   /**
@@ -1067,29 +1042,19 @@ export function GlobeScene({
   const logoClaims = useRef<Map<string, number> | null>(new Map())
 
   const clickable =
-    pickMode ||
-    Boolean(onSelectCountry) ||
-    Boolean(onSelectPlot) ||
-    Boolean(onSelectSeed)
+    Boolean(onSelectCountry) || Boolean(onSelectPlot) || Boolean(onSelectSeed)
 
   /**
-   * The one cursor, resolved from every opinion at once.
+   * The one cursor, and the ONLY thing this scene draws at the pointer.
    *
-   * Pick mode wins outright: a crosshair over the canvas is now the WHOLE of
-   * how "choose a spot" is said. It used to be half of it — the other half was
-   * a shader-drawn target ring that tracked the cursor across the sphere,
-   * pulsing an outward front once a second, under a second orange donut that
-   * fired on every click. That was the animation the owner rejected, and it is
-   * gone: three layers of orange ceremony in front of a decision that is now an
-   * optional refinement after payment rather than a barrier before it.
-   *
-   * Below pick mode, anything the click would open makes a pointer.
+   * There used to be three layers of orange ceremony here: a crosshair, a
+   * shader-drawn target ring that tracked the cursor across the sphere pulsing
+   * an outward front once a second, and an orange donut that fired on every
+   * click. All three are deleted, along with the hover halo that ringed
+   * whichever bead the cursor drifted near. The map's hover feedback is the
+   * country's border and its fill — nothing follows the pointer.
    */
-  const cursor = pickMode
-    ? 'crosshair'
-    : pinHovered || (hoveredIso2 && onSelectCountry)
-      ? 'pointer'
-      : ''
+  const cursor = pinHovered || (hoveredIso2 && onSelectCountry) ? 'pointer' : ''
 
   return (
     <>
@@ -1101,9 +1066,7 @@ export function GlobeScene({
 
       <GlobeBody palette={palette} onPick={clickable ? handlePick : undefined} />
       <CountryHoverPicker
-        // In pick mode the crosshair owns the cursor; a pointer cursor over
-        // land would promise a different action than the one a click performs.
-        enabled={Boolean(onSelectCountry) && !pickMode}
+        enabled={Boolean(onSelectCountry)}
         lookupRef={lookupRef}
         onHover={handleHover}
       />
@@ -1115,10 +1078,8 @@ export function GlobeScene({
         <CountryBorders
           claims={countryAgg.weights}
           palette={palette}
-          hoveredIso2={pickMode ? null : hoveredIso2}
-          // In pick mode the map is a coordinate surface, not a board: draining
-          // the world for a selected country would fight the one job it has.
-          selectedIso2={pickMode ? null : selectedIso}
+          hoveredIso2={hoveredIso2}
+          selectedIso2={selectedIso}
           reducedMotion={reducedMotion}
           onLookupReady={handleLookupReady}
           onCountriesReady={handleCountriesReady}
@@ -1132,10 +1093,6 @@ export function GlobeScene({
       <PlotColumns
         pins={pins}
         palette={palette}
-        pendingPick={pickMode ? pendingPick : null}
-        // In pick mode every pixel is a valid answer, so ringing the nearest
-        // existing pin would promise an action the click will not perform.
-        hoverEnabled={!pickMode}
         onHoverPin={handleHoverPin}
         onHitTestReady={handlePinHitReady}
         reducedMotion={reducedMotion}
@@ -1146,7 +1103,7 @@ export function GlobeScene({
 
       <Rig
         focus={resolvedFocus}
-        selectFocus={pickMode ? null : selectFocus}
+        selectFocus={selectFocus}
         reducedMotion={reducedMotion}
         onInteract={onInteract}
       />
@@ -1176,14 +1133,12 @@ export function GlobeScene({
         <CountryLabels
           countries={countries}
           counts={countryAgg.counts}
-          selectedIso2={pickMode ? null : selectedIso}
-          onActivate={
-            pickMode || !onSelectCountry ? undefined : handleActivateCountry
-          }
+          selectedIso2={selectedIso}
+          onActivate={onSelectCountry ? handleActivateCountry : undefined}
           // The pill covers the canvas while the cursor is on it, so without
           // this the country would go dark exactly as its label is being aimed
-          // at. Off in pick mode, where the pills are not pressable at all.
-          onHover={pickMode ? undefined : handleHover}
+          // at.
+          onHover={handleHover}
         />
         <CityLabels plots={paidPins} />
         {/*
@@ -1195,7 +1150,7 @@ export function GlobeScene({
         */}
         <LogoMarkers
           pins={pins}
-          enabled={logoMarkers && !pickMode}
+          enabled={logoMarkers}
           onSelectPin={handleSelectPin}
           onHoverPin={handleHoverPin}
           claimed={logoClaims}

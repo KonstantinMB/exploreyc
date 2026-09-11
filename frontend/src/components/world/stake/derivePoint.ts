@@ -25,15 +25,15 @@
  *   3. **Somewhere a person would recognise.** A country centroid is a field in
  *      the middle of nowhere, and for a concave country (Norway, Indonesia,
  *      Croatia) it is often not even in the country. Cities are: the reference
- *      set behind `/api/world/cities` is population-ordered, real, and already
- *      fetched once per page by the claim page's search. So the first choice is
- *      a real city, and the centroid is the last resort rather than the first.
- *   4. **Refinable afterwards.** Picking an exact coordinate is not gone; it
- *      moved to /world/claim, after the purchase, where it belongs. Nothing in
- *      here is permanent in a way the owner cannot change later.
+ *      set behind `/api/world/cities` is population-ordered and real. So the first
+ *      choice is a real city, and the centroid is the last resort rather than
+ *      the first.
+ *   4. **Never the buyer's problem.** Nobody is asked for a coordinate, before
+ *      the purchase or after it — the wizard that asked is deleted. The point
+ *      is derived, confirmed, and then simply the address of the plot.
  */
 
-import { loadCities, type City } from '../claim/cityIndex'
+import { loadCities, type City } from './cityIndex'
 import worldApi from '../../../lib/worldApi'
 
 /**
@@ -155,8 +155,8 @@ export interface DerivedPoint extends LatLng {
  *
  * Never throws. A network failure, an empty city set and a country with no
  * centroid all end at the same place: `confirmed: false`, which the caller
- * renders as "pick a point yourself" rather than as a charge that might land in
- * the sea.
+ * renders as "we could not place a spot here automatically" rather than as a
+ * charge that might land in the sea.
  */
 export async function derivePoint(
   iso: string,

@@ -97,25 +97,62 @@ export const WORLD_CARD_CLASS =
   'hover:border-[#FB651E]/60 hover:shadow-[0_0_20px_rgba(251,101,30,0.15)] ' +
   'dark:border-white/5 dark:bg-white/[0.02]'
 
-/**
- * The surface for a card that floats ON the globe and has to be READ.
- *
- * USE THIS INSTEAD OF WRITING `bg-card/95` BY HAND. The base card above ends
- * with `dark:bg-white/[0.02]`, and tailwind-merge cannot cancel that with an
- * unprefixed `bg-card/95` — they are different variants, so both survive and
- * the `dark:` one wins the cascade. The result was measured, not theorised:
- * every panel over the globe computed to `rgba(255,255,255,0.02)` in dark mode
- * — a 2%-opaque card with body text on it, floating over a lit sphere. Light
- * mode was correct, which is exactly why it survived review.
- *
- * Naming the dark variant explicitly is what cancels it. Both halves must stay
- * together; dropping either one silently reintroduces the bug in one theme.
- */
-export const WORLD_PANEL_SURFACE = 'bg-card/95 dark:bg-card/95 backdrop-blur-md'
+/* ────────────────────────────────────────────────────────────────────────────
+   The overlay system — every island that floats ON the globe
+   ────────────────────────────────────────────────────────────────────────────
+
+   ONE LEFT EDGE, ONE HEIGHT, ONE PADDING, ONE RADIUS.
+
+   The stage used to carry six floating things built six ways: the stats strip
+   was a <WorldCard flat> at `px-2.5 py-1.5`, the region rail was a hand-rolled
+   `border-border/80 bg-card/80` box at `p-1` with `py-1.5` children inside it,
+   the legend was a two-line card at `px-3 py-2`, and the Layers trigger was a
+   `size="sm"` WorldButton at `min-h-[2rem] px-3`. Stacked in a corner they did
+   not line up with each other, because nothing said they had to — which is the
+   exact pair of pills the owner photographed.
+
+   So the rules are named here and imported, never retyped:
+
+     WORLD_OVERLAY_SURFACE — the skin. Same hairline, same 95% card fill, same
+       blur, same `rounded-sm`.
+
+       BOTH BACKGROUND HALVES MUST STAY TOGETHER. <WorldCard> ends with
+       `dark:bg-white/[0.02]`, and tailwind-merge cannot cancel that with an
+       unprefixed `bg-card/95` — they are different variants, so both survive
+       and the `dark:` one wins the cascade. That was measured, not theorised:
+       every panel over the globe computed to `rgba(255,255,255,0.02)` in dark
+       mode, a 2%-opaque card with body text on it floating over a lit sphere.
+       Light mode was correct, which is exactly why it survived review. Naming
+       the dark variant explicitly is what cancels it; drop either half and the
+       bug comes back in one theme.
+     WORLD_OVERLAY_PILL — the skin plus the GEOMETRY: 2.25rem tall, 0.75rem of
+       horizontal padding. Anything single-line that floats on the globe uses
+       it, so two of them stacked are the same height and share an edge.
+
+   2.25rem, not 2rem: it is the height of the search field in <CountryPicker>
+   and comfortably over the 24px AAA target minimum, while staying visibly
+   lighter than the 2.5rem `md` button that is a real call to action. */
+
+export const WORLD_OVERLAY_SURFACE =
+  'rounded-sm border border-border/80 bg-card/95 backdrop-blur-md ' +
+  'dark:border-white/10 dark:bg-card/95'
+
+/** …plus the one height and the one padding every floating pill shares. */
+export const WORLD_OVERLAY_PILL = cn(
+  WORLD_OVERLAY_SURFACE,
+  'flex min-h-[2.25rem] items-center gap-2 px-3 py-0',
+)
 
 export interface WorldCardProps extends HTMLAttributes<HTMLElement> {
   /** Element to render. Defaults to a plain div; use "section"/"article"/"li". */
   as?: ElementType
+  /**
+   * Forwarded to the rendered element. React 19 takes `ref` as an ordinary
+   * prop on a function component, so this is a type declaration rather than a
+   * forwardRef wrapper. <CountryPanel> needs it: a panel that opens has to be
+   * able to take focus, or the keyboard route into it does not exist.
+   */
+  ref?: Ref<HTMLElement>
   /**
    * Drop the hover glow. The platform card glows because it is nearly always a
    * link; a purely informational panel (a legend, a status note) should not
@@ -126,13 +163,14 @@ export interface WorldCardProps extends HTMLAttributes<HTMLElement> {
 
 /** Thin-bordered, small-radius, translucent card. No padding — callers set
  *  their own spacing so utility classes stay in charge of layout. */
-export function WorldCard({ as, flat = false, className, children, ...rest }: WorldCardProps) {
+export function WorldCard({ as, flat = false, className, children, ref, ...rest }: WorldCardProps) {
   // Cast to a concrete intrinsic tag: `ElementType` collapses the children
   // prop to `never` under JSX resolution. Everything we pass through is plain
   // HTMLAttributes, so a div's prop shape is a safe stand-in for any host tag.
   const Tag = (as ?? 'div') as 'div'
   return (
     <Tag
+      ref={ref as Ref<HTMLDivElement>}
       className={cn(
         WORLD_CARD_CLASS,
         flat && 'hover:border-border/80 hover:shadow-none dark:hover:border-white/5',

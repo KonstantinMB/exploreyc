@@ -205,10 +205,12 @@ function FirstPlotPanel() {
           #1 on the board, and it stays there until somebody outstakes it.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
-          <Link to="/world/claim" className={worldButtonClass('primary', 'lg')}>
+          {/* An in-page anchor, not a route: the country picker this moves to
+              is on this page, and it is now the only way in. */}
+          <a href="#pick" className={worldButtonClass('primary', 'lg')}>
             Claim the first plot
             <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-          </Link>
+          </a>
           <p className="text-sm text-muted-foreground">
             <Money cents={MIN_STAKE_CENTS} className="text-[#FB651E]" /> claims it.
           </p>
@@ -303,10 +305,10 @@ export function PaidShowcase({ pins, limit = 6, className }: PaidShowcaseProps) 
           </p>
         </div>
         {paid.length === 0 ? null : (
-          <Link to="/world/claim" className={worldButtonClass('primary', 'md')}>
+          <a href="#pick" className={worldButtonClass('primary', 'md')}>
             Claim your plot — from $5
             <ChevronRight className="h-[1.125rem] w-[1.125rem]" aria-hidden />
-          </Link>
+          </a>
         )}
       </div>
 

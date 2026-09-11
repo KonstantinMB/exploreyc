@@ -51,7 +51,6 @@ import './index.css';
 const WorldPage = React.lazy(() => import('./pages/world/WorldPage'));
 const WorldCountryPage = React.lazy(() => import('./pages/world/WorldCountryPage'));
 const WorldPlotPage = React.lazy(() => import('./pages/world/WorldPlotPage'));
-const WorldClaimPage = React.lazy(() => import('./pages/world/WorldClaimPage'));
 const WorldClaimedPage = React.lazy(() => import('./pages/world/WorldClaimedPage'));
 
 /**
@@ -60,15 +59,13 @@ const WorldClaimedPage = React.lazy(() => import('./pages/world/WorldClaimedPage
  * is nothing below to scroll to. They get a measured, viewport-filling stage
  * and no footer instead of the normal document flow.
  *
- * Only the claim wizard qualifies. /world itself is a scrolling shopfront —
- * a globe window sized by the page (see STAGE_HEIGHT in WorldPage.tsx), then
- * the paid plots, the boards and the price underneath — so it flows normally
- * and keeps its footer like every other page.
- *
- * Exact strings, not a prefix: `/world/claim` and `/world/claimed` differ by
- * one letter and only the first is a globe.
+ * NOTHING QUALIFIES ANY MORE. The only member was the coordinate-picking claim
+ * wizard at /world/claim, and that route is deleted — buying is a country panel
+ * and one modal on /world now. The set stays (empty) rather than being unwound
+ * through <Layout>, because the stage machinery below is what a future
+ * full-bleed World surface would reach for, and an empty Set is one lookup.
  */
-const WORLD_STAGE_ROUTES = new Set(['/world/claim']);
+const WORLD_STAGE_ROUTES = new Set<string>([]);
 
 /**
  * Height of the platform chrome above the content area, in CSS px.
@@ -380,13 +377,17 @@ function AnimatedRoutes() {
         <Route path="database" element={<DatabasePage />} />
 
         {/* ExploreYC World — one globe, inside the platform. Every surface
-            gets the real navbar above it. /world/claim is the only one that
-            fills the stage (see WORLD_STAGE_ROUTES); the rest scroll. */}
+            gets the real navbar above it, and every one of them scrolls. */}
         <Route path="world" element={lazyWorld(<WorldPage />)} />
         <Route path="world/c/:iso" element={lazyWorld(<WorldCountryPage />)} />
         <Route path="world/p/:id" element={lazyWorld(<WorldPlotPage />)} />
-        <Route path="world/claim" element={lazyWorld(<WorldClaimPage />)} />
         <Route path="world/claimed" element={lazyWorld(<WorldClaimedPage />)} />
+        {/* The retired claim wizard. It was a live, linked URL, so it keeps
+            pointing at a real page rather than rendering nothing — the same
+            treatment /map got when the deck.gl explorer retired into the globe.
+            This one is for in-app navigation and `vite dev`, which never reads
+            vercel.json; crawlers and cold traffic get the 308 declared there. */}
+        <Route path="world/claim" element={<Navigate to="/world" replace />} />
 
         {/* The deck.gl company explorer retired into the globe above. This is
             a live, indexed URL — the redirect is the only thing keeping those

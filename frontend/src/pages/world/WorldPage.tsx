@@ -1,37 +1,42 @@
 /**
  * /world — the merged globe, and the shopfront around it.
  *
- * WHAT CHANGED, AND WHY (the second time). This page used to sell a COORDINATE.
- * You pressed "Claim your plot", left for /world/claim, hunted for a point with
- * a pulsing target ring, then filled in four steps of form before anybody would
- * take $5 off you. The owner's verdict on that ring was unprintable and his
- * verdict on the flow was clear: "when i click on a country - i want to see the
- * view of the country", and "you can follow the example on functionalities and
- * simplification of the way of bidding and adding your spot".
- *
- * So the unit of this product is now the COUNTRY:
+ * THE UNIT OF THIS PRODUCT IS THE COUNTRY:
  *
  *   click a country  ->  <CountryPanel>: who owns it, what #1 pays, one button
  *   press the button ->  <StakeModal>: one link, one amount, Stripe
  *
- * The coordinate did not go anywhere — `world_plots` still stores one, and the
- * checkout endpoint still resolves geography from it — it is DERIVED inside the
+ * There is no coordinate-picking wizard any more, and no pulsing orange target
+ * ring in front of it — both deleted. The coordinate still exists (`world_plots`
+ * stores one and checkout resolves geography from it); it is DERIVED inside the
  * modal from the country's own cities and confirmed against the same server
- * geography (see components/world/stake/derivePoint.ts). Picking an exact point
- * survives at /world/claim as a refinement, which is where a preference belongs:
- * after the purchase, not in front of it.
+ * geography (see components/world/stake/derivePoint.ts). The optional fields the
+ * wizard used to demand up front — one line, link, logo, founder name, title,
+ * founder link — are edited on the plot's own page, after the purchase, by
+ * somebody who by then owns something.
  *
  * THE PAGE OWNS THE SELECTION. `selectedIso` lives here and nowhere else. The
- * globe reads it and highlights that country; the picker, the activity feed and
- * a click on the sphere all write it through the same setter. One state, one
- * writer per gesture, no second source of truth.
+ * globe reads it and highlights that country; the picker, the activity feed, the
+ * stage board and a click on the sphere all write it through the same setter.
+ * One state, one writer per gesture, no second source of truth.
+ *
+ * THE COMPETITION IS ON THE FIRST SCREEN. <StageBoard> sits in the stage's own
+ * column, ranked and always rendered — see that file for why the podium it
+ * replaced was invisible in practice. The full <WorldBoards> is still further
+ * down under #board; this is the hook, that is the table.
+ *
+ * EVERY FLOATING ISLAND SHARES ONE SYSTEM. The pills and panels on the glass all
+ * take WORLD_OVERLAY_PILL / WORLD_OVERLAY_SURFACE from components/world/ui.tsx —
+ * one height, one padding, one radius, one skin — and the two corner stacks are
+ * laid out against the overlay's own STAGE_GUTTER so their edges agree with each
+ * other and with the country panel.
  *
  * THE LAYER MODEL is still in components/world/filters/layers.ts: paid plots
  * always on and always loudest, ~5.5k imported YC pins behind one small pill.
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight } from 'lucide-react'
@@ -46,10 +51,12 @@ import {
   WorldChip,
   WorldHeading,
   worldButtonClass,
+  WORLD_OVERLAY_PILL,
 } from '../../components/world/ui'
 import SeedCompanyDialog from '../../components/world/SeedCompanyDialog'
 import WorldBoards from '../../components/world/boards/WorldBoards'
 import GlobePodium from '../../components/world/boards/GlobePodium'
+import StageBoard from '../../components/world/boards/StageBoard'
 import FeaturedRail from '../../components/world/featured/FeaturedRail'
 import PaidShowcase from '../../components/world/featured/PaidShowcase'
 import { PulseTicker } from '../../components/world/pulse/PulseTicker'
@@ -80,6 +87,23 @@ const NO_PINS: GlobePin[] = []
  * continues, because it does.
  */
 const STAGE_HEIGHT = 'clamp(19rem, calc(100svh - 13rem), 42rem)'
+
+/**
+ * THE ONE INSET every floating island on the stage is measured from.
+ *
+ * Tailwind's `4`, i.e. 16px — the same `container px-4` that <Navbar> and
+ * <PageHeader> sit in, so the overlay's left edge lines up with the nav items
+ * above it to the pixel. Named once and spent in exactly two places: the
+ * overlay wrapper's padding, and the country panel, which is positioned
+ * OUTSIDE that wrapper and so has to be told the number rather than inheriting
+ * it. Those two used to disagree — `p-4 sm:py-6` against `inset-x-2 sm:inset-x-4`
+ * — which is how a panel ends up 8px out of step with the pills beside it.
+ */
+const STAGE_GUTTER = 'p-4'
+
+/** The same inset, as the four edges a positioned panel needs. */
+const STAGE_PANEL_INSET =
+  'inset-x-4 bottom-4 lg:inset-x-auto lg:right-4 lg:top-4'
 
 /** The one line of legal honesty that has to survive every layout. */
 function NoPrizeNote({ className }: { className?: string }) {
@@ -141,10 +165,9 @@ export default function WorldPage() {
   /**
    * Where the camera is being sent, and the only place anything writes it.
    *
-   * The region rail, the hub tour, the country picker and (on /world/claim) the
-   * city search all produce a fresh focus object; the scene re-arms its flight
-   * from that object's identity, so "one state, last writer wins" is the whole
-   * protocol.
+   * The region rail, the hub tour and the country picker all produce a fresh
+   * focus object; the scene re-arms its flight from that object's identity, so
+   * "one state, last writer wins" is the whole protocol.
    *
    * Typed as the WIDER `GlobeFocus` rather than the rail's `GlobeFocusPoint`,
    * because selecting a country now sends the camera to a COUNTRY (`{ iso }`)
@@ -297,11 +320,16 @@ export default function WorldPage() {
 
           {/* Everything on the glass. The wrapper is inert so a drag that
               starts on empty space still spins the globe; each island opts
-              back in. `px-4`, not `px-6`, from `sm` up: that is <Navbar>'s and
-              <PageHeader>'s gutter inside the same `container`, so the chip,
-              the headline and the controls line up with the nav items above
-              them to the pixel. */}
-          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between gap-4 p-4 sm:py-6">
+              back in.
+
+              ONE GUTTER, on all four sides, at every width — STAGE_GUTTER,
+              which is <Navbar>'s and <PageHeader>'s own `px-4` inside the same
+              `container`. It used to be `p-4 sm:py-6`, i.e. a vertical inset
+              that changed at `sm` while the horizontal one did not, and the
+              country panel outside this wrapper used a third value again. */}
+          <div
+            className={`pointer-events-none absolute inset-0 z-10 flex flex-col justify-between gap-4 ${STAGE_GUTTER}`}
+          >
             {/* `flex-1` so this row owns the height the legend row does not
                 want, and `xl:self-center` on the copy inside it so the pitch
                 sits opposite the middle of the globe rather than stranded at
@@ -354,6 +382,21 @@ export default function WorldPage() {
                   stake on for as long as nobody outstakes you. It is an ad buy, not a bet.
                 </InfoTip>
               </p>
+
+              {/* THE BOARD, IN THE FIRST VIEWPORT.
+                  Here rather than in the opposite corner, and that is the whole
+                  point: the right-hand rail is where the country panel opens,
+                  so a board parked there is a board that disappears the moment
+                  anybody uses the product. In this column it is on screen at
+                  1440x900 without scrolling, with a panel open or without one.
+                  From `xl`, where this column stops lying over the globe and
+                  becomes a real half of a two-column stage — below that the
+                  compact podium in the bottom corner is still the ranked thing
+                  on the glass. */}
+              <StageBoard
+                onSelectCountry={selectCountry}
+                className="mt-4 hidden max-w-[22rem] xl:flex"
+              />
             </div>
 
             {/* The totals, and the exploration tools the deck.gl map brought
@@ -393,15 +436,30 @@ export default function WorldPage() {
                     The two dots differ in FILL as well as colour — solid for
                     the paid layer, a ring for the imported one — so the legend
                     survives being read in monochrome. */}
-                <WorldCard flat className="hidden px-3 py-2 sm:block">
-                  <p className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                {/* ONE LINE, ONE PILL. This was a two-line card at
+                    `px-3 py-2` sitting directly on top of the `min-h-[2rem]`
+                    Layers button — two stacked pills of two different heights,
+                    two different paddings and two different surfaces, which is
+                    the pair the owner photographed. Both are
+                    WORLD_OVERLAY_PILL now, so they are the same object twice.
+                    The two dots still differ in FILL as well as colour — solid
+                    for the paid layer, a ring for the imported one — so the
+                    legend survives being read in monochrome. */}
+                <div
+                  aria-label="What is on the globe"
+                  className={`${WORLD_OVERLAY_PILL} hidden sm:flex`}
+                >
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                     <span
                       aria-hidden
                       className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#FB651E]"
                     />
-                    <Count n={layers.paidCount} /> paid plots
-                  </p>
-                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Count n={layers.paidCount} /> paid
+                  </span>
+                  <span aria-hidden className="text-muted-foreground">
+                    ·
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span
                       aria-hidden
                       className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-muted-foreground"
@@ -413,8 +471,8 @@ export default function WorldPage() {
                     ) : (
                       <>Companies hidden</>
                     )}
-                  </p>
-                </WorldCard>
+                  </span>
+                </div>
                 <WorldFilterPanel layers={layers} />
                 {/* LIVE ACTIVITY, per the reference's bottom-left card. `xl`
                     rather than `lg`: below 1280 the country panel and this card
@@ -429,19 +487,28 @@ export default function WorldPage() {
                     footer come to ~198px — the same footprint the podium has
                     always had in the opposite corner. The full feed, eight rows
                     deep, is further down the page. */}
-                <ActivityPanel
-                  rows={3}
-                  onSelectCountry={selectCountry}
-                  className="hidden w-[20rem] max-w-full xl:flex"
-                />
+                {/* LIVE ACTIVITY used to sit here, three rows deep, from
+                    `xl` up — which is exactly and only the breakpoint where
+                    <StageBoard> now occupies the copy column. Two stacked cards
+                    in one 672px stage do not fit: measured at 1440x900 the
+                    bottom row was pushed 110px past the stage's own bottom edge
+                    and the feed was sliced through the middle by the section's
+                    `overflow-hidden`. Between a ranked board and a feed, the
+                    board is what the owner said was missing and the feed is
+                    what <PulseTicker> carries immediately below the globe — so
+                    the feed steps back from the glass and keeps both of its
+                    other homes. */}
               </div>
 
               {/* THE PODIUM, ON THE MAP — the top three countries, crowned.
-                  Stands down while a country panel is open: they share the
-                  right-hand column and the panel is the thing that was asked
-                  for. */}
+                  `lg` to `xl` ONLY. Above `xl` the ranked thing on the stage is
+                  <StageBoard> in the copy column, which is always on screen and
+                  never fights the country panel for the right-hand rail; two
+                  ranked cards at once would be the same list twice. Still
+                  stands down while a panel is open, because at these widths
+                  they share a column. */}
               {selectedIso ? null : (
-                <GlobePodium className="pointer-events-auto hidden w-[22rem] max-w-[45%] lg:block" />
+                <GlobePodium className="pointer-events-auto hidden w-[22rem] max-w-[45%] lg:block xl:hidden" />
               )}
             </div>
           </div>
@@ -454,10 +521,14 @@ export default function WorldPage() {
               scroll instead of the card growing past the stage. */}
           {selectedIso ? (
             <div
+              // The SAME inset the overlay wrapper uses, so the panel's edges
+              // are the edges the pills already sit on. It used to be
+              // `inset-x-2` on a phone and `inset-x-4` from `sm`, against an
+              // overlay that was `p-4` throughout — 8px out of step at exactly
+              // the width where it is most obvious.
               className={
-                'pointer-events-auto absolute inset-x-2 bottom-2 z-20 max-h-[70%] ' +
-                'sm:inset-x-4 sm:bottom-4 ' +
-                'lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-4 lg:w-[22rem] lg:max-h-none'
+                'pointer-events-auto absolute z-20 max-h-[70%] ' +
+                `${STAGE_PANEL_INSET} lg:w-[22rem] lg:max-h-none`
               }
             >
               <CountryPanel
@@ -474,8 +545,9 @@ export default function WorldPage() {
 
       {/* ── What just happened, as a strip under the map ───────────────────
           Renders nothing at all when there is no activity, so an empty product
-          gets no empty strip. This is also the phone's activity surface: the
-          full <ActivityPanel> in the corner starts at `xl`. */}
+          gets no empty strip. Since the glass card was retired this is the
+          activity surface at EVERY width — it sits directly under the globe,
+          which is where a ticker belongs. The full feed is further down. */}
       <div className="border-b border-border bg-card/40">
         <div className="container mx-auto px-4 py-2">
           <PulseTicker className="border-0 bg-transparent backdrop-blur-none hover:border-0 hover:shadow-none dark:border-0 dark:bg-transparent" />
@@ -504,11 +576,6 @@ export default function WorldPage() {
             Or click one on the globe. Either way you land on the same panel.
           </p>
           <CountryPicker onSelect={selectCountry} className="max-h-[26rem]" />
-          <p className="mt-3 text-center text-xs text-muted-foreground">
-            <Link to="/world/claim" className="world-link">
-              Pick an exact coordinate instead
-            </Link>
-          </p>
         </div>
       </section>
 
@@ -535,7 +602,17 @@ export default function WorldPage() {
             moves — that is the entire game.
           </p>
           <div className="text-left">
-            <WorldBoards feature />
+            {/* The board's conversion button is an intent now, not a route —
+                the wizard it used to link to is deleted. On this page "claim a
+                plot" means the country picker above, so send focus there. */}
+            <WorldBoards
+              feature
+              onClaim={() => {
+                const pick = document.getElementById('pick')
+                pick?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                pick?.focus({ preventScroll: true })
+              }}
+            />
           </div>
         </div>
       </section>
@@ -547,9 +624,9 @@ export default function WorldPage() {
           half; in a flex row the activity card simply takes the width. */}
       <div className="container mx-auto flex flex-col gap-4 px-4 py-10 sm:py-14 lg:flex-row lg:[&>*]:flex-1">
         <FeaturedRail />
-        {/* The full feed. Named "Just happened" rather than "Live activity" so
-            it is a different landmark from the card in the globe's corner,
-            which is on screen at the same time from `xl` up. */}
+        {/* The full feed, and now the only <ActivityPanel> on the page — so it
+            keeps the "Just happened" name it was given to distinguish it from
+            the retired corner card, which reads better here anyway. */}
         <ActivityPanel rows={8} label="Just happened" onSelectCountry={selectCountry} />
       </div>
 
@@ -580,7 +657,14 @@ export default function WorldPage() {
 
       {/* Clicking an unclaimed pin: who that company is, its ExploreYC profile,
           and the claim flow prefilled for it. */}
-      <SeedCompanyDialog pin={seedPin} onClose={() => setSeedPin(null)} />
+      <SeedCompanyDialog
+        pin={seedPin}
+        onClaimCountry={(iso) => {
+          setSeedPin(null)
+          selectCountry(iso)
+        }}
+        onClose={() => setSeedPin(null)}
+      />
 
       {/* THE PURCHASE. One link, one amount, Stripe — see StakeModal. */}
       {stake ? (

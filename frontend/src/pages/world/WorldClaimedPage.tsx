@@ -20,7 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useReducedMotion } from 'framer-motion'
 import { ChevronRight, Share2, Sprout } from 'lucide-react'
 import worldApi from '../../lib/worldApi'
-import { takePendingLogo } from '../../components/world/claim/logoStash'
+import { takePendingLogo } from '../../components/world/logoStash'
 import {
   Rank,
   WorldButton,

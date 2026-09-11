@@ -22,9 +22,9 @@ import { Search } from 'lucide-react'
 
 import { cn } from '../../../lib/utils'
 import worldApi, { type BoardRow } from '../../../lib/worldApi'
-import { InfoTip, Money, WorldCard, WORLD_FOCUS_CLASS, WORLD_PANEL_SURFACE } from '../ui'
+import { InfoTip, Money, WorldCard, WORLD_FOCUS_CLASS, WORLD_OVERLAY_SURFACE } from '../ui'
 import { countryDisplayName, isoFlag } from '../boards/format'
-import { INPUT } from '../claim/styles'
+import { INPUT } from '../styles'
 import { matchCountries, nameFor } from './names'
 
 export interface CountryPickerProps {
@@ -78,7 +78,7 @@ export function CountryPicker({ onSelect, inputRef, className }: CountryPickerPr
       as="section"
       aria-label="Pick a country"
       flat
-      className={cn('flex min-h-0 flex-col overflow-hidden', WORLD_PANEL_SURFACE, className)}
+      className={cn('flex min-h-0 flex-col overflow-hidden', WORLD_OVERLAY_SURFACE, className)}
     >
       <div className="border-b border-border px-3.5 py-3">
         <p className="mb-2 flex items-center justify-between gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

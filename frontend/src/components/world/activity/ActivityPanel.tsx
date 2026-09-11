@@ -24,7 +24,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { cn } from '../../../lib/utils'
 import worldApi, { type PulseEvent } from '../../../lib/worldApi'
-import { InfoTip, Money, WorldCard, WorldLogo, WORLD_PANEL_SURFACE } from '../ui'
+import { InfoTip, Money, WorldCard, WorldLogo, WORLD_OVERLAY_SURFACE } from '../ui'
 import { isoFlag, timeAgo } from '../boards/format'
 import { nameFor } from '../country/names'
 
@@ -95,7 +95,7 @@ export function ActivityPanel({
       as="section"
       aria-label={label}
       flat
-      className={cn('flex flex-col overflow-hidden', WORLD_PANEL_SURFACE, className)}
+      className={cn('flex flex-col overflow-hidden', WORLD_OVERLAY_SURFACE, className)}
     >
       <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
         <span
