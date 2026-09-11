@@ -21,7 +21,6 @@ import * as THREE from 'three'
 import type { GlobePin } from '../../../lib/worldApi'
 import {
   GLOBE_RADIUS,
-  YC_ORANGE,
   jitterSeeds,
   vector3ToLatLng,
   type GlobePalette,
@@ -34,7 +33,6 @@ import { CountryLabels } from './CountryLabels'
 import { LogoMarkers } from './LogoMarkers'
 import { PlotColumns, type PinHitTest } from './PlotColumns'
 import { PlotLabels } from './PlotLabels'
-import { Shockwave } from './Shockwave'
 import {
   CAMERA_MAX_DISTANCE,
   CAMERA_MIN_DISTANCE,
@@ -100,6 +98,13 @@ const AUTO_ROTATE_BASE = 0
  * globe with panning disabled.
  */
 const CURSOR_ZOOM_PULL = 0.25
+
+/**
+ * The cheapest claim that can exist, in cents. The unit the claim ramp is
+ * anchored in — see `claimRampT` — and the same $5 floor the claim flow
+ * enforces.
+ */
+const STAKE_FLOOR_CENTS = 500
 
 // --- globe body ------------------------------------------------------------
 
@@ -339,8 +344,48 @@ export interface GlobeFocus {
   distance?: number
 }
 
+/**
+ * How long the camera takes to ease onto a country you just clicked.
+ *
+ * A third of a scripted flight (`DEFAULT_DURATION`, 1400ms) and with no swoop
+ * at all. A region jump is a tour and is allowed to feel like one; clicking a
+ * country is an INSPECTION — the panel is already opening, and a camera that
+ * takes a second and a half to arrive is a camera the visitor is waiting on.
+ * Long enough that the planet does not teleport, short enough that nothing
+ * about it reads as a production.
+ */
+const SELECT_FLIGHT_MS = 420
+
+/**
+ * The far end of the camera envelope a selection is allowed to leave you at.
+ *
+ * A selection never zooms IN — losing your own zoom level because you clicked
+ * something is the most annoying thing a map can do — but from the far end of
+ * the envelope a country is a smudge, so a flight that starts beyond this
+ * arrives here. Inside it, the distance is left exactly where the visitor put
+ * it.
+ */
+const SELECT_MAX_DISTANCE = 2.6
+
+/** A country the panel is showing, resolved to a point for the camera. */
+interface SelectFocus extends GlobeFocus {
+  iso: string
+}
+
 interface RigProps {
   focus?: GlobeFocus | null
+  /**
+   * The selected country's centroid, or null.
+   *
+   * Separate from `focus` rather than merged into it, because the two have
+   * different owners and different lifetimes: `focus` is a page-level camera
+   * instruction that persists after it lands (a region jump, a search result),
+   * while this changes every time a visitor clicks a different country. Merging
+   * them would mean a page holding a stale `focus` could silently swallow every
+   * selection ease. Both go through the same `flyTo`, so whichever fires last
+   * simply replaces the flight in progress — they cannot fight over the camera.
+   */
+  selectFocus?: SelectFocus | null
   reducedMotion: boolean
   /** Nudge the point under the cursor toward the centre while zooming in. */
   zoomToCursor?: boolean
@@ -373,6 +418,7 @@ const CENTRED = new THREE.Quaternion()
  */
 function Rig({
   focus,
+  selectFocus,
   reducedMotion,
   zoomToCursor = true,
   onInteract,
@@ -427,6 +473,34 @@ function Rig({
     resumeAt.current = performance.now() + IDLE_RESUME_MS
     flyTo(focus.lat, focus.lng, { distance: focus.distance })
   }, [focus, flyTo])
+
+  /**
+   * The selection ease.
+   *
+   * Gated on the ISO rather than on the object, because the centroid list is
+   * rebuilt when the 10m topology replaces the 110m one — without the gate,
+   * that upgrade would yank the camera back to the selected country several
+   * seconds after the visitor had dragged away from it.
+   */
+  const flownTo = useRef<string | null>(null)
+
+  useEffect(() => {
+    const iso = selectFocus?.iso ?? null
+    if (iso === flownTo.current) return
+    flownTo.current = iso
+    if (!selectFocus) return
+
+    resumeAt.current = performance.now() + IDLE_RESUME_MS
+    flyTo(selectFocus.lat, selectFocus.lng, {
+      distance: Math.min(
+        camera.position.length() || SELECT_MAX_DISTANCE,
+        SELECT_MAX_DISTANCE,
+      ),
+      duration: SELECT_FLIGHT_MS,
+      // No swoop. The camera is answering a click, not performing.
+      arc: 0,
+    })
+  }, [selectFocus, flyTo, camera])
 
   // ---- zoom toward the cursor --------------------------------------------
 
@@ -501,168 +575,6 @@ function Rig({
       onEnd={() => {
         resumeAt.current = performance.now() + IDLE_RESUME_MS
       }}
-    />
-  )
-}
-
-// --- pick target -----------------------------------------------------------
-
-const TARGET_VERT = /* glsl */ `
-  uniform float uScale;
-  varying vec2 vQuad;
-
-  void main() {
-    vQuad = position.xy;
-    vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-    mv.xy += position.xy * uScale;
-    gl_Position = projectionMatrix * mv;
-  }
-`
-
-const TARGET_FRAG = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uTime;
-  uniform float uStatic;
-
-  varying vec2 vQuad;
-
-  void main() {
-    float d = length(vQuad);
-    if (d > 1.0) discard;
-
-    // The steady part: a small ring around the exact point that will be
-    // claimed. This is the bit that carries the information, so it is present
-    // in both motion modes.
-    float core = 1.0 - smoothstep(0.0, 0.07, abs(d - 0.30));
-
-    float outer;
-    if (uStatic > 0.5) {
-      // Reduced motion: a second, fixed ring instead of a travelling one.
-      outer = (1.0 - smoothstep(0.0, 0.08, abs(d - 0.74))) * 0.85;
-    } else {
-      float t = fract(uTime * 0.9);
-      float r = 0.34 + 0.62 * t;
-      outer = (1.0 - smoothstep(0.0, 0.10, abs(d - r))) * (1.0 - t);
-    }
-
-    float a = clamp(max(core, outer), 0.0, 1.0) * 0.95;
-    if (a < 0.01) discard;
-
-    gl_FragColor = vec4(uColor, a);
-    #include <colorspace_fragment>
-  }
-`
-
-/**
- * The crosshair's other half: a target ring that follows the point under the
- * cursor while the claim flow is asking for a coordinate.
- *
- * A crosshair cursor says "you are about to place something". It does not say
- * *where* on a sphere that something lands, and on a globe those are different
- * questions — the cursor is a flat overlay, the answer is a point on a curved
- * surface being lit at a grazing angle. So the ring is drawn in the scene, at
- * the exact coordinate a click would send, and it pulses outward so the eye
- * finds it without being told to look.
- *
- * Under reduced motion the pulse becomes a second static ring: the target is
- * information and survives; the travelling front is decoration and does not.
- */
-function PickTarget({ reducedMotion }: { reducedMotion: boolean }) {
-  const gl = useThree((s) => s.gl)
-  const camera = useThree((s) => s.camera)
-  const pointer = useThree((s) => s.pointer)
-
-  const meshRef = useRef<THREE.Mesh>(null)
-  const geometry = useMemo(() => new THREE.PlaneGeometry(2, 2, 1, 1), [])
-  const material = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        vertexShader: TARGET_VERT,
-        fragmentShader: TARGET_FRAG,
-        uniforms: {
-          uScale: { value: 0.06 },
-          uColor: { value: new THREE.Color(YC_ORANGE) },
-          uTime: { value: 0 },
-          uStatic: { value: reducedMotion ? 1 : 0 },
-        },
-        transparent: true,
-        depthWrite: false,
-        depthTest: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      }),
-    // The motion flag is a uniform write below, not a shader rebuild.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  )
-
-  useEffect(() => {
-    material.uniforms.uStatic.value = reducedMotion ? 1 : 0
-  }, [material, reducedMotion])
-
-  useEffect(
-    () => () => {
-      geometry.dispose()
-      material.dispose()
-    },
-    [geometry, material],
-  )
-
-  const raycaster = useMemo(() => new THREE.Raycaster(), [])
-  const hit = useMemo(() => new THREE.Vector3(), [])
-  const inside = useRef(false)
-
-  useEffect(() => {
-    const el = gl.domElement
-    // pointermove, not pointerenter: a pointer already sitting over the canvas
-    // when pick mode turns on never fires an enter.
-    const move = () => {
-      inside.current = true
-    }
-    const leave = () => {
-      inside.current = false
-    }
-    el.addEventListener('pointermove', move, { passive: true })
-    el.addEventListener('pointerleave', leave)
-    return () => {
-      el.removeEventListener('pointermove', move)
-      el.removeEventListener('pointerleave', leave)
-    }
-  }, [gl])
-
-  useFrame((state) => {
-    material.uniforms.uTime.value = state.clock.elapsedTime
-
-    const mesh = meshRef.current
-    if (!mesh) return
-    if (!inside.current) {
-      mesh.visible = false
-      return
-    }
-
-    raycaster.setFromCamera(pointer, camera)
-    if (!raycaster.ray.intersectSphere(SPHERE, hit)) {
-      mesh.visible = false
-      return
-    }
-
-    mesh.position.copy(hit).normalize().multiplyScalar(GLOBE_RADIUS + 0.004)
-    mesh.visible = true
-    // Same screen-size compensation the pins use, so the target is the same
-    // size to aim at from orbit as it is from a rooftop.
-    const d = camera.position.length()
-    material.uniforms.uScale.value =
-      0.06 * Math.min(1, Math.max(0.42, d / 2.9))
-  })
-
-  return (
-    <mesh
-      ref={meshRef}
-      geometry={geometry}
-      material={material}
-      visible={false}
-      renderOrder={10}
-      frustumCulled={false}
     />
   )
 }
@@ -786,6 +698,16 @@ export interface GlobeSceneProps {
   palette: GlobePalette
   darkMode: boolean
   focus?: WorldGlobeFocus | null
+  /**
+   * ISO-3166 alpha-2 of the country the page is showing, or null.
+   *
+   * The globe does NOT own this. It reports a click through `onSelectCountry`
+   * and then draws whatever comes back down here — so the map and the panel
+   * cannot disagree about what is selected, and a selection arriving from
+   * somewhere else entirely (a URL, a board row, the back button) lights the
+   * territory exactly as a click would.
+   */
+  selectedIso?: string | null
   /** Click-to-place mode for the claim flow. */
   pickMode?: boolean
   onPick?: (p: { lat: number; lng: number }) => void
@@ -826,6 +748,7 @@ export function GlobeScene({
   palette,
   darkMode,
   focus,
+  selectedIso = null,
   pickMode = false,
   onPick,
   onSelectPlot,
@@ -923,13 +846,24 @@ export function GlobeScene({
   }, [countries])
 
   /**
-   * Which countries hold paid pins, and how heavily.
+   * Which countries hold paid pins, and how heavily. This is the territory map.
    *
    * The API does not ship a per-pin country, so paid pins are resolved through
    * the same point-in-polygon index the cursor uses. Seeds are excluded by
    * construction — an unclaimed company must never colour a country in. The
    * scan is a few dozen operations per paid pin and reruns only when the pins
    * or the topology change.
+   *
+   * THE WEIGHT IS REAL MONEY WHERE THERE IS REAL MONEY. `total_cents` is the
+   * exact stake and the globe feed carries it on every paid plot, so a country
+   * sits on the claim ramp at the height its board actually paid for — which is
+   * the whole promise of colouring countries in at all.
+   *
+   * Counted in $5 FLOORS rather than in dollars, because that is the unit
+   * `claimRampT` documents its anchor in: one floor is the cheapest claim that
+   * can exist, and it is the bottom of the ramp. A plot the feed sent without a
+   * stake contributes exactly one floor — the smallest claim there is — rather
+   * than a guess at what it might have been. Nothing here invents a number.
    */
   const countryAgg = useMemo(() => {
     const counts = new Map<string, number>()
@@ -941,7 +875,11 @@ export function GlobeScene({
         const iso = lookup(p.lat, p.lng)
         if (!iso) continue
         counts.set(iso, (counts.get(iso) ?? 0) + 1)
-        weights.set(iso, (weights.get(iso) ?? 0) + 1 + Math.max(p.tier, 0))
+        const floors =
+          typeof p.total_cents === 'number' && p.total_cents > 0
+            ? Math.max(p.total_cents / STAKE_FLOOR_CENTS, 1)
+            : 1
+        weights.set(iso, (weights.get(iso) ?? 0) + floors)
       }
     }
     return { counts, weights }
@@ -978,9 +916,25 @@ export function GlobeScene({
     }
   }, [focus, countryByIso])
 
+  /**
+   * The selected country, resolved to the point the camera eases onto.
+   *
+   * Waits for the topology: before the centroids exist there is nothing to fly
+   * to, and re-running when `countryByIso` arrives is what makes a selection
+   * restored from a URL land correctly on a cold load. `Rig` gates the actual
+   * flight on the ISO, so the 110m→10m upgrade re-resolving this does not fire
+   * a second one.
+   */
+  const selectFocus = useMemo<SelectFocus | null>(() => {
+    if (!selectedIso) return null
+    const iso = selectedIso.toUpperCase()
+    const c = countryByIso.get(iso)
+    return c ? { iso, lat: c.lat, lng: c.lng } : null
+  }, [selectedIso, countryByIso])
+
   // ---- picking -------------------------------------------------------------
 
-  /** Ghost marker + shockwave at the last picked spot, pick mode only. */
+  /** Ghost marker at the last picked spot, pick mode only. */
   const [pendingPick, setPendingPick] = useState<{
     lat: number
     lng: number
@@ -991,14 +945,23 @@ export function GlobeScene({
   }, [pickMode])
 
   /**
-   * A click resolves in strict order: pick mode wins outright (the claim flow
-   * asked for a coordinate and gets exactly the pixel that was clicked), then
-   * a paid pin under the cursor, then a seed if anybody upstairs wants seeds,
-   * then the country, then nothing.
+   * THE COUNTRY IS THE UNIT. That is what this whole file is arranged around.
    *
-   * A seed still falls through to its country when `onSelectSeed` is absent —
-   * that is the honest default for a mark with no page behind it, and it is
-   * what every caller that has not opted in keeps getting.
+   * A click resolves in strict order: pick mode wins outright (the refinement
+   * flow asked for a coordinate and gets exactly the pixel that was clicked),
+   * then a PAID plot under the cursor, then the country, then nothing.
+   *
+   * What changed, and why: a seed bead no longer eats a ground click. There are
+   * 5,579 of them scattered over land, each answering the cursor within about
+   * fifteen pixels, so with seeds in the chain "click a country" was a coin
+   * flip over most of North America and Europe — the visitor aimed at Germany
+   * and got a dialog about a company they had never heard of. Seeds are context
+   * for the territory, not targets on it, so they now fall through to the
+   * country underneath exactly as open land does.
+   *
+   * `onSelectSeed` is NOT dead: a seed is still opened from its logo tile,
+   * which is a real DOM button, is reachable by keyboard, and is something the
+   * visitor has to aim at deliberately. See `handleSelectPin`.
    */
   /**
    * Open a pin, or report that nobody upstairs wants it opened.
@@ -1038,29 +1001,58 @@ export function GlobeScene({
     (lat: number, lng: number) => {
       if (pickMode) {
         if (!onPick) return
-        // A fresh object each time so the ghost and the shockwave both re-arm.
+        // A fresh object each time, so the ghost re-arms on a repeat pick.
         setPendingPick({ lat, lng })
         onPick({ lat, lng })
         return
       }
 
+      /*
+       * THE VISITOR HAS TAKEN OVER.
+       *
+       * `onInteract` used to fire only on a camera gesture, which is how the
+       * page stops the hub tour. A click was not a gesture — so a visitor who
+       * picked a country while a tour was running got their selection, their
+       * panel, their 420ms ease, and then, a few seconds later, the tour flying
+       * the camera off to the next hub. An automated camera that overrides the
+       * thing you just asked for is the worst version of the drift this page is
+       * meant to have stopped doing. Choosing something IS taking control, and
+       * it is reported as such.
+       */
+      onInteract?.()
+
+      // Paid plots only. A seed under the cursor is treated as the ground it
+      // is standing on — see the note above `openPin`.
       const pin = pinHitRef.current?.(lat, lng) ?? null
-      if (pin && openPin(pin)) return
+      if (pin && pin.kind === 'plot' && openPin(pin)) return
 
       const iso2 = lookupRef.current?.(lat, lng) ?? null
       if (iso2 && onSelectCountry) onSelectCountry(iso2)
     },
-    [pickMode, onPick, openPin, onSelectCountry],
+    [pickMode, onPick, openPin, onSelectCountry, onInteract],
+  )
+
+  /**
+   * A country PILL was pressed — the keyboard-reachable way to do what a click
+   * on the territory does, and the same handover of camera control with it.
+   */
+  const handleActivateCountry = useCallback(
+    (iso2: string) => {
+      onInteract?.()
+      onSelectCountry?.(iso2)
+    },
+    [onInteract, onSelectCountry],
   )
 
   /** A logo tile was pressed. Same routing, its own country fallback. */
   const handleSelectPin = useCallback(
     (pin: GlobePin) => {
+      onInteract?.()
       if (openPin(pin)) return
       const iso2 = lookupRef.current?.(pin.lat, pin.lng) ?? null
       if (iso2 && onSelectCountry) onSelectCountry(iso2)
     },
-    [openPin, onSelectCountry],
+    [openPin, onSelectCountry, onInteract],
   )
 
   /**
@@ -1083,9 +1075,15 @@ export function GlobeScene({
   /**
    * The one cursor, resolved from every opinion at once.
    *
-   * Pick mode wins outright — a crosshair over the canvas is half of how
-   * "choose a spot" is discoverable, the target ring is the other half — and
-   * below it, anything the click would open makes a pointer.
+   * Pick mode wins outright: a crosshair over the canvas is now the WHOLE of
+   * how "choose a spot" is said. It used to be half of it — the other half was
+   * a shader-drawn target ring that tracked the cursor across the sphere,
+   * pulsing an outward front once a second, under a second orange donut that
+   * fired on every click. That was the animation the owner rejected, and it is
+   * gone: three layers of orange ceremony in front of a decision that is now an
+   * optional refinement after payment rather than a barrier before it.
+   *
+   * Below pick mode, anything the click would open makes a pointer.
    */
   const cursor = pickMode
     ? 'crosshair'
@@ -1118,6 +1116,10 @@ export function GlobeScene({
           claims={countryAgg.weights}
           palette={palette}
           hoveredIso2={pickMode ? null : hoveredIso2}
+          // In pick mode the map is a coordinate surface, not a board: draining
+          // the world for a selected country would fight the one job it has.
+          selectedIso2={pickMode ? null : selectedIso}
+          reducedMotion={reducedMotion}
           onLookupReady={handleLookupReady}
           onCountriesReady={handleCountriesReady}
         />
@@ -1140,13 +1142,11 @@ export function GlobeScene({
         density={density}
       />
 
-      {pickMode && <PickTarget reducedMotion={reducedMotion} />}
-
-      <Shockwave at={pendingPick} reducedMotion={reducedMotion} />
       <Atmosphere color={palette.halo} />
 
       <Rig
         focus={resolvedFocus}
+        selectFocus={pickMode ? null : selectFocus}
         reducedMotion={reducedMotion}
         onInteract={onInteract}
       />
@@ -1176,7 +1176,10 @@ export function GlobeScene({
         <CountryLabels
           countries={countries}
           counts={countryAgg.counts}
-          onActivate={pickMode ? undefined : onSelectCountry}
+          selectedIso2={pickMode ? null : selectedIso}
+          onActivate={
+            pickMode || !onSelectCountry ? undefined : handleActivateCountry
+          }
           // The pill covers the canvas while the cursor is on it, so without
           // this the country would go dark exactly as its label is being aimed
           // at. Off in pick mode, where the pills are not pressable at all.

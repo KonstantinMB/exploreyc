@@ -1055,17 +1055,27 @@ export function PlotColumns({
     ghost.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
   }, [pendingPick])
 
-  useFrame((state) => {
+  /**
+   * The ghost is STILL. It used to breathe.
+   *
+   * A `0.5 + 0.5 * sin(t * 3.4)` ran its radius up and down 16% and its ring's
+   * opacity between 0.45 and 0.80, forever, with no end state — one of the
+   * three orange animations that used to stack on a picked point (the others
+   * were a cursor-tracking target ring and a shockwave, both now deleted). It
+   * was arguing for attention it had already won: the mark is at the exact
+   * coordinate the visitor just clicked, on a map they are looking at.
+   *
+   * So it is a plain marker now, written once when the pick moves rather than
+   * sixty times a second. The size difference against a real bead — it is
+   * larger than any stake on the ladder — plus the ring under it is what still
+   * says "not placed yet", and that reading survives `prefers-reduced-motion`,
+   * a screenshot, and being looked at for more than four seconds.
+   */
+  useLayoutEffect(() => {
     if (!pendingPick) return
-    // The ghost breathes rather than fades. Opacity is not available — the
-    // marker material is opaque so that clusters stay clean — and a pulsing
-    // size reads as "not placed yet" at least as clearly.
-    const pulse = reducedMotion
-      ? 0
-      : 0.5 + 0.5 * Math.sin(state.clock.elapsedTime * 3.4)
-    ghostMaterial.uniforms.uScale.value = GHOST_RADIUS * (1 + pulse * 0.16)
-    ghostRingMaterial.opacity = 0.45 + pulse * 0.35
-  })
+    ghostMaterial.uniforms.uScale.value = GHOST_RADIUS
+    ghostRingMaterial.opacity = 0.7
+  }, [pendingPick, ghostMaterial, ghostRingMaterial])
 
   return (
     <group>

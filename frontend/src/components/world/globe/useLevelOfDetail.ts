@@ -522,6 +522,33 @@ const LABEL_CSS = `
   background: var(--lod-card);
   box-shadow: var(--lod-shadow);
 }
+/*
+  THE SELECTED COUNTRY'S PILL — the one the panel is about.
+
+  Wears the same accent the territory itself is outlined in on the sphere, so
+  the pill and the shape under it read as one object rather than as a label that
+  happens to be nearby. Stated on the pill as well as in the fill because the
+  fill's own signal is a large, soft area change and this is a hard edge: two
+  channels for one state, which is what keeps it legible for anyone who cannot
+  separate the drained world from the lit one.
+
+  Deliberately NOT the hover treatment turned up. Hover moves the ground and the
+  border together; this moves the border and the WEIGHT — the name goes accent —
+  and leaves the ground alone, so a selected country that is also hovered still
+  visibly gains something. No transform (the frame loop owns this element's
+  transform) and no animation at all: selection is a state you land in, not one
+  you watch arrive.
+*/
+.world-lod--country.is-selected {
+  border-color: var(--lod-accent);
+  box-shadow: 0 0 0 1px var(--lod-accent), var(--lod-shadow-hi);
+}
+.world-lod--country.is-selected .world-lod__name {
+  color: var(--lod-accent-text);
+}
+.world-lod--country.is-selected .world-lod__meta {
+  color: var(--lod-ink);
+}
 .world-lod__name,
 .world-lod__meta,
 .world-lod__chevron {
@@ -643,6 +670,13 @@ const LABEL_CSS = `
   .world-lod--country.is-pressable:focus-visible {
     outline: 3px solid Highlight;
     outline-offset: 2px;
+  }
+  /* Every channel selection normally uses — an orange border, an orange name,
+     a ring — is a colour, and forced colours has none of them. An outline is
+     the one indicator that survives, so selection states one. */
+  .world-lod--country.is-selected {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
   }
 }
 `
@@ -885,9 +919,9 @@ export function createLabelPool(
         el.classList.add('is-pressable')
         // A div that responds to a click is a button as far as assistive tech
         // is concerned, and has to say so, be reachable, and — unlike the
-        // decorative pills around it — be announced. Its text content (country
-        // name plus "3 pins" / "unclaimed") is the accessible name; the chevron
-        // is CSS and contributes nothing to read out.
+        // decorative pills around it — be announced. Its text content (the
+        // country's name, plus "12 bidding" where anybody is) is the accessible
+        // name; the chevron is CSS and contributes nothing to read out.
         el.setAttribute('role', 'button')
         el.setAttribute('tabindex', '0')
         el.removeAttribute('aria-hidden')

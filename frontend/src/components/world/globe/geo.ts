@@ -427,6 +427,26 @@ export interface GlobePalette {
   claim: ClaimRamp
   /** What happens to a country's fill under the cursor. */
   hover: HoverWash
+  /**
+   * The outline drawn around the SELECTED country — the one the panel is
+   * showing.
+   *
+   * A shade of YC orange, not a second hue: the claim ramp already establishes
+   * that this surface has exactly one accent family, and selection is the
+   * loudest thing on the map, so it is the closest of them all to the pure
+   * accent. Chosen per theme because "orange" is not a contrast ratio — the
+   * light map's land is near-white and wants a deep orange, the dark map's
+   * land is a mid slate and wants a light one. Measured against each theme's
+   * own `land`, from these exact hex values:
+   *
+   *   LIGHT  #C2410C (luminance 0.1528) on land #EDF2F8 (0.8829) .... 4.60:1
+   *   DARK   #FF9A5C (0.4831)          on land #4A5563 (0.0885) .... 3.85:1
+   *
+   * Both clear the 3:1 floor WCAG 1.4.11 asks of a non-text indicator, and
+   * selection never depends on this ring alone — the rest of the world recedes,
+   * the country's pill gets its own selected state, and the panel opens.
+   */
+  select: string
 }
 
 export const GLOBE_PALETTE_LIGHT: GlobePalette = {
@@ -457,6 +477,7 @@ export const GLOBE_PALETTE_LIGHT: GlobePalette = {
   // 1.15:1 clear of the faintest claim fill, which is the colour it must not be
   // confused with.
   hover: { tint: '#E88B3F', amount: 0.38 },
+  select: '#C2410C',
 }
 
 export const GLOBE_PALETTE_DARK: GlobePalette = {
@@ -487,6 +508,7 @@ export const GLOBE_PALETTE_DARK: GlobePalette = {
   // its unhovered neighbours, and 1.85:1 clear of the faintest claim fill.
   // Lifting, not deepening, because dark land has the room for it.
   hover: { tint: '#FFD3B4', amount: 0.45 },
+  select: '#FF9A5C',
 }
 
 /** The palette for a theme flag. The single switch the whole globe reads. */

@@ -555,10 +555,10 @@ export interface CountryInfo {
 
 export interface CountryBordersProps {
   /**
-   * iso2 → claim weight. Any positive number marks the country as claimed and
-   * places it on the claim ramp; the donor fed cents here, ExploreYC feeds a
-   * tier-weighted pin count where 1 is a single pin at the $5 floor. Only
-   * relative magnitude is ever read.
+   * iso2 → claim weight, in $5 floors. Any positive number marks the country
+   * as claimed and places it on the claim ramp, where 1 is a single plot at the
+   * floor — the cheapest claim that exists — and the scale above that is the
+   * real `total_cents` the feed shipped. Only relative magnitude is ever read.
    */
   claims: ReadonlyMap<string, number>
   /** Ground palette for the active theme. Owned by the caller. */
@@ -571,8 +571,16 @@ export interface CountryBordersProps {
   lineOpacity?: number
   /** ISO-3166 alpha-2 of the country to light, or null. */
   hoveredIso2?: string | null
-  /** ISO-3166 alpha-2 of the selected country, or null. */
+  /**
+   * ISO-3166 alpha-2 of the SELECTED country, or null.
+   *
+   * Distinct from `hoveredIso2` and deliberately louder: hover is where the
+   * cursor happens to be, selection is what the panel beside the globe is
+   * showing. See `CountryFills` for what the two states actually do.
+   */
   selectedIso2?: string | null
+  /** Skip the selection ease. `prefers-reduced-motion`, from the scene. */
+  reducedMotion?: boolean
   /**
    * Handed back on mount: converts a coordinate to the country under it.
    *
@@ -592,6 +600,7 @@ export function CountryBorders({
   lineOpacity = 0.95,
   hoveredIso2 = null,
   selectedIso2 = null,
+  reducedMotion = false,
   onLookupReady,
   onCountriesReady,
 }: CountryBordersProps) {
@@ -779,6 +788,8 @@ export function CountryBorders({
         landColor={palette.land}
         hoveredIso2={hoveredIso2}
         selectedIso2={selectedIso2}
+        selectStroke={palette.select}
+        reducedMotion={reducedMotion}
         hoverTint={palette.hover.tint}
         hoverAmount={palette.hover.amount}
       />

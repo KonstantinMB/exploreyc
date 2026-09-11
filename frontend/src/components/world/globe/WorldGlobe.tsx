@@ -36,6 +36,22 @@ export interface WorldGlobeProps {
   plots: GlobePlot[]
   darkMode: boolean
   focus?: WorldGlobeFocus | null
+  /**
+   * ISO-3166 alpha-2 of the country the page is showing, or null.
+   *
+   * THE GLOBE DOES NOT OWN PANEL STATE. Clicking a country reports it out
+   * through `onSelectCountry` and nothing on the map changes until the answer
+   * comes back down here. That is what keeps one source of truth for "which
+   * country are we looking at" — and it means a selection that arrives from
+   * anywhere else at all (a /world/c/XX URL, a board row, the back button)
+   * lights the territory and eases the camera exactly as a click does.
+   *
+   * What it draws: the chosen country keeps its colour and gains an accent
+   * outline while every other country drains toward unclaimed land, its pill
+   * takes a selected state, and the camera eases onto it in 420ms without
+   * zooming in. Ignored in `pickMode`.
+   */
+  selectedIso?: string | null
   /** Click the globe → lat/lng for the claim flow. Crosshair affordance. */
   pickMode?: boolean
   onPick?: (p: { lat: number; lng: number }) => void
@@ -327,6 +343,7 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
   plots,
   darkMode,
   focus,
+  selectedIso = null,
   pickMode = false,
   onPick,
   onSelectPlot,
@@ -557,6 +574,7 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
               palette={palette}
               darkMode={darkMode}
               focus={focus}
+              selectedIso={selectedIso}
               pickMode={pickMode}
               onPick={onPick}
               onSelectPlot={onSelectPlot}

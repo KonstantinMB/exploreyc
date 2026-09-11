@@ -188,6 +188,12 @@ export interface BoardRow {
    * null means "no logo", never a placeholder.
    */
   logo_url?: string | null
+  /**
+   * The plot's own one-liner, else the linked company's. Country rows always
+   * null. null means the owner never wrote one — render no second line rather
+   * than filling the gap with something they did not say.
+   */
+  tagline?: string | null
 }
 
 export interface BoardResponse {
@@ -279,6 +285,8 @@ export interface CountryPlotRow {
    * the field for free.
    */
   logo_url?: string | null
+  /** Same serializer, same rule: the plot's one-liner, else the company's, else null. */
+  tagline?: string | null
 }
 
 export interface CountryCity {
@@ -315,7 +323,13 @@ export type PulseEventType = 'plant' | 'topup' | 'promotion'
 export interface PulseEvent {
   type: PulseEventType
   name: string
-  country_iso: string
+  /**
+   * NULLABLE, and not rarely: a global `featured` promotion carries no country
+   * (world.py COALESCEs the promotion's iso with the plot's, and a sponsor slot
+   * has neither). Typed `string` until now, which is why the feed rendered the
+   * fallback globe glyph and an empty country name for those rows.
+   */
+  country_iso: string | null
   amount_cents: number
   at: string
 }

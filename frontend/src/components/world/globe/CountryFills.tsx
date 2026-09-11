@@ -666,9 +666,10 @@ const FILL_VERT = /* glsl */ `
  * from the design tokens' own hex; they are already sRGB. Encoding them again
  * would lift `#E4E7EB` toward white and the land would go milky.
  *
- * `uTint` is 1 for the fill and `STROKE_TINT` for a claimed country's outline,
- * which is the one difference between the two materials — a second shader for a
- * multiply is a second shader to keep in step.
+ * `uTint` is 1 for the fill and `STROKE_TINT` for an outlined country's ring;
+ * `uStrokePass` is 0 and 1 respectively. Those two floats are the whole
+ * difference between the materials — a second shader for a multiply and a
+ * branch is a second shader to keep in step.
  */
 const FILL_FRAG = /* glsl */ `
   uniform sampler2D uColors;
@@ -679,13 +680,19 @@ const FILL_FRAG = /* glsl */ `
   uniform vec3 uHoverTint;
   uniform float uHoverAmount;
   /** Index of the SELECTED country, or -1. Distinct from hover: hover is where
-   *  the cursor is, selection is what the inspector is showing. */
+   *  the cursor is, selection is what the panel is showing. */
   uniform float uSelectedId;
-  /** Seconds since selection. Drives the settle animation. */
-  uniform float uSelectTime;
-  /** 0 = nothing selected, 1 = fully selected. Eased on the CPU so the world
-   *  recedes and returns rather than snapping in both directions. */
+  /** 0 = nothing selected, 1 = fully selected. Eased on the CPU over ~180ms so
+   *  the world does not snap its entire colour in one frame. */
   uniform float uSelectMix;
+  /** The tone every UNSELECTED country drains toward: this theme's own
+   *  unclaimed land. Handed down rather than hard-coded, because a light grey
+   *  is the right answer in one theme and a bleach in the other. */
+  uniform vec3 uRecede;
+  /** 1 on the outline pass. A selected country's ring is drawn in the accent
+   *  shade instead of a darker step of its own fill. */
+  uniform float uStrokePass;
+  uniform vec3 uSelectStroke;
   uniform float uShade;
   uniform float uTint;
 
@@ -702,66 +709,77 @@ const FILL_FRAG = /* glsl */ `
     vec3 n = normalize(vDir);
     vec3 view = normalize(cameraPosition - vPos);
     float facing = max(dot(n, view), 0.0);
-    col *= mix(uShade, 1.0, pow(facing, 0.55));
-
-    // Hover lights the whole country, because the id is per vertex and constant
-    // across every triangle the country owns. The wash is warm and only
-    // partial, so a hovered country reads as "your cursor is here" rather than
-    // as a colour change — and specifically not as the faintest rung of the
-    // claim ramp, which is the one thing this state must never impersonate.
-    if (abs(vId - uHoverId) < 0.5) {
-      col = mix(col, uHoverTint, uHoverAmount);
-    }
+    float shade = mix(uShade, 1.0, pow(facing, 0.55));
+    col *= shade;
 
     /*
-     * Selection — a spotlight, not a highlight.
+     * Selection — a territory lighting up, and nothing else happening.
      *
-     * The first version of this lifted the chosen country toward white and
-     * nothing else changed. On a map whose countries are already pale pastels
-     * that is close to invisible, and worse, it is the same gesture as hover
-     * only louder — so the one state that means "the panel is showing THIS"
-     * looked like the state that means "your cursor is here".
+     * This block used to be a two-phase ceremony: a decaying white bloom over
+     * the chosen country, then a sine breath that never stopped. That is the
+     * class of animation the owner rejected by name. A country you have
+     * ALREADY clicked does not need to keep asking for attention — the panel
+     * beside it is the thing to read, and a surface that pulses under it is
+     * just noise you cannot turn off.
      *
-     * So the figure/ground relationship flips instead. Everything that is not
-     * the selection drains toward the map's own neutral land tone and gives up
-     * most of its colour; the chosen country keeps all of its own, warms a few
-     * degrees toward the product's gold, and breathes. Nothing about the
-     * selected country has to shout, because the entire rest of the planet has
-     * stepped back for it. That reads at any zoom, on any palette, and it is
-     * the same move the inspector panel is making in layout terms.
-     *
-     * The chosen country's own animation stays two-phase, because a selection
-     * should announce itself once and then stop competing with the panel it
-     * opened:
-     *
-     *   0.00 - 0.45s  a bloom that decays — the "landed on it" beat, timed to
-     *                 finish as the camera settles.
-     *   after         a slow breath, ±5%, enough to hold the eye without ever
-     *                 pulling it back.
-     *
-     * A pulse that keeps full amplitude forever is what makes an interface
-     * exhausting: the country is already selected, the inspector is already
-     * open, and the map should let you read it.
+     * So the state is now carried entirely by contrast, which costs no motion
+     * at all: everything that is NOT the selection drains toward this theme's
+     * own unclaimed land and gives up most of its colour, and the selection
+     * keeps all of its own plus a crisp accent ring (the outline pass below).
+     * The only thing that moves is uSelectMix, eased over ~180ms on the CPU
+     * so the planet does not change colour between two frames — and under
+     * reduced motion even that is snapped. Pick a country and it is simply,
+     * immediately, the only lit thing on the sphere.
      */
     if (uSelectMix > 0.001) {
       if (abs(vId - uSelectedId) < 0.5) {
-        // Gold, at a fraction. Enough that the chosen country is warmer than
-        // its neighbours were a moment ago without becoming a different
-        // country — its own claim colour still has to be recognisable.
-        col = mix(col, col * vec3(1.16, 1.04, 0.72), uSelectMix * 0.55);
-
-        float bloom = exp(-uSelectTime * 6.5) * 0.40;
-        float breath = 0.05 + 0.05 * sin(uSelectTime * 1.9);
-        col = mix(col, vec3(1.0), clamp(bloom + breath, 0.0, 0.8) * uSelectMix);
+        if (uStrokePass > 0.5) {
+          // The ring. A selected country's outline leaves the claim ramp and
+          // becomes the accent shade outright, so the border reads as a hard
+          // edge around the territory rather than as a darker step of its fill
+          // — and so an UNCLAIMED country, which has no claim colour to darken,
+          // gets exactly the same border treatment as a claimed one.
+          col = mix(col, uSelectStroke * shade, uSelectMix);
+        } else {
+          // The fill barely moves: a few degrees warmer, enough to separate it
+          // from the drained world without pretending a stake was placed.
+          col = mix(col, col * vec3(1.10, 1.02, 0.88), uSelectMix);
+        }
       } else {
-        // Everything else recedes. Desaturated toward its own luminance first
+        // Everything else recedes. Desaturated toward its own luminance first,
         // so the drain reads as colour leaving rather than as a grey wash laid
-        // over the top, then pulled a little darker so the selection is the
-        // brightest thing on the sphere as well as the only saturated one.
+        // over the top, then mixed toward the theme's land and pulled slightly
+        // darker — shaded by the same limb falloff as the fill it replaces, or
+        // the far side of the planet would brighten as the near side dimmed.
         float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-        vec3 receded = mix(vec3(lum), vec3(0.82, 0.84, 0.87), 0.55) * 0.94;
-        col = mix(col, receded, uSelectMix * 0.72);
+        vec3 receded = mix(vec3(lum), uRecede * shade, 0.55) * 0.94;
+        col = mix(col, receded, uSelectMix * 0.68);
       }
+    }
+
+    /*
+     * Hover, applied LAST — after the recede, not before it.
+     *
+     * This used to sit above the selection block, which meant that once a
+     * country was selected the drain ate 68% of every hover wash on the map:
+     * the one gesture a visitor needs while a panel is open — "what about THAT
+     * country?" — was the one the map had stopped answering. Moved down here,
+     * the country under the cursor lights up on a drained world exactly as it
+     * does on a full one, so switching countries stays a two-step of hover then
+     * click rather than a click into the dark.
+     *
+     * Skipped on the selected country itself. Hover there would only overwrite
+     * the louder state with a quieter one, and "your cursor is here" is not
+     * news about the country the panel is already about.
+     *
+     * The wash lights the whole country, because the id is per vertex and
+     * constant across every triangle the country owns. It is warm and only
+     * partial, so hover reads as a cursor rather than as a colour change — and
+     * specifically not as the faintest rung of the claim ramp, which is the one
+     * thing this state must never impersonate.
+     */
+    if (abs(vId - uHoverId) < 0.5 && abs(vId - uSelectedId) >= 0.5) {
+      col = mix(col, uHoverTint, uHoverAmount);
     }
 
     gl_FragColor = vec4(col, 1.0);
@@ -812,6 +830,15 @@ export interface CountryFillsProps {
   hoveredIso2?: string | null
   /** ISO-3166 alpha-2 of the selected country, or null. */
   selectedIso2?: string | null
+  /** Outline colour for the selected country. See `GlobePalette.select`. */
+  selectStroke?: string
+  /**
+   * Skip the ~180ms recede ease and switch the world in one frame.
+   *
+   * Selection is a state, not an animation: under `prefers-reduced-motion` it
+   * still arrives in full, it simply arrives at once.
+   */
+  reducedMotion?: boolean
   /** Theme's hover wash. See `GlobePalette.hover`. */
   hoverTint?: string
   hoverAmount?: number
@@ -823,6 +850,8 @@ export function CountryFills({
   landColor = GLOBE_PALETTE_LIGHT.land,
   hoveredIso2 = null,
   selectedIso2 = null,
+  selectStroke = GLOBE_PALETTE_LIGHT.select,
+  reducedMotion = false,
   hoverTint = HOVER_FALLBACK.tint,
   hoverAmount = HOVER_FALLBACK.amount,
 }: CountryFillsProps) {
@@ -909,12 +938,35 @@ export function CountryFills({
   }, [colorTexture, countries, fills, landColor])
 
   /**
-   * The claimed countries' own outlines, as a draw range.
+   * Selected ISO -> the index the shader compares against, and the one the
+   * outline draw range below has to know about.
    *
-   * Compacting the claimed countries' ring segments into the front of one index
-   * buffer means a single draw call whose length is proportional to what has
-   * actually been bought — zero on an empty board, and never the whole world's
-   * half a million segments just to outline four countries.
+   * Resolved here rather than passed as a number, because the index is an
+   * implementation detail of the order this mesh happened to be built in, and
+   * nothing outside should have to know it — least of all during the frames
+   * where the caller's list and the mesh's list are different lengths.
+   */
+  const selectedId = useMemo(() => {
+    if (!selectedIso2) return -1
+    const code = selectedIso2.toUpperCase()
+    return countries.findIndex((entry) => entry.iso2 === code)
+  }, [selectedIso2, countries])
+
+  /**
+   * The outlined countries' ring segments, compacted into a draw range.
+   *
+   * Two countries earn an outline: every CLAIMED one, whose ring is a darker
+   * step of its own fill and is what still separates two claimed neighbours
+   * now that they share a hue — and the SELECTED one, whose ring is the accent
+   * shade. The selected country is included whether or not anybody owns it,
+   * because an empty country is exactly the one a visitor is most likely to be
+   * inspecting, and "we are showing you this territory" has to be drawable
+   * without a stake behind it.
+   *
+   * Compacting into the front of one index buffer means a single draw call
+   * whose length is proportional to what is actually outlined — zero on an
+   * empty board with nothing selected, and never the whole world's half a
+   * million segments just to ring four countries.
    */
   useEffect(() => {
     if (!mesh || !buffers) return
@@ -923,7 +975,7 @@ export function CountryFills({
     let at = 0
     for (let i = 0; i < countries.length; i += 1) {
       const iso2 = countries[i].iso2
-      if (!iso2 || !fills.has(iso2)) continue
+      if (i !== selectedId && (!iso2 || !fills.has(iso2))) continue
       const from = edgeStart[i]
       const to = edgeStart[i + 1]
       if (to <= from) continue
@@ -932,7 +984,7 @@ export function CountryFills({
     }
     buffers.stroke.setDrawRange(0, at)
     buffers.strokeIndex.needsUpdate = true
-  }, [mesh, buffers, countries, fills])
+  }, [mesh, buffers, countries, fills, selectedId])
 
   // --- materials -----------------------------------------------------------
 
@@ -947,15 +999,20 @@ export function CountryFills({
       uHoverTint: { value: new THREE.Color(HOVER_FALLBACK.tint) },
       uHoverAmount: { value: HOVER_FALLBACK.amount },
       uSelectedId: { value: -1 },
-      uSelectTime: { value: 0 },
       uSelectMix: { value: 0 },
+      uRecede: { value: new THREE.Color(GLOBE_PALETTE_LIGHT.land) },
+      uSelectStroke: { value: new THREE.Color(GLOBE_PALETTE_LIGHT.select) },
       uShade: { value: SHADE },
     }
 
     const fill = new THREE.ShaderMaterial({
       vertexShader: FILL_VERT,
       fragmentShader: FILL_FRAG,
-      uniforms: { ...shared, uTint: { value: 1 } },
+      uniforms: {
+        ...shared,
+        uTint: { value: 1 },
+        uStrokePass: { value: 0 },
+      },
       // Opaque wherever there is land — the ocean is simply not tessellated, so
       // the sphere's own gradient shows through instead of being covered by a
       // second, flatter copy of it. `transparent` is still on so `renderOrder`
@@ -981,10 +1038,12 @@ export function CountryFills({
         uHoverTint: shared.uHoverTint,
         uHoverAmount: shared.uHoverAmount,
         uSelectedId: shared.uSelectedId,
-        uSelectTime: shared.uSelectTime,
         uSelectMix: shared.uSelectMix,
+        uRecede: shared.uRecede,
+        uSelectStroke: shared.uSelectStroke,
         uShade: shared.uShade,
         uTint: { value: STROKE_TINT },
+        uStrokePass: { value: 1 },
       },
       transparent: true,
       depthTest: true,
@@ -1026,61 +1085,48 @@ export function CountryFills({
     materials.shared.uHoverAmount.value = hoverAmount
   }, [materials, hoverTint, hoverAmount])
 
-  /** Selected ISO -> mesh index, same reasoning as `hoverId`. */
-  const selectedId = useMemo(() => {
-    if (!selectedIso2) return -1
-    const code = selectedIso2.toUpperCase()
-    return countries.findIndex((entry) => entry.iso2 === code)
-  }, [selectedIso2, countries])
-
-  /**
-   * The clock the selection animation runs on, reset on every new selection.
-   *
-   * A ref advanced in `useFrame` rather than React state: this value changes
-   * sixty times a second and drives one shader uniform, so putting it in state
-   * would re-render the whole subtree per frame to move a float the GPU could
-   * have read directly.
-   */
-  const selectClock = useRef(0)
+  useEffect(() => {
+    materials.shared.uRecede.value.set(landColor)
+    materials.shared.uSelectStroke.value.set(selectStroke)
+  }, [materials, landColor, selectStroke])
 
   useEffect(() => {
     materials.shared.uSelectedId.value = selectedId
-    selectClock.current = 0
-    materials.shared.uSelectTime.value = 0
   }, [materials, selectedId])
 
   /**
    * How far the world has receded, 0 to 1.
    *
-   * The uniform cannot simply be `selectedId >= 0 ? 1 : 0`: that snaps the
-   * entire planet's colour on and off in a single frame, which lands as a
-   * flicker rather than as a focus change. Easing it means the map visibly
-   * *steps back* for the country you chose and visibly returns when you close
-   * the panel, which is the part that makes the gesture feel physical.
+   * The uniform cannot simply be `selectedId >= 0 ? 1 : 0` on a full-motion
+   * display: that repaints every country on the planet between two frames,
+   * which lands as a flash rather than as a focus change. ~180ms of
+   * exponential approach is enough to read as the map yielding and short
+   * enough that the selection is effectively instant — this is a highlight,
+   * not a transition, and nothing waits on it.
    *
-   * Held in a ref and written straight to the uniform for the same reason the
-   * clock above is: this changes every frame for about a third of a second and
-   * React never needs to know.
+   * Held in a ref and written straight to the uniform: it changes every frame
+   * for a sixth of a second and React never needs to know.
    */
   const selectMix = useRef(0)
 
   useFrame((_, delta) => {
-    // Clamped so a backgrounded tab does not resume with a several-second jump
-    // that skips the bloom entirely and lands mid-breath.
-    const step = Math.min(delta, 0.05)
-
-    // Exponential approach rather than a linear ramp. Fast to leave, slow to
-    // arrive — the recede should feel like the map yielding, not like a fade
-    // playing out at a constant rate. ~0.3s to settle either way.
     const target = selectedId < 0 ? 0 : 1
-    const rate = 1 - Math.exp(-step * 11)
-    selectMix.current += (target - selectMix.current) * rate
-    if (Math.abs(target - selectMix.current) < 0.001) selectMix.current = target
-    materials.shared.uSelectMix.value = selectMix.current
 
-    if (selectedId < 0) return
-    selectClock.current += step
-    materials.shared.uSelectTime.value = selectClock.current
+    if (reducedMotion) {
+      if (selectMix.current !== target) {
+        selectMix.current = target
+        materials.shared.uSelectMix.value = target
+      }
+      return
+    }
+
+    if (selectMix.current === target) return
+    // Clamped so a backgrounded tab does not resume with a several-second jump.
+    const step = Math.min(delta, 0.05)
+    const rate = 1 - Math.exp(-step * 22)
+    selectMix.current += (target - selectMix.current) * rate
+    if (Math.abs(target - selectMix.current) < 0.002) selectMix.current = target
+    materials.shared.uSelectMix.value = selectMix.current
   })
 
   if (!buffers) return null

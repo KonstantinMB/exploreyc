@@ -3250,7 +3250,10 @@ class DatabasePostgres:
 
         logo_url is the plot's own logo, falling back to the linked company's
         small_logo_thumb_url (one LEFT JOIN, never a per-row lookup). Blank
-        strings collapse to None so a missing logo stays honestly absent."""
+        strings collapse to None so a missing logo stays honestly absent.
+        tagline resolves the same way over p.tagline -> co.one_liner, and is
+        what lets a ranked list say who each plot is rather than only what it
+        paid."""
         where, params = ["p.status = 'active'"], []
         if country_iso:
             where.append("p.country_iso = %s")
@@ -3260,7 +3263,9 @@ class DatabasePostgres:
             params.append(city_id)
         where_sql = " AND ".join(where)
         logo_sql = ("COALESCE(NULLIF(p.logo_url, ''), "
-                    "NULLIF(co.small_logo_thumb_url, '')) AS logo_url")
+                    "NULLIF(co.small_logo_thumb_url, '')) AS logo_url, "
+                    "COALESCE(NULLIF(p.tagline, ''), "
+                    "NULLIF(co.one_liner, '')) AS tagline")
         if kind == "rising":
             sql = f"""
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,

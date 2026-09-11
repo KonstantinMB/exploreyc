@@ -41,6 +41,7 @@
  *     over-use the owner rejected.
  */
 
+import { useId, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type {
   ButtonHTMLAttributes,
   ElementType,
@@ -50,7 +51,7 @@ import type {
   Ref,
 } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Info } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { formatDollars } from './constants'
 
@@ -95,6 +96,22 @@ export const WORLD_CARD_CLASS =
   'transition-all duration-300 ease-out ' +
   'hover:border-[#FB651E]/60 hover:shadow-[0_0_20px_rgba(251,101,30,0.15)] ' +
   'dark:border-white/5 dark:bg-white/[0.02]'
+
+/**
+ * The surface for a card that floats ON the globe and has to be READ.
+ *
+ * USE THIS INSTEAD OF WRITING `bg-card/95` BY HAND. The base card above ends
+ * with `dark:bg-white/[0.02]`, and tailwind-merge cannot cancel that with an
+ * unprefixed `bg-card/95` — they are different variants, so both survive and
+ * the `dark:` one wins the cascade. The result was measured, not theorised:
+ * every panel over the globe computed to `rgba(255,255,255,0.02)` in dark mode
+ * — a 2%-opaque card with body text on it, floating over a lit sphere. Light
+ * mode was correct, which is exactly why it survived review.
+ *
+ * Naming the dark variant explicitly is what cancels it. Both halves must stay
+ * together; dropping either one silently reintroduces the bug in one theme.
+ */
+export const WORLD_PANEL_SURFACE = 'bg-card/95 dark:bg-card/95 backdrop-blur-md'
 
 export interface WorldCardProps extends HTMLAttributes<HTMLElement> {
   /** Element to render. Defaults to a plain div; use "section"/"article"/"li". */
@@ -608,5 +625,121 @@ export function WorldRowButton({
     >
       {inner}
     </button>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   InfoTip — the explanation that is not a paragraph
+   ──────────────────────────────────────────────────────────────────────────── */
+
+export interface InfoTipProps {
+  /**
+   * The accessible name of the trigger — "what the tip is about", not the tip
+   * itself. Spoken as "How rank works, button" before the description.
+   */
+  label: string
+  /** The explanation. One or two short sentences; this is not a document. */
+  children: ReactNode
+  /**
+   * Which edge of the bubble lines up with the trigger. `end` for anything in
+   * the right-hand rail, `start` on the left — a centred bubble on a 320px
+   * screen is how a panel gains a horizontal scrollbar.
+   */
+  align?: 'start' | 'center' | 'end'
+  className?: string
+}
+
+/**
+ * A small ⓘ whose explanation appears on hover, on focus and on press.
+ *
+ * THE REASON THIS EXISTS: the World surfaces used to teach with prose — a
+ * muted paragraph under every control explaining what rank is, what a top-up
+ * costs, what "planted" means. The owner's instruction was the opposite:
+ * "add info hover ons/buttons icons to give the explanations as opposed to
+ * writing them down". So the paragraphs come out and this goes in.
+ *
+ * The accessibility is not an afterthought and it is deliberately simple:
+ *
+ *   - The description lives in the DOM at all times and the trigger points at
+ *     it with `aria-describedby`, so a screen reader hears the explanation on
+ *     focus whether or not the bubble is visually open. Closed, it is
+ *     `sr-only` — visually absent, never removed from the accessibility tree.
+ *   - The trigger is a real `<button type="button">`: Tab reaches it, Enter and
+ *     Space toggle it, and it never submits a form it happens to be inside.
+ *   - Escape closes it, and the key is swallowed so it does not also close the
+ *     dialog the tip is sitting in.
+ *   - Pointer hover opens it, focus opens it, and a press toggles it — which is
+ *     the only one of the three a touch device has.
+ *
+ * The bubble is `absolute` inside an `inline-flex` wrapper, so it never
+ * contributes to layout and never widens the panel it sits in.
+ */
+export function InfoTip({ label, children, align = 'start', className }: InfoTipProps) {
+  const id = useId()
+  const [open, setOpen] = useState(false)
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLSpanElement>) => {
+    if (event.key !== 'Escape' || !open) return
+    event.stopPropagation()
+    setOpen(false)
+  }
+
+  return (
+    <span
+      className={cn('relative inline-flex align-middle', className)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onKeyDown={onKeyDown}
+    >
+      <button
+        type="button"
+        aria-describedby={id}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        /*
+         * Keyboard focus opens it (the ARIA tooltip pattern requires that);
+         * focus arriving any other way does not. The difference matters because
+         * a dialog that autofocuses its first tabbable child will land here —
+         * and a tooltip that unfurls over the form the moment a modal opens is
+         * a bug, not help. `:focus-visible` is exactly the browser's own
+         * "did a keyboard put you here" answer, so we ask it rather than
+         * tracking input modality ourselves.
+         */
+        onFocus={(event) => {
+          if (event.currentTarget.matches(':focus-visible')) setOpen(true)
+        }}
+        onBlur={() => setOpen(false)}
+        className={cn(
+          'inline-grid h-5 w-5 shrink-0 cursor-help place-items-center rounded-sm',
+          'text-muted-foreground transition-colors duration-150 motion-reduce:transition-none',
+          'hover:text-[#FB651E] focus-visible:outline-none focus-visible:ring-2',
+          'focus-visible:ring-[#FB651E] focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+          open && 'text-[#FB651E]'
+        )}
+      >
+        <Info className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="sr-only">{label}</span>
+      </button>
+      <span
+        id={id}
+        role="tooltip"
+        className={
+          open
+            ? cn(
+                // 13rem, and clamped to the viewport under it. The bubble is
+                // absolutely positioned, so the only thing stopping it running
+                // off the edge of a 20rem rail is its own width and the `align`
+                // the call site picked — keep both honest.
+                'absolute top-full z-50 mt-1.5 w-[min(13rem,calc(100vw-2rem))]',
+                'rounded-sm border border-border bg-card px-2.5 py-2 shadow-lg',
+                'font-mono text-[11px] font-normal normal-case leading-snug tracking-normal text-foreground',
+                align === 'end' ? 'right-0' : align === 'center' ? 'left-1/2 -translate-x-1/2' : 'left-0'
+              )
+            : 'sr-only'
+        }
+      >
+        {children}
+      </span>
+    </span>
   )
 }

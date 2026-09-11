@@ -15,6 +15,16 @@ export interface FlyToOptions {
   distance?: number
   /** Flight time in milliseconds. */
   duration?: number
+  /**
+   * Mid-flight pull-back, as a fraction of the camera's distance. 0 is a
+   * straight ease.
+   *
+   * The swoop is what makes a long tour flight read as a camera move rather
+   * than as two numbers being interpolated — and it is exactly the wrong thing
+   * for a click-to-inspect selection, where the camera should just BE there.
+   * Named so the caller decides, rather than baked into every flight.
+   */
+  arc?: number
   /** Jump straight there. Also what a reduced-motion visitor always gets. */
   immediate?: boolean
 }
@@ -48,6 +58,8 @@ export interface OrbitLike {
 
 const IDENTITY = new THREE.Quaternion()
 const DEFAULT_DURATION = 1400
+/** The swoop a flight gets when the caller has no opinion. */
+const DEFAULT_ARC = 0.14
 
 /** Cubic in-out. Slow departure, slow arrival, no linear middle to give it away. */
 function easeInOutCubic(x: number): number {
@@ -93,6 +105,7 @@ export function useGlobeCamera(): GlobeCameraApi {
     rotation: new THREE.Quaternion(),
     fromDistance: 2.6,
     toDistance: 2.6,
+    arc: DEFAULT_ARC,
     dir: new THREE.Vector3(),
     quat: new THREE.Quaternion(),
   })
@@ -132,6 +145,7 @@ export function useGlobeCamera(): GlobeCameraApi {
       f.rotation.setFromUnitVectors(f.fromDir, target)
       f.fromDistance = fromDistance
       f.toDistance = toDistance
+      f.arc = opts.arc ?? DEFAULT_ARC
 
       const duration =
         opts.immediate || reduced ? 0 : (opts.duration ?? DEFAULT_DURATION)
@@ -169,8 +183,9 @@ export function useGlobeCamera(): GlobeCameraApi {
     f.dir.copy(f.fromDir).applyQuaternion(f.quat)
 
     // Pull back a little at the midpoint. Costs nothing and is the difference
-    // between "a camera moved" and "two numbers were interpolated".
-    const arc = 1 + Math.sin(Math.PI * k) * 0.14
+    // between "a camera moved" and "two numbers were interpolated" — on a long
+    // flight. A selection ease passes 0 and gets the straight line it wants.
+    const arc = 1 + Math.sin(Math.PI * k) * f.arc
     place(f.dir, THREE.MathUtils.lerp(f.fromDistance, f.toDistance, k) * arc)
     controls?.update()
 
