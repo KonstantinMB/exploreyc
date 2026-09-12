@@ -239,6 +239,74 @@ export function HomePage() {
           <ApiShowcase />
         </motion.section>
 
+        {/* ExploreYC World — the other paid surface. It sits directly under the
+            API showcase because those are the only two things on this site that
+            take money, and a visitor who scrolled past the API is exactly who
+            might buy a plot instead. */}
+        <motion.section
+          id="world"
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-50px' }}
+          transition={{ duration: 0.5 }}
+          className="border-t border-border py-14"
+        >
+          <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 max-w-xl">
+              <div className="mb-4 inline-flex items-center gap-2 border border-[#FB651E]/40 bg-[#FB651E]/[0.06] px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-[#FB651E] rounded-sm">
+                <Earth className="h-3.5 w-3.5" />
+                Advertising space on a live globe
+              </div>
+              <h2 className="font-mono text-2xl font-bold sm:text-3xl">
+                Put your startup on the map.
+              </h2>
+              <p className="mt-3 font-mono text-sm leading-relaxed text-muted-foreground">
+                Stake on a country, plant your logo in it, and hold the top spot against
+                anyone who wants it more. Every dollar counts toward your country on the
+                world board.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <Link
+                  to="/world"
+                  className="group inline-flex items-center gap-2 border border-[#FB651E]/50 bg-[#FB651E] px-5 py-2.5 font-mono text-sm text-white transition-all duration-200 hover:bg-[#E65C00] hover:shadow-[0_0_20px_rgba(251,101,30,0.3)] rounded-sm"
+                >
+                  Claim a spot — from $5
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </Link>
+                <Link
+                  to="/world"
+                  className="inline-flex items-center gap-2 border border-border bg-background/50 px-5 py-2.5 font-mono text-sm transition-all duration-200 hover:border-[#FB651E]/50 rounded-sm"
+                >
+                  <Trophy className="h-4 w-4 text-[#FB651E]" />
+                  See the board
+                </Link>
+              </div>
+              <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+                No prize, no payout, no refund.
+              </p>
+            </div>
+
+            {/* Three lines, because the mechanic is genuinely this short. */}
+            <ul className="grid w-full shrink-0 gap-px border border-border bg-border lg:w-[380px] rounded-sm overflow-hidden">
+              {[
+                ['Pick a country', 'Anywhere on Earth. Yours in one click.'],
+                ['Plant your logo', 'It draws on the globe and on every board.'],
+                ['Hold the top spot', 'Until somebody outstakes you for it.'],
+              ].map(([title, desc], i) => (
+                <li key={title} className="flex items-start gap-3 bg-background p-4">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center border border-[#FB651E]/40 bg-[#FB651E]/[0.06] font-mono text-xs font-bold text-[#FB651E] rounded-sm">
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-mono text-sm font-bold">{title}</span>
+                    <span className="block font-mono text-xs text-muted-foreground">{desc}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </motion.section>
+
         {/* Database Preview Section */}
         <motion.section
           id="database-preview"
