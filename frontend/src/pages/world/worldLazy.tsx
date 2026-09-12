@@ -59,6 +59,14 @@ export interface WorldGlobeProps {
    * must never do.
    */
   onInteract?: () => void
+  /**
+   * Where the camera starts, in globe radii. Default 3.45, which frames the
+   * sphere at 0.88 of the canvas height; 3.15 fills it. See WorldGlobe — this
+   * is the only control over how big the planet looks, because a perspective
+   * camera sizes what it sees by the vertical field of view and not by the box
+   * it is drawn into.
+   */
+  initialDistance?: number
 }
 
 export const LazyWorldGlobe = lazy(async () => {

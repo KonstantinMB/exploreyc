@@ -66,6 +66,10 @@ import CountryPanel from '../../components/world/country/CountryPanel'
 import CountryPicker from '../../components/world/country/CountryPicker'
 import ActivityPanel from '../../components/world/activity/ActivityPanel'
 import WorldStats from '../../components/world/activity/WorldStats'
+import {
+  AudienceReach,
+  WatchingNow,
+} from '../../components/world/audience/WorldAudience'
 import StakeModal from '../../components/world/stake/StakeModal'
 // By path, never through `globe/index.ts`: that barrel exports the scene and
 // would drag the 1 MB three.js chunk into this page's bundle. `tour` and the
@@ -78,15 +82,38 @@ import { LazyWorldGlobe, type GlobeFocus } from './worldLazy'
 const NO_PINS: GlobePin[] = []
 
 /**
- * The globe's own band.
+ * The globe's own band — now everything under the platform chrome.
+ *
+ * THE OWNER'S REPORT WAS "i just see some small world view, i want it bigger
+ * and utilizing more space in general", and the old value is the whole story:
+ * `clamp(19rem, calc(100svh - 13rem), 42rem)`. On a 1440×900 laptop the middle
+ * term came to 692px and the 42rem CEILING cut it to 672 — the stage was
+ * capped 20px below what the viewport was already offering, and on a 1440p
+ * monitor it threw away 560px. Then the canvas gave up its left 38% to a copy
+ * column, so the globe got 868px of a 2,560px screen.
+ *
+ * Both are gone. The subtrahend is the real chrome above the stage — the
+ * announcement bar, the navbar and one tight header line, measured, not
+ * guessed — and the ceiling is now high enough that no ordinary monitor
+ * reaches it. Everything that used to flank the globe floats ON it.
  *
  * `svh` rather than `vh`: on a phone the URL bar makes `vh` taller than the
  * screen actually is, which pushed the claim button under the fold on exactly
- * the devices least likely to scroll for it. The clamp keeps a slice of the
- * next section visible at every height — the page has to look like it
- * continues, because it does.
+ * the devices least likely to scroll for it.
  */
-const STAGE_HEIGHT = 'clamp(19rem, calc(100svh - 13rem), 42rem)'
+const STAGE_HEIGHT = 'clamp(19rem, calc(100svh - 12.5rem), 78rem)'
+
+/**
+ * Where the camera starts on this page, in globe radii.
+ *
+ * The stage is now the viewport, so the globe should be too. At the scene's
+ * default 3.45 the sphere renders at 0.88 of the canvas height — a 1,250px
+ * stage with 150px of empty sky top and bottom. 3.15 puts it at ~0.97: framed
+ * edge to edge with the poles just inside, which is what "bigger" actually
+ * means for a sphere, and it is also the point where the label ladder stops
+ * sitting on its far-tier floor. See WorldGlobe's `initialDistance`.
+ */
+const GLOBE_DISTANCE = 3.15
 
 /**
  * THE ONE INSET every floating island on the stage is measured from.
@@ -230,18 +257,22 @@ export default function WorldPage() {
           House rule: a `$ command` belongs at the top of a ROUTE, once, via
           <PageHeader> — never on every panel. Everything below opens with a
           plain mono heading instead. */}
-      <div className="container relative mx-auto px-4 pb-2 pt-8">
-        <PageHeader
-          command="$ exploreyc --world"
-          title="World"
-          subtitle="Advertising space on a live globe. Stake on a country, put your logo on it, and hold the top spot against anyone who wants it more."
-          actions={
-            <a href="#pick" className={worldButtonClass('primary', 'md')}>
-              Claim a spot
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </a>
-          }
-        />
+      {/* ONE TIGHT LINE, and nothing else.
+          What was here — a two-line description of the globe and a second
+          "Claim a spot" button — cost 146px above a stage that was being
+          capped for want of 20. Both were duplicates: the sentence is said
+          again by the pitch card ON the globe, and the button is said again by
+          the pitch card, by the country panel and by the closing section. The
+          <h1> stays, because the route needs one; `mb-0` because the gap below
+          a header is this wrapper's job, not the component's. */}
+      <div className="container relative mx-auto px-4 pb-3 pt-4">
+        {/* `!mb-0`, with the bang. <PageHeader> concatenates `className` onto a
+            raw string that already contains `mb-6` — no tailwind-merge — and
+            Tailwind emits `.mb-0` BEFORE `.mb-6`, so a plain `mb-0` loses the
+            cascade and silently leaves 24px of the gap this header is here to
+            remove. Measured, not assumed: the stage started 24px lower than
+            the constant below says it should. */}
+        <PageHeader command="$ exploreyc --world" title="World" className="!mb-0" />
       </div>
 
       {/* ── The window ───────────────────────────────────────────────────── */}
@@ -265,18 +296,24 @@ export default function WorldPage() {
           */}
           <div className="container relative mx-auto h-full px-0">
             {/*
-              The canvas box. Full-bleed inside the column below `xl`, where the
-              hero spans the width and the globe is its backdrop; from `xl` up it
-              gives up its left 38% and the page becomes a real two-column
-              layout — copy on the left, globe on the right, neither on top of
-              the other.
+              The canvas box, and it is the whole stage at every width now.
+
+              It used to give up its left 38% from `xl` so a copy column could
+              sit beside the globe rather than on it. That is a reasonable way
+              to lay out a landing page and a bad way to lay out a MAP: the
+              column took 532px of a 1,400px stage, and because a perspective
+              camera sizes the sphere by the canvas's HEIGHT, the page paid for
+              that width without the globe ever being able to spend it. The
+              panels float on the glass instead — see the overlay wrapper below,
+              which is the system they already shared.
             */}
-            <div className="absolute inset-y-0 left-0 right-0 xl:left-[38%]">
+            <div className="absolute inset-0">
               <Suspense fallback={<GlobeLoading />}>
                 <LazyWorldGlobe
                   plots={layers.visiblePins}
                   darkMode={darkMode}
                   focus={focus}
+                  initialDistance={GLOBE_DISTANCE}
                   // Touch the controls and the tour is over. An auto-flight that
                   // keeps yanking the camera back is worse than no tour at all.
                   onInteract={tour.stop}
@@ -297,9 +334,11 @@ export default function WorldPage() {
               The scrim. The canvas is cleared to transparent, so the globe sits
               directly on the page ground and a gradient in that same ground
               colour reads as depth rather than as a panel laid over the map.
-              Both stop at `xl`, and that is the point of the two-column split:
-              a scrim exists to keep copy legible where it lies ON the globe, and
-              from `xl` up it no longer does.
+              A scrim exists to keep copy legible where it lies ON the globe. It
+              stops at `lg`, which is where the pitch stops being bare text on
+              the glass and becomes one of the overlay cards — and a card brings
+              its own 95% fill and its own blur, so a page-wide wash on top of
+              that would only be a veil over the map.
             */}
             <div
               aria-hidden="true"
@@ -311,7 +350,7 @@ export default function WorldPage() {
             />
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 hidden sm:block xl:hidden"
+              className="pointer-events-none absolute inset-0 hidden sm:block lg:hidden"
               style={{
                 backgroundImage:
                   'linear-gradient(105deg, hsl(var(--background)) 0%, color-mix(in srgb, hsl(var(--background)) 70%, transparent) 34%, transparent 62%)',
@@ -331,29 +370,45 @@ export default function WorldPage() {
             className={`pointer-events-none absolute inset-0 z-10 flex flex-col justify-between gap-4 ${STAGE_GUTTER}`}
           >
             {/* `flex-1` so this row owns the height the legend row does not
-                want, and `xl:self-center` on the copy inside it so the pitch
+                want, and `lg:self-center` on the copy inside it so the pitch
                 sits opposite the middle of the globe rather than stranded at
-                the top of a 42rem band. */}
+                the top of a full-viewport stage. */}
             <div className="flex flex-1 items-start justify-between gap-4">
-            {/* `min-w-0` so this column can actually shrink: without it the
-                headline's intrinsic width is the flex floor, and the controls
-                beside it get squeezed past their own content. From `xl` the
-                column is bounded to the left third, which is what makes the
-                globe's half genuinely its own. */}
-            <div className="pointer-events-auto min-w-0 max-w-xl xl:max-w-[36%] xl:self-center">
+            {/* THE LEFT RAIL — inert itself, so a drag that lands in the gap
+                between the pitch and the board still spins the globe. Each
+                island opts back in. It used to be one `pointer-events-auto`
+                block bounded to 36% of the stage, which meant a 500px-wide
+                invisible rectangle over the map swallowed every gesture that
+                started in it.
+
+                `min-w-0` so the column can actually shrink: without it the
+                headline's intrinsic width is the flex floor and the controls
+                opposite get squeezed past their own content. */}
+            <div className="pointer-events-none flex min-w-0 max-w-xl flex-col gap-3 lg:max-w-[22rem] lg:self-center">
+            {/* From `lg` the pitch stops being bare text on the glass and
+                becomes one of the overlay cards — same hairline, same 95% fill,
+                same blur, same radius as every other island. That is what lets
+                the scrim behind it retire and the globe run the full width of
+                the stage underneath. Below `lg` it stays plain copy on the
+                scrim: a phone's stage is a shopfront window, not a flight
+                deck, and a card inside a 343px column is a box around a box. */}
+            <div className="pointer-events-auto min-w-0 lg:rounded-sm lg:border lg:border-border/80 lg:bg-card/95 lg:p-4 lg:backdrop-blur-md lg:dark:border-white/10">
               <WorldChip tone="accent" className="mb-3">
                 Advertising space on a live globe
               </WorldChip>
               {/* level 2, not 1: <PageHeader> above the stage owns the page's
                   only <h1>. This is the sales pitch, not the route's title. */}
-              <WorldHeading level={2} className="mb-2 text-2xl sm:text-3xl">
+              <WorldHeading level={2} className="mb-2 text-2xl sm:text-3xl lg:text-2xl">
                 Put your startup on the map.
               </WorldHeading>
               {/* Dropped on a short viewport — a landscape phone gives the
                   stage about 300px, and the headline, the buttons and the
                   no-prize line all outrank a supporting sentence for that
-                  space. Keyed on HEIGHT, because that is what is scarce. */}
-              <p className="mb-5 max-w-lg text-sm leading-snug text-muted-foreground [@media(max-height:620px)]:hidden sm:text-base">
+                  space. Keyed on HEIGHT, because that is what is scarce.
+                  Dropped from `lg` too: inside a 22rem card on top of the map
+                  this sentence is the third time the page says the same thing,
+                  and the board under it is worth more than the repetition. */}
+              <p className="mb-5 max-w-lg text-sm leading-snug text-muted-foreground [@media(max-height:620px)]:hidden sm:text-base lg:hidden">
                 Pick a country, plant your logo in it, and hold the top spot against anyone who
                 wants it more.
               </p>
@@ -367,8 +422,10 @@ export default function WorldPage() {
                 {/* A real anchor, not a scroll handler: it moves keyboard focus
                     to the board as well as the viewport. Desktop only — on a
                     phone the two `lg` pills wrap onto separate rows and eat a
-                    third of the stage. */}
-                <a href="#board" className={worldButtonClass('secondary', 'lg', { className: 'hidden sm:inline-flex' })}>
+                    third of the stage — and it stands down again from `lg`,
+                    where the board it points at is on the glass right below
+                    with its own "Full board" link. */}
+                <a href="#board" className={worldButtonClass('secondary', 'lg', { className: 'hidden sm:inline-flex lg:hidden' })}>
                   See the board
                 </a>
               </div>
@@ -382,20 +439,22 @@ export default function WorldPage() {
                   stake on for as long as nobody outstakes you. It is an ad buy, not a bet.
                 </InfoTip>
               </p>
+            </div>
 
               {/* THE BOARD, IN THE FIRST VIEWPORT.
                   Here rather than in the opposite corner, and that is the whole
                   point: the right-hand rail is where the country panel opens,
                   so a board parked there is a board that disappears the moment
-                  anybody uses the product. In this column it is on screen at
-                  1440x900 without scrolling, with a panel open or without one.
-                  From `xl`, where this column stops lying over the globe and
-                  becomes a real half of a two-column stage — below that the
-                  compact podium in the bottom corner is still the ranked thing
-                  on the glass. */}
+                  anybody uses the product.
+
+                  From `lg` now rather than `xl`. It used to need `xl` because
+                  below that the copy column lay ON the globe and a second card
+                  under it would have been a wall of text over the map; the copy
+                  is a bounded 22rem card from `lg` and the board is simply the
+                  next island beneath it. */}
               <StageBoard
                 onSelectCountry={selectCountry}
-                className="mt-4 hidden max-w-[22rem] xl:flex"
+                className="pointer-events-auto hidden max-w-[22rem] lg:flex"
               />
             </div>
 
@@ -404,6 +463,22 @@ export default function WorldPage() {
                 375px this rail would land on top of the hero, and the phone
                 version of this page is a shopfront window, not a flight deck. */}
             <div className="pointer-events-auto hidden shrink-0 flex-col items-end gap-2 sm:flex">
+              {/* WHO IS ACTUALLY LOOKING — the proof a paid plot is bought on,
+                  and the two figures the owner asked for, in the corner that
+                  already carries totals.
+
+                  Two separate pills rather than one two-line card, because
+                  WORLD_OVERLAY_PILL is a one-line geometry and these have to
+                  share an edge with <WorldStats> under them. Both render
+                  NOTHING when there is nothing real to say: no reach line
+                  without a completed Vercel read, no "watching" before our own
+                  heartbeat lands. See components/world/audience. */}
+              <WatchingNow pill />
+              {/* `lg` and up only. The reach pill is a ~26rem single line; on
+                  the 640–1024px band where this rail is already visible it
+                  would reach across the stage and into the hero copy. The same
+                  figure is on this page at every width, in the closing CTA. */}
+              <AudienceReach pill align="end" className="hidden lg:flex" />
               <WorldStats />
               <GlobeControls onFocus={handleFocus} tour={tour} />
             </div>
@@ -501,14 +576,15 @@ export default function WorldPage() {
               </div>
 
               {/* THE PODIUM, ON THE MAP — the top three countries, crowned.
-                  `lg` to `xl` ONLY. Above `xl` the ranked thing on the stage is
-                  <StageBoard> in the copy column, which is always on screen and
-                  never fights the country panel for the right-hand rail; two
-                  ranked cards at once would be the same list twice. Still
-                  stands down while a panel is open, because at these widths
-                  they share a column. */}
+                  `md` to `lg` ONLY, which is the window <StageBoard> does not
+                  cover: from `lg` the board is in the left rail, always on
+                  screen and never fighting the country panel for the right-hand
+                  side, and two ranked cards at once would be the same list
+                  twice. Below `md` the stage is a phone shopfront and a 22rem
+                  podium would be most of it. Still stands down while a panel is
+                  open, because at these widths they share a column. */}
               {selectedIso ? null : (
-                <GlobePodium className="pointer-events-auto hidden w-[22rem] max-w-[45%] lg:block xl:hidden" />
+                <GlobePodium className="pointer-events-auto hidden w-[22rem] max-w-[45%] md:block lg:hidden" />
               )}
             </div>
           </div>
@@ -651,6 +727,11 @@ export default function WorldPage() {
             Claim a spot — from $5
             <ChevronRight className="h-5 w-5" aria-hidden />
           </a>
+          {/* The reach, at the second price on this page — and the only place a
+              phone sees it, because the stage rail that carries it above is
+              desktop-only. Centred here, so the InfoTip bubble opens from the
+              middle rather than off the edge of a 320px screen. */}
+          <AudienceReach className="mt-4 justify-center" align="center" />
           <NoPrizeNote className="mt-3 text-xs text-muted-foreground" />
         </div>
       </section>

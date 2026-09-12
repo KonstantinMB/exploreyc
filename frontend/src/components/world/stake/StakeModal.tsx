@@ -46,6 +46,7 @@ import worldApi, { type WorldCheckoutRequest } from '../../../lib/worldApi'
 import { useDevAuth } from '../../../contexts/DevAuthContext'
 import { MIN_STAKE_CENTS, formatDollars } from '../constants'
 import { InfoTip, Money, WorldButton, worldButtonClass } from '../ui'
+import { AudienceReach } from '../audience/WorldAudience'
 import { isoFlag } from '../boards/format'
 import { INPUT, SECTION_LABEL, TABULAR } from '../styles'
 import {
@@ -475,6 +476,14 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
                     )}
                   </p>
                 )}
+
+                {/* WHAT THE MONEY BUYS, at the moment somebody decides whether
+                    $5 is worth it. The amount is directly above; this is the
+                    other half of that judgement, and it is a measurement — real
+                    visitors to exploreyc.com over the last 30 days, with the
+                    source in the ⓘ beside it. Renders nothing when we have no
+                    figure, which keeps the card honest rather than padded. */}
+                <AudienceReach className="mt-3" align="start" />
 
                 {/* What was chosen on the buyer's behalf, said out loud. A
                     derived coordinate that nobody mentions is a surprise on the

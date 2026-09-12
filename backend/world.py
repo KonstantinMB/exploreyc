@@ -37,9 +37,10 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
+import world_audience
 from password_utils import hash_token
 from world_constants import (
     CITY_SNAP_RADIUS_KM,
@@ -552,6 +553,17 @@ class PlotLogoRequest(BaseModel):
     logo_data_url: str
 
 
+class BeatRequest(BaseModel):
+    """The entire body of a presence heartbeat.
+
+    One field, and the bound is the point: an anonymous, ephemeral id the client
+    generated for this tab. There is nowhere in this shape to put an email, an
+    IP or a user id, which is how "we do not collect that" stops being a
+    promise and becomes a fact about the schema.
+    """
+    session_id: str = Field(..., min_length=8, max_length=64)
+
+
 # ---------------------------------------------------------------------------
 # Response shaping
 # ---------------------------------------------------------------------------
@@ -1027,6 +1039,78 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             "type": e["type"], "name": e["name"], "country_iso": e["country_iso"],
             "amount_cents": e["amount_cents"], "at": e["at"],
         } for e in db.get_world_pulse()]}
+
+    # ---- audience: who actually sees this ----------------------------------
+    #
+    # The question a $5 plot is bought to answer — "how many people will see my
+    # logo?" — so this is the endpoint where an invented number would cost the
+    # most. Two figures, and the rule for each is in world_audience.py:
+    #
+    #   viewers_now   ours, live, always a real integer (possibly 0 or 1).
+    #   the rest      the last successful Vercel Web Analytics read, or NULL.
+    #
+    # NULL is not zero and is never rendered as one: with no
+    # VERCEL_ANALYTICS_TOKEN configured, every traffic field below comes back
+    # null and the UI omits the reach line entirely.
+
+    def _audience(cached: Optional[dict]) -> dict:
+        """Assemble the public contract from an already-fetched cache row."""
+        row = cached or {}
+        return {
+            # Live presence, counted from world_presence. Not cached, not
+            # smoothed, never rounded up — 1 means one person is looking.
+            "viewers_now": db.count_world_presence(world_audience.PRESENCE_WINDOW_SECONDS),
+            "window_seconds": world_audience.PRESENCE_WINDOW_SECONDS,
+            "beat_seconds": world_audience.BEAT_INTERVAL_SECONDS,
+            # Platform reach. All null until a real read has been cached.
+            "visitors_30d": row.get("visitors_30d"),
+            "pageviews_30d": row.get("pageviews_30d"),
+            "countries_count": row.get("countries_count"),
+            # True => countries_count is a floor, because the breakdown filled
+            # its page. The UI prints a "+" rather than claiming a total.
+            "countries_capped": bool(row.get("countries_capped")),
+            "top_countries": row.get("top_countries") or [],
+            "window_days": row.get("window_days"),
+            # End of the measured window, so the UI can say WHEN, not just what.
+            "updated_at": row.get("measured_at"),
+            "source": row.get("source"),
+        }
+
+    @router.get("/api/world/audience")
+    def world_audience_read(background: BackgroundTasks, response: Response):
+        """Platform reach + live viewers. Reads the cache; never fetches inline.
+
+        The only outbound request this endpoint can cause is a BACKGROUND one,
+        scheduled at most once per process per MIN_ATTEMPT_INTERVAL_SECONDS and
+        only when the cached row is older than REFRESH_AFTER_SECONDS. The
+        response is always the row we already had.
+        """
+        cached = db.get_world_audience()
+        if world_audience.should_refresh(cached):
+            background.add_task(world_audience.refresh, db)
+        # Short and shared: the payload is identical for every visitor, and 15s
+        # is under the client's own 20s beat, so a cached copy is never the
+        # reason a viewer count looks stuck.
+        response.headers["Cache-Control"] = "public, max-age=15"
+        return _audience(cached)
+
+    @router.post("/api/world/beat")
+    def world_presence_beat(req: BeatRequest):
+        """One anonymous heartbeat from a World surface, and the same payload
+        back — so the client gets a fresh count without a second request.
+
+        What this stores: an opaque client-generated id and a timestamp. What it
+        does NOT store: an IP, a user id, a cookie, a user agent, a referrer.
+        Every beat also prunes rows older than PRESENCE_PRUNE_SECONDS, so the
+        table cannot accumulate yesterday's visitors.
+        """
+        if not world_audience.valid_session_id(req.session_id):
+            raise HTTPException(
+                status_code=400,
+                detail="session_id must be 8-64 characters of A-Z, a-z, 0-9, '-' or '_'")
+        db.record_world_presence(req.session_id)
+        db.prune_world_presence(world_audience.PRESENCE_PRUNE_SECONDS)
+        return _audience(db.get_world_audience())
 
     @router.get("/api/world/promotions")
     def world_promotions(scope: str = "world"):

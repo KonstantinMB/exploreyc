@@ -1894,6 +1894,19 @@ async def _run_daily_scrape():
         except Exception as e:
             logger.error(f"World promotion expiry failed (non-fatal): {e}")
 
+        # Platform reach: refresh the cached Vercel Web Analytics read, so
+        # /api/world/audience serves a number measured today without any page
+        # load ever making an outbound request. No-ops when
+        # VERCEL_ANALYTICS_TOKEN is unset — in which case the endpoint keeps
+        # reporting null traffic and the UI keeps saying nothing.
+        try:
+            import world_audience
+            if world_audience.is_configured():
+                if world_audience.refresh(db) is None:
+                    logger.warning("World audience refresh returned nothing; cache left as-is")
+        except Exception as e:
+            logger.error(f"World audience refresh failed (non-fatal): {e}")
+
         logger.info(f"Daily scrape completed: {total_scraped} companies, {embeddings_generated} embeddings, {deleted} changes cleaned")
         return {"scraped": total_scraped, "embeddings_generated": embeddings_generated, "cleaned_up": deleted}
     except Exception as e:
@@ -3694,6 +3707,33 @@ async def cron_cleanup_api(request: Request):
     usage_deleted = db.cleanup_api_usage(datetime.now(timezone.utc) - timedelta(days=30))
     sessions_deleted = db.delete_expired_api_sessions()
     return {"usage_deleted": usage_deleted, "sessions_deleted": sessions_deleted}
+
+
+# ---- Cron: refresh the cached Vercel Web Analytics read ----
+@app.post("/api/cron/refresh-world-audience")
+async def cron_refresh_world_audience(request: Request):
+    """Pull the last 30 days of real traffic from Vercel into
+    world_audience_cache, so GET /api/world/audience never has to.
+
+    Also runs as part of /api/cron/daily-scrape; this exists so the figure can
+    be refreshed on its own schedule (or by hand after wiring the token up)
+    without kicking off a scrape.
+
+    Returns `{"configured": false}` and changes nothing when
+    VERCEL_ANALYTICS_TOKEN is unset — the numbers stay null rather than becoming
+    a placeholder. `{"refreshed": false}` means the fetch failed and the
+    previous, real, cached row was deliberately left in place.
+    """
+    _verify_cron_secret(request)
+    import world_audience
+    if not world_audience.is_configured():
+        return {"configured": False, "refreshed": False,
+                "detail": "VERCEL_ANALYTICS_TOKEN / VERCEL_PROJECT_ID not set"}
+    payload = world_audience.refresh(db)
+    if payload is None:
+        return {"configured": True, "refreshed": False,
+                "detail": "Vercel read failed; cached row left unchanged"}
+    return {"configured": True, "refreshed": True, **payload}
 
 
 # ---- Stripe billing: checkout/portal for plan subscriptions + webhook ----

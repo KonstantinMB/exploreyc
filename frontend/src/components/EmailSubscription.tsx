@@ -54,14 +54,14 @@ export function EmailSubscription() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
     >
-      <Card className="border-[#FB651E]/20 bg-gradient-to-br from-background to-[#FB651E]/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+      <Card className="border-[#FB651E]/20 bg-gradient-to-br from-background to-[#FB651E]/5 rounded-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 font-mono text-lg">
             <Mail className="h-5 w-5 text-[#FB651E]" />
             Daily YC Updates
           </CardTitle>
-          <CardDescription className="font-mono">
-            Get notified when new companies join YC or start hiring
+          <CardDescription className="font-mono text-xs">
+            One email a day when new companies join or start hiring.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -90,57 +90,52 @@ export function EmailSubscription() {
               </div>
             </motion.div>
           ) : (
-            <form onSubmit={handleSubscribe} className="space-y-4">
-              <div>
+            <form onSubmit={handleSubscribe} className="space-y-2">
+              {/* Field and button on one line: this is a single input, and a
+                  full-width stacked form made it look like a signup flow. */}
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   type="email"
                   placeholder="your@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="font-mono border-[#FB651E]/20 focus:border-[#FB651E]/50"
+                  className="font-mono border-[#FB651E]/20 focus:border-[#FB651E]/50 sm:flex-1"
                   disabled={status === 'loading'}
                 />
-                {status === 'error' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-2 mt-2 text-sm text-red-600 dark:text-red-400"
-                  >
-                    <AlertCircle className="h-4 w-4" />
-                    {message}
-                  </motion.div>
-                )}
+                <Button
+                  type="submit"
+                  disabled={status === 'loading'}
+                  className="bg-[#FB651E] hover:bg-[#E65C00] text-white font-mono sm:w-auto"
+                >
+                  {status === 'loading' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Subscribing…
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="h-4 w-4 mr-2" />
+                      Subscribe
+                    </>
+                  )}
+                </Button>
               </div>
 
-              <Button
-                type="submit"
-                disabled={status === 'loading'}
-                className="w-full bg-[#FB651E] hover:bg-[#E65C00] text-white"
-              >
-                {status === 'loading' ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Subscribing...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="h-4 w-4 mr-2" />
-                    Subscribe to Updates
-                  </>
-                )}
-              </Button>
+              {status === 'error' && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400"
+                >
+                  <AlertCircle className="h-4 w-4" />
+                  {message}
+                </motion.div>
+              )}
 
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>You'll receive daily emails about:</p>
-                <ul className="list-disc list-inside space-y-0.5 ml-2">
-                  <li>New companies added to Y Combinator</li>
-                  <li>Companies that started hiring</li>
-                  <li>Batch updates and changes</li>
-                </ul>
-                <p className="mt-2 text-xs opacity-70">
-                  We respect your privacy. Unsubscribe anytime with one click.
-                </p>
-              </div>
+              {/* The four bullet points, as one line. */}
+              <p className="font-mono text-[11px] text-muted-foreground">
+                New companies · new roles · batch changes. Unsubscribe in one click.
+              </p>
             </form>
           )}
         </CardContent>

@@ -412,6 +412,55 @@ export interface MineResponse {
   promotions: MyPromotion[]
 }
 
+// ---------------------------------------------------------------------------
+// Audience — the only numbers on this product that are about US
+// ---------------------------------------------------------------------------
+
+export interface AudienceCountry {
+  /** ISO-3166 alpha-2, as Vercel reported it. */
+  iso: string
+  visitors: number
+}
+
+/**
+ * GET /api/world/audience (and the identical body POST /api/world/beat returns).
+ *
+ * TWO FIGURES, TWO SOURCES, AND THE NULLS ARE THE CONTRACT:
+ *
+ *   `viewers_now` is ours — distinct anonymous sessions that beat inside
+ *   `window_seconds`. Always a real integer, including 0 and 1. It is never
+ *   rounded up, and the UI must not boast about 1 (see WatchingNow).
+ *
+ *   Everything else is the last cached read of Vercel Web Analytics for
+ *   exploreyc.com. `null` means the backend has no VERCEL_ANALYTICS_TOKEN, or
+ *   has never completed a read. **null is not zero and must never render as a
+ *   number** — the line it belongs to is omitted instead.
+ */
+export interface AudienceResponse {
+  /** Distinct sessions watching a World surface right now. */
+  viewers_now: number
+  /** How recently a session must have beaten to count. Seconds. */
+  window_seconds: number
+  /** How often the client is asked to beat. Seconds. */
+  beat_seconds: number
+
+  /** Unique visitors in the measured window. null = not measured. */
+  visitors_30d: number | null
+  pageviews_30d: number | null
+  /** Distinct countries with at least one visitor. null = not measured. */
+  countries_count: number | null
+  /** True => `countries_count` is a FLOOR; render it with a "+". */
+  countries_capped: boolean
+  /** Biggest first. Empty when nothing has been measured. */
+  top_countries: AudienceCountry[]
+  /** Length of the measured window in days (30). null = not measured. */
+  window_days: number | null
+  /** End of the measured window, ISO-8601 UTC. null = not measured. */
+  updated_at: string | null
+  /** Provenance, e.g. 'vercel_web_analytics'. null = not measured. */
+  source: string | null
+}
+
 // ============================================================================
 // Client
 // ============================================================================
@@ -454,6 +503,20 @@ export const worldApi = {
   /** Post-checkout landing poll — no auth, keyed by the Stripe session id. */
   getClaimed: (sessionId: string) =>
     api.get<ClaimedResponse>('/api/world/claimed', { params: { session_id: sessionId } }),
+
+  /** Platform reach + live viewers. Cached server-side; safe to poll. */
+  getAudience: () => api.get<AudienceResponse>('/api/world/audience'),
+
+  /**
+   * One anonymous presence heartbeat, which answers with the same body
+   * `getAudience` returns — so a surface that beats never needs a second
+   * request for the count.
+   *
+   * `sessionId` is generated in the browser and kept in sessionStorage. It is
+   * not a cookie, it is not an identity, and it dies with the tab.
+   */
+  beat: (sessionId: string) =>
+    api.post<AudienceResponse>('/api/world/beat', { session_id: sessionId }),
 
   // ---- Authed (dev session) ----
   createCheckout: (payload: WorldCheckoutRequest) =>

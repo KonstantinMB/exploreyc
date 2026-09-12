@@ -14,6 +14,7 @@ import type { CountryInfo } from './CountryBorders'
 import {
   clampLabelSpan,
   countryLabelBudgetAt,
+  labelRoomScale,
   unclaimedCountryBudgetAt,
 } from './labelLayout'
 import {
@@ -296,7 +297,15 @@ export function CountryLabels({
       // Continuous in camera distance, not stepped per tier — country names now
       // arrive one at a time as the camera descends instead of eight at once on
       // a tier boundary. See `countryLabelBudgetAt`.
-      const budget = Math.min(countryLabelBudgetAt(frame.distance), COUNTRY_POOL)
+      //
+      // …and continuous in the CANVAS, too. The distance ramp alone says the
+      // same six names fit a 480px homepage band and a 1,250px full-viewport
+      // stage, which is how a globe a thousand pixels across ended up with
+      // Greenland, Canada and Mexico on it and nothing else. `labelRoomScale`
+      // is the second half of the answer; the collision pass below is still
+      // what decides whether any given candidate actually lands.
+      const room = labelRoomScale(frame.height)
+      const budget = Math.min(countryLabelBudgetAt(frame.distance, room), COUNTRY_POOL)
       /*
        * The empty countries get their own, much tighter ceiling — but only once
        * somebody has actually bought something. With nothing claimed there are
@@ -304,7 +313,7 @@ export function CountryLabels({
        * the cap lifts to the whole budget. See `unclaimedCountryBudgetAt`.
        */
       const emptyBudget = data.claimed > 0
-        ? Math.min(unclaimedCountryBudgetAt(frame.distance), budget)
+        ? Math.min(unclaimedCountryBudgetAt(frame.distance, room), budget)
         : budget
       const { camX, camY, camZ, horizon, horizonTop, width, height } = frame
       const invBand = 1 / Math.max(horizonTop - horizon, 1e-4)

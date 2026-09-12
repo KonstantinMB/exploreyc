@@ -49,27 +49,30 @@ export function HomeFaq() {
         <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>
       </Helmet>
 
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-center justify-center gap-2 font-mono">
+      {/* Two columns from `lg`. Twelve questions stacked in one narrow column
+          was 700 px of accordion at the bottom of the page — the FAQ earns its
+          place in search, but it should not be the tallest thing here. */}
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-5 flex items-center justify-center gap-2 font-mono">
           <HelpCircle className="h-5 w-5 text-[#FB651E]" />
           <span className="text-muted-foreground">$</span>
           <h2 className="text-xl font-bold">FAQ — the API &amp; the data</h2>
         </div>
 
-        <div className="space-y-2">
+        <div className="grid auto-rows-min items-start gap-2 lg:grid-cols-2">
           {FAQS.map((f, i) => {
             const isOpen = open === i;
             const panelId = `${baseId}-faq-${i}`;
             return (
               <div
                 key={f.q}
-                className={`overflow-hidden rounded-lg border bg-card/40 transition-colors dark:bg-white/[0.02] ${
+                className={`overflow-hidden rounded-sm border bg-card/40 transition-colors dark:bg-white/[0.02] ${
                   isOpen ? 'border-[#FB651E]/40' : 'border-border/80 hover:border-[#FB651E]/25'
                 }`}
               >
                 <button
                   onClick={() => setOpen(isOpen ? null : i)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left font-mono text-sm font-semibold transition-colors hover:text-[#FB651E]"
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left font-mono text-sm font-semibold transition-colors hover:text-[#FB651E]"
                   aria-expanded={isOpen}
                   aria-controls={panelId}
                 >

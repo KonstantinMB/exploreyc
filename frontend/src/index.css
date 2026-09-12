@@ -30,6 +30,25 @@
     --input: 0 0% 89.8%;
     --ring: 24 100% 50%;  /* YC Orange */
     --radius: 0.5rem;
+
+    /*
+     * YC orange, as TEXT — and only as text.
+     *
+     * #FB651E on a white card measures 3.01:1. That is fine for a FILL (a
+     * button, a badge, a dot, a border: WCAG only asks 3:1 of non-text
+     * graphics) and it is below AA for a WORD. The leaderboards set their
+     * headline figure in the accent — "$420" is the loudest thing in a row —
+     * so on a light theme that figure was the least legible text on the board.
+     *
+     * Same hue, 24°, darkened to 38% lightness: #C75000, which is 4.79:1 on
+     * white and still unmistakably the YC orange (it is one step past the
+     * `#E65C00` the buttons already use on hover). In dark mode nothing
+     * changes — #FB651E is 6.58:1 on the card there and is the correct colour.
+     *
+     * ONE ACCENT, TWO INKS. This is not a second accent colour; it is the
+     * accent, spelled legibly on a white page. Fills must keep #FB651E.
+     */
+    --w-accent-ink: #C75000;
   }
 
   .dark {
@@ -52,6 +71,8 @@
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
     --ring: 24 100% 50%;
+    /* Dark ground: the accent needs no help, so this is the accent itself. */
+    --w-accent-ink: #FB651E;
   }
 }
 

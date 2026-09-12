@@ -384,7 +384,13 @@ export function WorldChip({ tone = 'neutral', className, children, ...rest }: Wo
 export function moneyClass(score: boolean | 'xl' = false, className?: string): string {
   return cn(
     'font-mono font-bold tabular-nums',
-    score && 'text-[#FB651E]',
+    // `--w-accent-ink`, not `#FB651E`: a leaderboard's figure is the loudest
+    // TEXT in the row, and flat #FB651E is 3.01:1 on a white card — under AA.
+    // The token is the same hue darkened for the light theme only, and it is
+    // the literal accent again in dark. See src/index.css. Fills stay #FB651E
+    // everywhere; this is the one place the accent is a word rather than a
+    // shape.
+    score && 'text-[color:var(--w-accent-ink)]',
     score === true && 'text-sm sm:text-base',
     score === 'xl' && 'block text-4xl font-black tracking-tight sm:text-5xl',
     className
@@ -473,7 +479,15 @@ export function Rank({ n, joint = false, medal = true, className, ...rest }: Ran
         ? 'bg-zinc-400/15 text-zinc-500 border-zinc-400/40 dark:text-zinc-300'
         : medal && n === 3
           ? 'bg-orange-700/15 text-orange-600 border-orange-700/40 dark:text-orange-400'
-          : 'bg-muted text-muted-foreground border-border'
+          // `text-foreground/60`, not `text-muted-foreground`. The badge's own
+          // docstring promises "the DIGIT, at full contrast on its own tint",
+          // and it was 35 hundredths short of keeping that promise: shadcn's
+          // `--muted-foreground` (0 0% 45.1%) on `--muted` (0 0% 96.1%) is
+          // 4.35:1 in the light theme, under AA for text this size. Sixty per
+          // cent of the foreground measures 5.05:1 light and 6.14:1 dark, and
+          // is still visibly quieter than the three medal tints above it —
+          // which is the whole job of this tone.
+          : 'bg-muted text-foreground/60 border-border'
   return (
     <span
       className={cn(
