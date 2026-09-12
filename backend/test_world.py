@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import world
+import world_audience
 from billing import handle_stripe_event
 from database import Database
 from world import fulfill_world_checkout, screen, status_for_listing
@@ -51,6 +52,15 @@ def db(tmp_path):
              (2, "San Francisco", "US", 37.7749, -122.4194, 873965)],
         )
     return d
+
+
+@pytest.fixture(autouse=True)
+def _audience_throttle_is_per_test():
+    """world_audience keeps a PROCESS-level refresh throttle, which would leak
+    between tests and make the second one that touches it silently a no-op."""
+    world_audience.reset_throttle()
+    yield
+    world_audience.reset_throttle()
 
 
 def _user(db, email="founder@example.com", plan="free"):
@@ -796,3 +806,177 @@ def test_delete_guard_never_touches_a_paid_plot(db):
     db.insert_world_payment(plot_id, uid, "cs_paid_guard", 500)
     assert db.delete_world_plot_if_unreferenced(plot_id) is False
     assert db.get_world_plot(plot_id) is not None
+
+
+# ---- audience: real reach + live presence ----------------------------------
+#
+# The product's honesty rule, as executable assertions: a figure we did not
+# measure is null (never 0, never a placeholder), the cached figure is served
+# from the database rather than refetched per request, and "watching now" counts
+# distinct live sessions and drops them when they stop beating.
+
+def _reach(visitors=2329, pageviews=7650, countries=95, capped=False,
+           measured_at="2026-09-12T09:00:00Z"):
+    """The shape world_audience.fetch_reach() returns on a successful read."""
+    return {
+        "visitors_30d": visitors, "pageviews_30d": pageviews,
+        "countries_count": countries, "countries_capped": capped,
+        "top_countries": [{"iso": "US", "visitors": 643},
+                          {"iso": "IN", "visitors": 412}],
+        "window_days": 30, "measured_at": measured_at,
+        "source": "vercel_web_analytics",
+    }
+
+
+def _configure_vercel(monkeypatch, fetch):
+    """Pretend a token is present and route fetch_reach at `fetch`."""
+    monkeypatch.setattr(world_audience, "VERCEL_ANALYTICS_TOKEN", "tok_test")
+    monkeypatch.setattr(world_audience, "VERCEL_PROJECT_ID", "prj_test")
+    monkeypatch.setattr(world_audience, "VERCEL_TEAM_ID", "team_test")
+    monkeypatch.setattr(world_audience, "fetch_reach", fetch)
+
+
+def _age_presence(db, session_id, seconds):
+    with db.get_connection() as conn:
+        conn.execute(
+            "UPDATE world_presence SET last_seen = datetime('now', ?) WHERE session_id = ?",
+            (f"-{seconds} seconds", session_id))
+
+
+def test_audience_without_a_token_reports_null_traffic_not_zero(db, monkeypatch):
+    """The load-bearing case. No VERCEL_ANALYTICS_TOKEN => every traffic figure
+    is null, so the UI omits the line instead of printing a made-up number."""
+    monkeypatch.setattr(world_audience, "VERCEL_ANALYTICS_TOKEN", None)
+    monkeypatch.setattr(world_audience, "fetch_reach",
+                        lambda: pytest.fail("fetched Vercel with no token configured"))
+
+    body = _client(db).get("/api/world/audience").json()
+
+    for field in ("visitors_30d", "pageviews_30d", "countries_count",
+                  "window_days", "updated_at", "source"):
+        assert body[field] is None, f"{field} must be null, not {body[field]!r}"
+    assert body["top_countries"] == []
+    assert body["countries_capped"] is False
+    # Presence is ours, so it still answers — truthfully, with nobody watching.
+    assert body["viewers_now"] == 0
+    assert body["window_seconds"] == world_audience.PRESENCE_WINDOW_SECONDS
+
+
+def test_audience_serves_the_cache_instead_of_refetching(db, monkeypatch):
+    """One fetch fills the cache; every later read is served from the database.
+    A Vercel round trip per page load is exactly what this must never become."""
+    calls = []
+
+    def fetch():
+        calls.append(1)
+        return _reach()
+
+    _configure_vercel(monkeypatch, fetch)
+    client = _client(db)
+
+    first = client.get("/api/world/audience").json()
+    # Cold cache: the first read schedules a BACKGROUND refresh and returns the
+    # (empty) row it had. Nothing is fabricated to fill the gap.
+    assert first["visitors_30d"] is None
+    assert len(calls) == 1
+
+    for _ in range(5):
+        body = client.get("/api/world/audience").json()
+    assert len(calls) == 1, "cached row was refetched"
+    assert body["visitors_30d"] == 2329
+    assert body["pageviews_30d"] == 7650
+    assert body["countries_count"] == 95
+    assert body["window_days"] == 30
+    assert body["updated_at"] == "2026-09-12T09:00:00Z"
+    assert body["source"] == "vercel_web_analytics"
+    assert body["top_countries"][0] == {"iso": "US", "visitors": 643}
+
+
+def test_a_failed_vercel_read_keeps_the_last_real_number(db, monkeypatch):
+    """A rate limit must not blank the number that sells the product."""
+    _configure_vercel(monkeypatch, lambda: _reach())
+    client = _client(db)
+    client.get("/api/world/audience")                     # primes the cache
+    assert client.get("/api/world/audience").json()["visitors_30d"] == 2329
+
+    world_audience.reset_throttle()
+    monkeypatch.setattr(world_audience, "fetch_reach", lambda: None)
+    monkeypatch.setattr(world_audience, "REFRESH_AFTER_SECONDS", 0)  # force a retry
+
+    body = client.get("/api/world/audience").json()
+    assert body["visitors_30d"] == 2329
+    assert body["updated_at"] == "2026-09-12T09:00:00Z"
+
+
+def test_viewers_now_counts_distinct_sessions_inside_the_window(db):
+    client = _client(db)
+    for session in ("aaaaaaaa1111", "bbbbbbbb2222", "aaaaaaaa1111"):
+        body = client.post("/api/world/beat", json={"session_id": session}).json()
+    assert body["viewers_now"] == 2                       # three beats, two people
+    assert client.get("/api/world/audience").json()["viewers_now"] == 2
+
+
+def test_viewers_now_drops_a_session_that_stopped_beating(db):
+    client = _client(db)
+    client.post("/api/world/beat", json={"session_id": "staleaaaa111"})
+    client.post("/api/world/beat", json={"session_id": "livebbbbb222"})
+    _age_presence(db, "staleaaaa111", world_audience.PRESENCE_WINDOW_SECONDS + 30)
+
+    assert client.get("/api/world/audience").json()["viewers_now"] == 1
+
+    # ...and the garbage row is deleted rather than kept forever.
+    _age_presence(db, "staleaaaa111", world_audience.PRESENCE_PRUNE_SECONDS + 60)
+    client.post("/api/world/beat", json={"session_id": "livebbbbb222"})
+    with db.get_connection() as conn:
+        remaining = [r[0] for r in conn.execute("SELECT session_id FROM world_presence")]
+    assert remaining == ["livebbbbb222"]
+
+
+def test_beat_refuses_anything_that_is_not_an_opaque_session_id(db):
+    """The one field a heartbeat carries is bounded, so it cannot be used to
+    smuggle in something that looks like personal data."""
+    client = _client(db)
+    for bad in ("", "short", "founder@example.com", "a" * 65, "has spaces12",
+                "<script>xx</script>"):
+        assert client.post("/api/world/beat", json={"session_id": bad}).status_code in (400, 422), bad
+    assert client.post("/api/world/beat",
+                       json={"session_id": "ok-Session_1234"}).status_code == 200
+    with db.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_presence").fetchone()[0] == 1
+
+
+def test_fetch_reach_never_invents_a_figure(db, monkeypatch):
+    """Unit-level guard on the parser: a malformed Vercel payload yields None
+    (i.e. 'we do not know'), never a zero and never a partial row."""
+    monkeypatch.setattr(world_audience, "VERCEL_ANALYTICS_TOKEN", "tok_test")
+    monkeypatch.setattr(world_audience, "VERCEL_PROJECT_ID", "prj_test")
+
+    monkeypatch.setattr(world_audience, "_get", lambda path, params: {"data": {}})
+    assert world_audience.fetch_reach() is None
+
+    def _boom(path, params):
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(world_audience, "_get", _boom)
+    assert world_audience.fetch_reach() is None
+    assert db.get_world_audience() is None     # nothing was written
+
+
+def test_country_breakdown_drops_non_countries_and_flags_a_capped_count(monkeypatch):
+    """'Others' is a bucket, '' is an unresolved lookup — neither is a country."""
+    monkeypatch.setattr(world_audience, "VERCEL_ANALYTICS_TOKEN", "tok_test")
+    monkeypatch.setattr(world_audience, "VERCEL_PROJECT_ID", "prj_test")
+    monkeypatch.setattr(world_audience, "COUNTRY_LIMIT", 3)
+
+    def _get(path, params):
+        if path.endswith("/count"):
+            return {"data": {"visitors": 10, "pageviews": 40}}
+        return {"data": [{"country": "US", "visitors": 6},
+                         {"country": "", "visitors": 1},
+                         {"country": "Others", "visitors": 3}]}
+
+    monkeypatch.setattr(world_audience, "_get", _get)
+    payload = world_audience.fetch_reach()
+    assert payload["countries_count"] == 1
+    assert payload["top_countries"] == [{"iso": "US", "visitors": 6}]
+    assert payload["countries_capped"] is True   # 3 rows back on a 3-row page

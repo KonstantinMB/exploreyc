@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FC,
@@ -13,6 +14,7 @@ import { Canvas } from '@react-three/fiber'
 import type { GlobePin } from '../../../lib/worldApi'
 import { WorldCard } from '../ui'
 import { paletteFor, stakeBand } from './geo'
+import { CAMERA_MAX_DISTANCE, CAMERA_MIN_DISTANCE } from './labelLayout'
 import { logoLetter, safeImageUrl } from './logos'
 import { GlobeScene, type WorldGlobeFocus } from './GlobeScene'
 
@@ -87,6 +89,28 @@ export interface WorldGlobeProps {
    * hostile, so `useHubTour().stop` belongs here.
    */
   onInteract?: () => void
+  /**
+   * Where the camera starts, in globe radii from the centre. Default 3.45.
+   *
+   * THIS IS THE ZOOM CONTROL, and it is the only one that decides how big the
+   * planet looks. The sphere's diameter in pixels is
+   * `canvasHeight · tan(asin(1/d)) / tan(fov/2)`, which at the default 3.45 and
+   * fov 38 comes to 0.88 of the canvas height — a sphere with a twelfth of the
+   * stage left empty above and below it. Nothing about the container can
+   * recover that: a wider box only adds margin, because a perspective camera
+   * sizes what it sees by the VERTICAL field of view.
+   *
+   * So a surface that has decided to give the globe the whole screen has to say
+   * so here as well. 3.15 puts the sphere at ~0.97 of the canvas height (framed,
+   * poles just inside the edges); 3.05 at ~1.01 (edge to edge, the polar caps
+   * grazed). Below ~2.9 continents start leaving the frame, which defeats a
+   * visitor looking for their own country. It is clamped into the OrbitControls
+   * range either way, and the visitor can still zoom wherever they like.
+   *
+   * The direction is untouched: the vector is scaled, never re-aimed, so the
+   * first frame still looks at 34°N 96°W.
+   */
+  initialDistance?: number
 }
 
 let webglProbe: boolean | null = null
@@ -346,10 +370,31 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
   logoMarkers = true,
   density = false,
   onInteract,
+  initialDistance,
 }) => {
   const [lowPower, setLowPower] = useState(detectLowPower)
   const handleDecline = useCallback(() => setLowPower(true), [])
   const palette = paletteFor(darkMode)
+
+  /**
+   * The first frame's camera, scaled along the aim rather than re-aimed.
+   *
+   * Read ONCE, when react-three-fiber creates the Canvas — changing it later
+   * does nothing, which is why this is a mount-time constant per surface and
+   * not a live zoom. Clamped into the same range OrbitControls will enforce a
+   * moment later, so a bad number can never put the camera inside the planet.
+   */
+  const cameraPosition = useMemo<[number, number, number]>(() => {
+    const base: [number, number, number] = [-0.299, 1.9292, 2.8445]
+    if (initialDistance == null || !Number.isFinite(initialDistance)) return base
+    const length = Math.hypot(base[0], base[1], base[2])
+    const wanted = Math.min(
+      CAMERA_MAX_DISTANCE,
+      Math.max(CAMERA_MIN_DISTANCE, initialDistance),
+    )
+    const k = wanted / length
+    return [base[0] * k, base[1] * k, base[2] * k]
+  }, [initialDistance])
 
   /**
    * The pin under the cursor.
@@ -538,7 +583,7 @@ const WorldGlobe: FC<WorldGlobeProps> = ({
            * Toronto 16°, Mexico City 15°, with London on the limb at 67°. Every
            * one of those is a real hub in the data, not a guess.
            */
-          camera={{ position: [-0.299, 1.9292, 2.8445], fov: 38, near: 0.1, far: 24 }}
+          camera={{ position: cameraPosition, fov: 38, near: 0.1, far: 24 }}
           gl={{
             antialias: !lowPower,
             // Transparent, and cleared to nothing: the page shows through, so

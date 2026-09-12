@@ -479,6 +479,34 @@ class Database:
                     FOREIGN KEY (country_iso) REFERENCES world_countries(iso2)
                 )
             ''')
+            # ONE ROW, and the CHECK is what keeps it that way: the last
+            # successful read of the Vercel Web Analytics API. Nulls are
+            # meaningful here — they mean "never measured", which is what the
+            # public endpoint reports when no VERCEL_ANALYTICS_TOKEN is set.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS world_audience_cache (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    visitors_30d INTEGER,
+                    pageviews_30d INTEGER,
+                    countries_count INTEGER,
+                    countries_capped INTEGER NOT NULL DEFAULT 0,
+                    top_countries TEXT NOT NULL DEFAULT '[]',
+                    window_days INTEGER,
+                    source TEXT,
+                    measured_at TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # Live presence. Two columns and nothing else on purpose: an
+            # anonymous client-generated id, and when it last beat. No IP, no
+            # user id, no cookie. Rows are pruned aggressively (world.py beats
+            # call prune_world_presence), so this table is always tiny.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS world_presence (
+                    session_id TEXT PRIMARY KEY,
+                    last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
 
             # Bring existing databases up to the multi-source schema before indexing
             self._migrate_schema(cursor)
@@ -526,6 +554,8 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_promotions_country ON world_promotions(country_iso)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_promotions_plot ON world_promotions(plot_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_promotions_user ON world_promotions(user_id)')
+            # Both reads on this table are "inside the last N seconds".
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_presence_last_seen ON world_presence(last_seen)')
 
     def _migrate_schema(self, cursor):
         """Bring an existing SQLite DB up to the multi-source schema.
@@ -3041,3 +3071,86 @@ class Database:
                    WHERE pr.user_id = ?
                    ORDER BY pr.created_at DESC, pr.id DESC''', (user_id,)).fetchall()
             return [dict(r) for r in rows]
+
+    # ---- audience: platform reach (cached) + live presence -----------------
+    # See world_audience.py for the policy these five methods serve. The short
+    # version: reach is fetched on a schedule and only ever READ from here, and
+    # presence is two columns of anonymous, short-lived rows.
+
+    def save_world_audience(self, payload: Dict[str, Any]) -> None:
+        """Replace the single cached reach row. Only ever called with a payload
+        that came back from a SUCCESSFUL Vercel read — a failed fetch leaves the
+        previous row alone, because a real old number beats no number."""
+        with self.get_connection() as conn:
+            conn.execute(
+                '''INSERT INTO world_audience_cache
+                   (id, visitors_30d, pageviews_30d, countries_count,
+                    countries_capped, top_countries, window_days, source,
+                    measured_at, updated_at)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(id) DO UPDATE SET
+                       visitors_30d = excluded.visitors_30d,
+                       pageviews_30d = excluded.pageviews_30d,
+                       countries_count = excluded.countries_count,
+                       countries_capped = excluded.countries_capped,
+                       top_countries = excluded.top_countries,
+                       window_days = excluded.window_days,
+                       source = excluded.source,
+                       measured_at = excluded.measured_at,
+                       updated_at = CURRENT_TIMESTAMP''',
+                (payload.get("visitors_30d"), payload.get("pageviews_30d"),
+                 payload.get("countries_count"),
+                 1 if payload.get("countries_capped") else 0,
+                 json.dumps(payload.get("top_countries") or []),
+                 payload.get("window_days"), payload.get("source"),
+                 payload.get("measured_at")),
+            )
+
+    def get_world_audience(self) -> Optional[Dict]:
+        """The cached reach row, or None when nothing has ever been measured.
+
+        None is not zero. The endpoint turns it into null traffic fields and the
+        UI omits the line entirely.
+        """
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM world_audience_cache WHERE id = 1").fetchone()
+            if not row:
+                return None
+            out = dict(row)
+            out["countries_capped"] = bool(out.get("countries_capped"))
+            try:
+                out["top_countries"] = json.loads(out.get("top_countries") or "[]")
+            except (TypeError, ValueError):
+                out["top_countries"] = []
+            return out
+
+    def record_world_presence(self, session_id: str) -> None:
+        """One heartbeat. Upsert on the id, so a returning session moves its own
+        row rather than adding one — which is what makes the count DISTINCT
+        sessions rather than distinct requests."""
+        with self.get_connection() as conn:
+            conn.execute(
+                '''INSERT INTO world_presence (session_id, last_seen)
+                   VALUES (?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(session_id) DO UPDATE SET last_seen = CURRENT_TIMESTAMP''',
+                (session_id,),
+            )
+
+    def count_world_presence(self, window_seconds: int = 60) -> int:
+        """Distinct sessions that beat inside the window. Stale rows are excluded
+        by the WHERE clause whether or not they have been pruned yet, so the
+        figure never depends on when the last prune ran."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM world_presence WHERE last_seen > datetime('now', ?)",
+                (f"-{int(window_seconds)} seconds",)).fetchone()
+            return row[0]
+
+    def prune_world_presence(self, older_than_seconds: int = 300) -> int:
+        """Delete heartbeats older than the cutoff. Returns rows removed."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM world_presence WHERE last_seen <= datetime('now', ?)",
+                (f"-{int(older_than_seconds)} seconds",))
+            return cursor.rowcount

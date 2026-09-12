@@ -254,10 +254,11 @@ export function rampToward(
  * a count — which is what makes the labels arrive ONE at a time, each with its
  * own 150 ms fade, all the way down the envelope.
  */
-export function countryLabelBudgetAt(distance: number): number {
-  if (!Number.isFinite(distance)) return 6
-  // far end (>= 3.15) → 6; mid (2.3) → 14; near and below → 24.
-  if (distance >= LOD_TIER_MIN.far) return 6
+export function countryLabelBudgetAt(distance: number, room = 1): number {
+  if (!Number.isFinite(distance)) return Math.round(8 * room)
+  // far end (>= 3.15) → 8; mid (2.3) → 16; near and below → 24, each then
+  // multiplied by how much canvas the globe actually got (see labelRoomScale).
+  if (distance >= LOD_TIER_MIN.far) return Math.round(8 * room)
   // `smoothstep` requires ascending edges and returns 0/1 flat when handed
   // descending ones — so the ramps are written low-to-high and inverted, the
   // same way `urbanFade` and `plotLabelFade` above do it. Written the other way
@@ -265,12 +266,47 @@ export function countryLabelBudgetAt(distance: number): number {
   // replaced, which is exactly what it did until a harness measured it.
   if (distance >= LOD_TIER_MIN.mid) {
     return Math.round(
-      6 + 8 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance)),
+      (8 + 8 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance))) * room,
     )
   }
   return Math.round(
-    14 + 10 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance)),
+    (16 + 8 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance))) * room,
   )
+}
+
+/**
+ * The canvas height these anchors were tuned against, in CSS pixels.
+ *
+ * The 6/14/24 the ramp above used to carry were measured on a ~560px stage —
+ * /world's globe band was 672px tall with the copy column beside it, the
+ * homepage's was 480. Both surfaces have since been rebuilt around the globe
+ * rather than around the copy, so the same camera distance now looks at a
+ * 700px sphere on a laptop and a 1200px one on a 1440p monitor. A count that
+ * ignores that gives a 1200px planet six names on it.
+ */
+const LABEL_REFERENCE_HEIGHT = 560
+
+/**
+ * How much room the globe has for names, relative to the stage the LOD anchors
+ * were measured on.
+ *
+ * Label capacity is a function of screen AREA, not of camera distance alone,
+ * and this is the missing half of that. It is deliberately a mild, clamped
+ * ramp rather than a straight ratio:
+ *
+ *   - the floor (0.85) keeps a short landscape phone from dropping to two or
+ *     three names, which reads as a globe that failed to label itself;
+ *   - the ceiling (2.2) stops a very tall stage from asking for more pills than
+ *     the pool has (COUNTRY_POOL is 26) or than a sphere can carry without the
+ *     names colliding into a wall of text.
+ *
+ * Nothing here can put a label somewhere it does not fit: the layout still
+ * collision-tests every candidate against the boxes already placed, so a
+ * generous budget only ever means "try more", never "overlap more".
+ */
+export function labelRoomScale(heightPx: number): number {
+  if (!Number.isFinite(heightPx) || heightPx <= 0) return 1
+  return Math.min(2.2, Math.max(0.85, heightPx / LABEL_REFERENCE_HEIGHT))
 }
 
 /**
@@ -327,17 +363,19 @@ export function cityLabelBudgetAt(distance: number): number {
  * globe with nothing sold has no advertisers to protect and falls back to the
  * full budget, so a cold-start planet still names the places on it.
  */
-export function unclaimedCountryBudgetAt(distance: number): number {
-  if (!Number.isFinite(distance)) return 2
-  // far end (>= 3.15) → 2; mid (2.3) → 6; near and below → 14.
-  if (distance >= LOD_TIER_MIN.far) return 2
+export function unclaimedCountryBudgetAt(distance: number, room = 1): number {
+  if (!Number.isFinite(distance)) return Math.round(2 * room)
+  // far end (>= 3.15) → 2; mid (2.3) → 6; near and below → 14 — scaled by the
+  // same room factor as the budget it sits under, so a bigger stage widens the
+  // whole ladder rather than only its claimed half.
+  if (distance >= LOD_TIER_MIN.far) return Math.round(2 * room)
   if (distance >= LOD_TIER_MIN.mid) {
     return Math.round(
-      2 + 4 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance)),
+      (2 + 4 * (1 - smoothstep(LOD_TIER_MIN.mid, LOD_TIER_MIN.far, distance))) * room,
     )
   }
   return Math.round(
-    6 + 8 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance)),
+    (6 + 8 * (1 - smoothstep(LOD_TIER_MIN.near, LOD_TIER_MIN.mid, distance))) * room,
   )
 }
 

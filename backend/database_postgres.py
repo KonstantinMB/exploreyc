@@ -3577,3 +3577,97 @@ class DatabasePostgres:
                        WHERE pr.user_id = %s
                        ORDER BY pr.created_at DESC, pr.id DESC""", (user_id,))
                 return [dict(r) for r in cur.fetchall()]
+
+    # ---- audience: platform reach (cached) + live presence -----------------
+    # See world_audience.py for the policy these five methods serve. The short
+    # version: reach is fetched on a schedule and only ever READ from here, and
+    # presence is two columns of anonymous, short-lived rows.
+    # Schema: supabase/migrations/20260912090000_world_audience.sql
+
+    def save_world_audience(self, payload: Dict[str, Any]) -> None:
+        """Replace the single cached reach row. Only ever called with a payload
+        that came back from a SUCCESSFUL Vercel read — a failed fetch leaves the
+        previous row alone, because a real old number beats no number."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO world_audience_cache
+                       (id, visitors_30d, pageviews_30d, countries_count,
+                        countries_capped, top_countries, window_days, source,
+                        measured_at, updated_at)
+                       VALUES (1, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, NOW())
+                       ON CONFLICT (id) DO UPDATE SET
+                           visitors_30d = EXCLUDED.visitors_30d,
+                           pageviews_30d = EXCLUDED.pageviews_30d,
+                           countries_count = EXCLUDED.countries_count,
+                           countries_capped = EXCLUDED.countries_capped,
+                           top_countries = EXCLUDED.top_countries,
+                           window_days = EXCLUDED.window_days,
+                           source = EXCLUDED.source,
+                           measured_at = EXCLUDED.measured_at,
+                           updated_at = NOW()""",
+                    (payload.get("visitors_30d"), payload.get("pageviews_30d"),
+                     payload.get("countries_count"),
+                     bool(payload.get("countries_capped")),
+                     json.dumps(payload.get("top_countries") or []),
+                     payload.get("window_days"), payload.get("source"),
+                     payload.get("measured_at")))
+
+    def get_world_audience(self) -> Optional[Dict]:
+        """The cached reach row, or None when nothing has ever been measured.
+
+        None is not zero. The endpoint turns it into null traffic fields and the
+        UI omits the line entirely.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM world_audience_cache WHERE id = 1")
+                row = cur.fetchone()
+                if not row:
+                    return None
+                out = dict(row)
+                out["countries_capped"] = bool(out.get("countries_capped"))
+                # jsonb comes back already decoded; the guard is for a column
+                # that predates the cast, never for inventing a value.
+                value = out.get("top_countries")
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except (TypeError, ValueError):
+                        value = []
+                out["top_countries"] = value if isinstance(value, list) else []
+                return out
+
+    def record_world_presence(self, session_id: str) -> None:
+        """One heartbeat. Upsert on the id, so a returning session moves its own
+        row rather than adding one — which is what makes the count DISTINCT
+        sessions rather than distinct requests."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO world_presence (session_id, last_seen)
+                       VALUES (%s, NOW())
+                       ON CONFLICT (session_id) DO UPDATE SET last_seen = NOW()""",
+                    (session_id,))
+
+    def count_world_presence(self, window_seconds: int = 60) -> int:
+        """Distinct sessions that beat inside the window. Stale rows are excluded
+        by the WHERE clause whether or not they have been pruned yet, so the
+        figure never depends on when the last prune ran."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT COUNT(*) FROM world_presence
+                       WHERE last_seen > NOW() - make_interval(secs => %s)""",
+                    (int(window_seconds),))
+                return cur.fetchone()[0]
+
+    def prune_world_presence(self, older_than_seconds: int = 300) -> int:
+        """Delete heartbeats older than the cutoff. Returns rows removed."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """DELETE FROM world_presence
+                       WHERE last_seen <= NOW() - make_interval(secs => %s)""",
+                    (int(older_than_seconds),))
+                return cur.rowcount
