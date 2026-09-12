@@ -195,32 +195,13 @@ export function ApiShowcase() {
     }
   };
 
+  // Three steps, three code lines. The prose that used to sit under each title
+  // said the same thing the code line already says, one register louder.
   const steps = useMemo(
     () => [
-      {
-        n: '01',
-        title: 'Grab a key',
-        body: 'Create a free developer account and generate an API key from the dashboard.',
-        code: 'eyc_live_••••••••',
-        to: '/signup',
-        cta: 'Get a key',
-      },
-      {
-        n: '02',
-        title: 'Send a request',
-        body: 'Pass your key as a bearer token. Filter by batch, industry, country, hiring & more.',
-        code: 'Authorization: Bearer eyc_live_…',
-        to: '/api-docs',
-        cta: 'See params',
-      },
-      {
-        n: '03',
-        title: 'Get YC data',
-        body: 'Clean JSON across YC + a16z — companies, search, stats, maps, batch wrapped.',
-        code: '200 OK · application/json',
-        to: '/database',
-        cta: 'Browse data',
-      },
+      { n: '01', title: 'Grab a key', code: 'eyc_live_••••••••', to: '/signup' },
+      { n: '02', title: 'Send it', code: 'Authorization: Bearer …', to: '/api-docs' },
+      { n: '03', title: 'Get JSON', code: '200 OK · application/json', to: '/database' },
     ],
     []
   );
@@ -237,10 +218,6 @@ export function ApiShowcase() {
           <h2 className="text-2xl md:text-3xl font-bold font-mono">
             <span className="text-[#FB651E]">&gt;</span> YC data, one request away
           </h2>
-          <p className="text-muted-foreground font-mono text-sm mt-2 max-w-xl">
-            A public REST API over every company we track — YC &amp; a16z. Authenticate, query,
-            and get structured JSON back. No scraping.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2 flex-shrink-0">
           <Link
@@ -292,7 +269,7 @@ export function ApiShowcase() {
           </div>
 
           {/* terminal body */}
-          <div className="flex-1 p-4 font-mono text-[12px] sm:text-[13px] leading-relaxed min-h-[340px]">
+          <div className="flex-1 p-4 font-mono text-[12px] sm:text-[13px] leading-relaxed min-h-[292px]">
             {/* request */}
             <div className="text-white/85 whitespace-pre-wrap break-all">
               <span className="text-[#FB651E]">$ </span>
@@ -353,31 +330,25 @@ export function ApiShowcase() {
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true, margin: '-40px' }}
               transition={{ duration: 0.45, delay: 0.1 + i * 0.08 }}
-              className="group relative flex-1 rounded-lg border border-border/80 bg-card/50 dark:border-white/5 dark:bg-white/[0.02] p-4 hover:border-[#FB651E]/40 transition-colors"
+              className="group relative flex-1 rounded-sm border border-border/80 bg-card/50 dark:border-white/5 dark:bg-white/[0.02] p-4 hover:border-[#FB651E]/40 transition-colors"
             >
-              <div className="flex items-start gap-3">
+              <Link to={s.to} className="flex h-full items-center gap-3">
                 <span className="font-mono text-lg font-bold text-[#FB651E]/40 group-hover:text-[#FB651E] transition-colors tabular-nums">
                   {s.n}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-mono font-bold text-sm mb-1">{s.title}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed mb-2">{s.body}</p>
-                  <code className="block text-[11px] font-mono text-[#FB651E]/90 bg-[#FB651E]/[0.06] border border-[#FB651E]/15 rounded-sm px-2 py-1 mb-2 truncate">
+                  <h3 className="font-mono font-bold text-sm">{s.title}</h3>
+                  <code className="mt-1 block truncate rounded-sm border border-[#FB651E]/15 bg-[#FB651E]/[0.06] px-2 py-1 font-mono text-[11px] text-[#FB651E]/90">
                     {s.code}
                   </code>
-                  <Link
-                    to={s.to}
-                    className="inline-flex items-center gap-1 text-xs font-mono text-[#FB651E] hover:underline"
-                  >
-                    {s.cta} <ArrowRight className="h-3 w-3" />
-                  </Link>
                 </div>
-              </div>
+                <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-[#FB651E]" />
+              </Link>
             </motion.div>
           ))}
-          <div className="rounded-lg border border-[#FB651E]/20 bg-[#FB651E]/[0.04] p-3 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+          <div className="rounded-sm border border-[#FB651E]/20 bg-[#FB651E]/[0.04] p-3 flex items-center gap-2 font-mono text-xs text-muted-foreground">
             <Zap className="h-3.5 w-3.5 text-[#FB651E] flex-shrink-0" />
-            Free tier available · rate-limited · no credit card
+            Free tier · rate-limited · no credit card
           </div>
         </div>
       </div>

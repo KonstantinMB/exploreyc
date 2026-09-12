@@ -5,75 +5,32 @@ import {
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 
+/**
+ * Six doors, six words each.
+ *
+ * TWO THINGS CHANGED HERE and both were the owner's call. The cards used to
+ * carry a sentence of prose apiece — six paragraphs describing surfaces whose
+ * own titles already describe them — so the descriptions are now a three-word
+ * label, and the card is a row rather than a panel. And each card used to pick
+ * its own hue (sky, blue, emerald, violet, amber) which made this the one
+ * section on the site running a five-colour palette; everything is YC orange
+ * now, the platform's single accent.
+ */
 interface Capability {
-  cmd: string;
   title: string;
-  desc: string;
+  note: string;
   to: string;
   icon: React.ComponentType<{ className?: string }>;
-  accent: string; // text/border accent
-  glow: string; // hover shadow
 }
 
 const CAPABILITIES: Capability[] = [
-  {
-    cmd: '$ db --companies',
-    title: 'Companies Database',
-    desc: 'Every YC & a16z company in one sortable, filterable table — batch, industry, funding, team.',
-    to: '/database',
-    icon: Database,
-    accent: 'text-[#FB651E] group-hover:border-[#FB651E]/50',
-    glow: 'group-hover:shadow-[0_0_24px_rgba(251,101,30,0.15)]',
-  },
-  {
-    // The 2D map is gone — it merged into the 3D globe at /world — so the copy
-    // no longer promises it. What replaced it is worth more anyway: a startup
-    // can own a named plot on this globe, which is the only card here selling
-    // something rather than showing something.
-    cmd: '$ world --globe',
-    title: 'ExploreYC World',
-    desc: 'Every startup on one 3D globe — density hotspots, batch timeline, hub tours. Claim a permanent plot for yours from $5.',
-    to: '/world',
-    icon: Earth,
-    accent: 'text-sky-400 group-hover:border-sky-400/50',
-    glow: 'group-hover:shadow-[0_0_24px_rgba(56,189,248,0.15)]',
-  },
-  {
-    cmd: '$ analytics',
-    title: 'Analytics & Charts',
-    desc: 'Batches, industries, geography and hiring trends — the shape of Y Combinator over time.',
-    to: '/analytics',
-    icon: BarChart3,
-    accent: 'text-blue-400 group-hover:border-blue-400/50',
-    glow: 'group-hover:shadow-[0_0_24px_rgba(96,165,250,0.15)]',
-  },
-  {
-    cmd: '$ jobs --hiring',
-    title: 'Hiring Board',
-    desc: 'Open roles across every company that is actively hiring, refreshed daily.',
-    to: '/hiring',
-    icon: Briefcase,
-    accent: 'text-emerald-400 group-hover:border-emerald-400/50',
-    glow: 'group-hover:shadow-[0_0_24px_rgba(52,211,153,0.15)]',
-  },
-  {
-    cmd: '$ founders',
-    title: 'For Founders',
-    desc: 'PG essays, daily YC updates, and the playbook — everything a founder actually reads.',
-    to: '/founders',
-    icon: BookOpen,
-    accent: 'text-violet-400 group-hover:border-violet-400/50',
-    glow: 'group-hover:shadow-[0_0_24px_rgba(167,139,250,0.15)]',
-  },
-  {
-    cmd: '$ tools --launch',
-    title: 'Founder Tools',
-    desc: 'Idea validator, success predictor, batch wrapped and a fundraising tracker.',
-    to: '/tools',
-    icon: Wrench,
-    accent: 'text-amber-400 group-hover:border-amber-400/50',
-    glow: 'group-hover:shadow-[0_0_24px_rgba(251,191,36,0.15)]',
-  },
+  { title: 'Companies Database', note: 'Sortable · filterable', to: '/database', icon: Database },
+  // The only card here selling something rather than showing something.
+  { title: 'ExploreYC World', note: 'Claim a plot — $5', to: '/world', icon: Earth },
+  { title: 'Analytics & Charts', note: 'Batches · industries · geo', to: '/analytics', icon: BarChart3 },
+  { title: 'Hiring Board', note: 'Open roles, daily', to: '/hiring', icon: Briefcase },
+  { title: 'For Founders', note: 'PG essays · playbook', to: '/founders', icon: BookOpen },
+  { title: 'Founder Tools', note: 'Validator · predictor', to: '/tools', icon: Wrench },
 ];
 
 export function PlatformCapabilities() {
@@ -102,7 +59,7 @@ export function PlatformCapabilities() {
   return (
     <div>
       {/* Heading */}
-      <div className="mb-6">
+      <div className="mb-5">
         <div className="flex items-center gap-2 font-mono text-sm text-muted-foreground mb-2">
           <Sparkles className="h-4 w-4 text-[#FB651E]" />
           <span>$ explore --all</span>
@@ -118,7 +75,7 @@ export function PlatformCapabilities() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: '-40px' }}
         transition={{ duration: 0.4 }}
-        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px mb-6 rounded-lg overflow-hidden border border-border/70 bg-border/40"
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px mb-4 rounded-sm overflow-hidden border border-border/70 bg-border/40"
       >
         {statStrip.map((s) => (
           <div key={s.label} className="bg-card/60 dark:bg-white/[0.02] px-4 py-3">
@@ -130,40 +87,32 @@ export function PlatformCapabilities() {
         ))}
       </motion.div>
 
-      {/* Capability grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Capability rows */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {CAPABILITIES.map((c, i) => {
           const Icon = c.icon;
           return (
             <motion.div
               key={c.to}
-              initial={{ opacity: 0, y: 18 }}
+              initial={{ opacity: 0, y: 14 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.45, delay: (i % 3) * 0.06 }}
+              transition={{ duration: 0.4, delay: (i % 3) * 0.06 }}
             >
-              <Link to={c.to} className="group block h-full">
-                <div
-                  className={`relative h-full overflow-hidden rounded-lg border border-border/80 bg-card/50 dark:border-white/5 dark:bg-white/[0.02] p-5 transition-all duration-300 ${c.glow}`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`p-2 rounded-md bg-current/10 ${c.accent.split(' ')[0]}`}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <span className="font-mono text-[11px] text-muted-foreground/70">{c.cmd}</span>
-                  </div>
-                  <h3 className="font-mono font-bold text-base mb-1.5">{c.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{c.desc}</p>
-                  <span
-                    className={`inline-flex items-center gap-1 mt-4 text-xs font-mono ${c.accent.split(' ')[0]} opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300`}
-                  >
-                    open <ArrowRight className="h-3 w-3" />
+              <Link
+                to={c.to}
+                className="group flex h-full items-center gap-3 rounded-sm border border-border/80 bg-card/50 p-3.5 transition-all duration-300 hover:border-[#FB651E]/50 hover:shadow-[0_0_24px_rgba(251,101,30,0.12)] motion-reduce:transition-none dark:border-white/5 dark:bg-white/[0.02]"
+              >
+                <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-sm border border-[#FB651E]/25 bg-[#FB651E]/[0.08] text-[#FB651E]">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-sm font-bold">{c.title}</span>
+                  <span className="block truncate font-mono text-xs text-muted-foreground">
+                    {c.note}
                   </span>
-                  {/* corner sweep on hover */}
-                  <div
-                    className={`absolute -right-8 -top-8 w-16 h-16 rounded-full blur-2xl opacity-0 group-hover:opacity-30 transition-opacity duration-500 ${c.accent.split(' ')[0]} bg-current`}
-                  />
-                </div>
+                </span>
+                <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-[#FB651E] motion-reduce:transition-none" />
               </Link>
             </motion.div>
           );

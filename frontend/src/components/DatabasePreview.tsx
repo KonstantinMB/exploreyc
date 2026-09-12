@@ -114,7 +114,7 @@ export function DatabasePreview() {
       {/* Footer CTA */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border bg-muted/10">
         <span className="text-xs text-muted-foreground font-mono">
-          Sortable, filterable, {total > 0 ? total.toLocaleString() : ''} companies — batch, industry, funding & more.
+          {total > 0 ? `${total.toLocaleString()} companies · ` : ''}sortable · filterable
         </span>
         <Link
           to="/database"
