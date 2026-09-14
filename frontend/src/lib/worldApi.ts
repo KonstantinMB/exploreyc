@@ -73,6 +73,14 @@ export interface GlobePin {
   team_size?: number | null
   is_hiring?: boolean
   top_company?: boolean
+
+  /**
+   * A comped launch-window plot (paid layer only). See FREE_PLOT_LIMIT in
+   * components/world/constants.ts: it is on the globe and on the `planted`
+   * board with a stake of exactly zero, and every surface that identifies it
+   * has to say so.
+   */
+  founding?: boolean
 }
 
 /** The decoded globe: one flat pin list, paid plots first. */
@@ -194,6 +202,13 @@ export interface BoardRow {
    * than filling the gap with something they did not say.
    */
   tagline?: string | null
+  /**
+   * True only on a comped founding plot. Country rows are always false.
+   * Boards render <WorldChip tone="founding"> from this, so a $0 row always
+   * says why it is $0 — and the money-ranked boards never carry one at all
+   * (the server filters unstaked rows out of `richest` and `rising`).
+   */
+  founding?: boolean
 }
 
 export interface BoardResponse {
@@ -213,6 +228,8 @@ export interface FounderRow {
   created_at: string
   /** Plot logo, else the linked company's thumbnail, else null. */
   logo_url?: string | null
+  /** True on a comped founding plot — renders the "Founding plot" chip. */
+  founding?: boolean
 }
 
 export interface FoundersResponse {
@@ -252,6 +269,12 @@ export interface WorldPlot {
   total_cents: number
   status: 'active' | 'pending'
   promoted: boolean
+  /**
+   * A free founding plot. Mutually informative with `total_cents`, which is 0
+   * on one of these: the chip is what stops a zero reading as a bug or as a
+   * purchase that went wrong.
+   */
+  founding: boolean
   company_id: number | null
   company_slug: string | null
   created_at: string
@@ -287,6 +310,12 @@ export interface CountryPlotRow {
   logo_url?: string | null
   /** Same serializer, same rule: the plot's one-liner, else the company's, else null. */
   tagline?: string | null
+  /**
+   * True on a comped founding plot. The country panel lists who is PRESENT
+   * rather than who paid, so founding plots do appear here — labelled, and
+   * sorted last by their zero stake, so they displace nobody.
+   */
+  founding?: boolean
 }
 
 export interface CountryCity {
@@ -381,6 +410,48 @@ export interface WorldCheckoutRequest {
 
 export interface CheckoutResponse {
   checkout_url: string
+}
+
+// ---------------------------------------------------------------------------
+// Founding plots — the free, capped launch-window promotion
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/world/free-slots. Both figures are counted from the table, so
+ * `remaining` is real.
+ *
+ * **`remaining === 0` means the offer is over, and the UI's contract is to drop
+ * it entirely** rather than render "0 of 20 left". A dead counter is worse than
+ * no counter: it advertises a thing that cannot be had.
+ */
+export interface FreeSlotsResponse {
+  remaining: number
+  limit: number
+}
+
+/**
+ * POST /api/world/claim-free. The checkout payload minus the money.
+ *
+ * `country_iso` and nothing else is the normal call: the server derives a
+ * coordinate inside that country and confirms it against the same geography
+ * checkout uses. `lat`/`lng` are accepted for parity with the paid path.
+ */
+export interface FreeClaimRequest {
+  country_iso?: string
+  lat?: number
+  lng?: number
+  name: string
+  url?: string
+  tagline?: string
+  founder_name?: string
+  founder_title?: string
+  founder_link?: string
+  company_id?: number
+}
+
+/** The minted plot, plus the counter after this claim landed. */
+export interface FreeClaimResponse extends FreeSlotsResponse {
+  plot: WorldPlot
 }
 
 export interface PromotionCheckoutRequest {
@@ -507,6 +578,9 @@ export const worldApi = {
   /** Platform reach + live viewers. Cached server-side; safe to poll. */
   getAudience: () => api.get<AudienceResponse>('/api/world/audience'),
 
+  /** How many free founding plots are left. Public — the offer is public. */
+  getFreeSlots: () => api.get<FreeSlotsResponse>('/api/world/free-slots'),
+
   /**
    * One anonymous presence heartbeat, which answers with the same body
    * `getAudience` returns — so a surface that beats never needs a second
@@ -521,6 +595,16 @@ export const worldApi = {
   // ---- Authed (dev session) ----
   createCheckout: (payload: WorldCheckoutRequest) =>
     worldDevApi.post<CheckoutResponse>('/api/world/checkout', payload),
+
+  /**
+   * Claim one of the free founding plots. Authed, and never touches Stripe.
+   *
+   * 409 is the expected refusal, in two flavours the `detail` string
+   * distinguishes: the cap is full, or this account already has one. Both point
+   * the caller at the paid path, which is always open.
+   */
+  claimFree: (payload: FreeClaimRequest) =>
+    worldDevApi.post<FreeClaimResponse>('/api/world/claim-free', payload),
 
   createPromotionCheckout: (payload: PromotionCheckoutRequest) =>
     worldDevApi.post<CheckoutResponse>('/api/world/promotions/checkout', payload),

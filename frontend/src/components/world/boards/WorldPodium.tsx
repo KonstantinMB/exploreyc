@@ -24,7 +24,7 @@ import { Link } from 'react-router-dom'
 import { Crown } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import { Avatar } from '../../ui/Avatar'
-import { MEDALS } from '../ui'
+import { MEDALS, WorldChip } from '../ui'
 
 /** Render 2nd, 1st, 3rd — the classic podium, same as the founders board. */
 const PODIUM_ORDER = [1, 0, 2]
@@ -48,6 +48,14 @@ export interface PodiumEntry {
   logoUrl?: string | null
   /** A flag emoji, for a country. Takes precedence over `logoUrl`. */
   flag?: string
+  /**
+   * A comped founding plot. On the `planted` board — which ranks by how early
+   * a plot was planted — the first free plots are exactly the ones that reach
+   * this podium, so a tile reading "$0 / TOTAL STAKED" with nothing to explain
+   * it is the single most likely place somebody misreads the promotion. The
+   * chip is the explanation.
+   */
+  founding?: boolean
 }
 
 /** The circular mark: a flag tile for a country, the platform Avatar otherwise. */
@@ -186,6 +194,12 @@ export function WorldPodium({ entries, compact = false, className }: WorldPodium
                 ) : (
                   <div className="mb-1 h-[15px]" aria-hidden />
                 )}
+                {entry.founding ? (
+                  <WorldChip
+                    tone="founding"
+                    className={cn('mb-1.5', compact && 'px-1.5 text-[9px]')}
+                  />
+                ) : null}
                 <div
                   className={cn(
                     'font-mono font-black tabular-nums',

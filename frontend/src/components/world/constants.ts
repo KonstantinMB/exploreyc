@@ -11,6 +11,23 @@ export const OVERTAKE_MARGIN_CENTS = 100
 export const CITY_SNAP_RADIUS_KM = 50
 
 /**
+ * How many free "founding plots" exist in total — the launch-window promotion.
+ *
+ * Mirror of FREE_PLOT_LIMIT in backend/world_constants.py, and a DISPLAY
+ * DEFAULT only. The server owns the real number: `GET /api/world/free-slots`
+ * returns `{ remaining, limit }` counted from the table, and `POST
+ * /api/world/claim-free` refuses with a 409 when they are gone. This constant
+ * exists so the copy can say "of 20" before that request lands, never so the
+ * client can decide whether a slot is available.
+ *
+ * A founding plot carries a stake of exactly zero: it goes on the globe and on
+ * the `planted` board, and it is deliberately absent from the money boards, so
+ * "$5 takes #1" stays literally true. Every surface that identifies one renders
+ * <WorldChip tone="founding"> — a comped plot must never read as a purchase.
+ */
+export const FREE_PLOT_LIMIT = 20
+
+/**
  * Cents needed to overtake a leader whose stake is `leaderCents`.
  * Returns null when the leader's stake is unknown — the UI must say
  * "unknown" in that case, never guess a number.

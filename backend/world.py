@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import re
+import secrets
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -43,7 +44,9 @@ from pydantic import BaseModel, Field
 import world_audience
 from password_utils import hash_token
 from world_constants import (
+    ADMIN_PLOT_OWNER_EMAIL,
     CITY_SNAP_RADIUS_KM,
+    FREE_PLOT_LIMIT,
     MAX_ACTIVE_FEATURED_PER_COUNTRY,
     MIN_STAKE_CENTS,
     OVERTAKE_MARGIN_CENTS,
@@ -549,6 +552,36 @@ class PlotUpdateRequest(BaseModel):
     founder_link: Optional[str] = Field(None, max_length=2048)
 
 
+class FreeClaimRequest(BaseModel):
+    """The paid checkout's payload, minus the money.
+
+    Field for field the same shape as WorldCheckoutRequest — same names, same
+    lengths, same optionality — so the free path cannot quietly accept
+    something the paid path would have refused. The two differences are the
+    point:
+
+      * there is no `amount_cents`. A founding plot's stake is zero, written by
+        the database method itself, so there is nowhere in this shape to put a
+        number that would inflate a money board;
+      * `lat`/`lng` are optional, and `country_iso` is accepted instead. The
+        paid flow derives its coordinate in the browser (stake/derivePoint.ts)
+        and posts the result; the free flow hands the country to the server and
+        lets _derive_point_in_country do the identical job there. Either way
+        the coordinate is confirmed against the same geography before anything
+        is written.
+    """
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
+    country_iso: Optional[str] = Field(None, min_length=2, max_length=2)
+    name: str = Field(min_length=1, max_length=40)
+    url: Optional[str] = Field(None, max_length=2048)
+    tagline: Optional[str] = Field(None, max_length=140)
+    founder_name: Optional[str] = Field(None, max_length=80)
+    founder_title: Optional[str] = Field(None, max_length=80)
+    founder_link: Optional[str] = Field(None, max_length=2048)
+    company_id: Optional[int] = None
+
+
 class PlotLogoRequest(BaseModel):
     logo_data_url: str
 
@@ -602,6 +635,11 @@ def _public_plot(plot: dict, is_mine: Optional[bool] = None) -> dict:
         "tier": _tier_bucket(plot["total_cents"]),
         "status": plot["status"],
         "promoted": bool(plot.get("promoted")),
+        # A comped launch-window plot. Public on purpose: every surface that
+        # identifies a plot renders a "Founding plot" chip from this flag, so a
+        # free listing can never be mistaken for a purchase. It is also why the
+        # zero in `total_cents` above needs no apology — see FREE_PLOT_LIMIT.
+        "founding": bool(plot.get("founding")),
         "created_at": plot.get("created_at"),
         "updated_at": plot.get("updated_at"),
     }
@@ -814,6 +852,11 @@ def _board_row(row: dict) -> dict:
         "delta_cents": row.get("delta_cents"),
         "logo_url": row.get("logo_url") or None,
         "tagline": row.get("tagline") or None,
+        # False on country rows (a country is not a plot) and on every paid
+        # plot. True only on a comped founding plot, which is what the board
+        # renders the "Founding plot" chip from — a zero in the stake column
+        # has to say WHY it is zero, or a reader fills the gap themselves.
+        "founding": bool(row.get("founding")),
     }
 
 
@@ -854,6 +897,92 @@ def _parse_scope(scope: str):
 
 
 # ---------------------------------------------------------------------------
+# Server-side coordinate derivation — the Python twin of
+# frontend/src/components/world/stake/derivePoint.ts
+#
+# The paid flow derives its point in the browser and posts the result, because
+# the buyer is standing there and the confirmation round trip is free. The free
+# and admin flows have no browser to do it in: the operator names a country and
+# the server has to turn that into a coordinate that `resolve_country` will
+# agree is inside it. Same four rules as the donor module, ported verbatim:
+#
+#   1. on land, inside the country asked for (every candidate is re-resolved
+#      through the SAME geography the paid path is checked against);
+#   2. deterministic — FNV-1a over a caller-supplied seed, never random, so two
+#      plots in one country are two beads and a retry does not move a plot;
+#   3. somewhere a person would recognise — a real, populous city first, the
+#      country centroid only as the last resort (for a concave country the
+#      centroid is often not even in the country);
+#   4. never anybody's problem — a country whose candidates all miss is a 400
+#      that says so, never a plot dropped in the sea.
+# ---------------------------------------------------------------------------
+
+#: How far a derived point may sit from its city centre, in degrees of latitude
+#: (~5 km). Mirrors COUNTRY_JITTER_DEG in derivePoint.ts.
+COUNTRY_JITTER_DEG = 0.045
+
+#: Cities considered for the pick, most populous first (CITY_POOL in the donor).
+_CITY_POOL = 6
+
+#: How many candidates are worth resolving before giving up (MAX_PROBES).
+_MAX_PROBES = 8
+
+
+def _fnv1a(seed: str) -> int:
+    """32-bit FNV-1a — the same hash derivePoint.ts uses, for the same reason:
+    deterministic across processes, machines and deploys, which random is not."""
+    h = 2166136261
+    for ch in seed:
+        h ^= ord(ch) & 0xFF
+        h = (h * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def _offset_from(lat: float, lng: float, seed: str,
+                 radius_deg: float = COUNTRY_JITTER_DEG):
+    """Nudge a point onto a deterministic spot within `radius_deg` of it.
+
+    Uniform over the disc rather than over (angle, radius) — the sqrt is what
+    stops repeated offsets piling into the centre. The longitude divisor turns
+    degrees of latitude into the degrees of longitude covering the same ground
+    at that latitude, floored so an Arctic city cannot divide its way across
+    the planet."""
+    h = _fnv1a(seed)
+    angle = ((h % 3600) / 3600) * 2 * math.pi
+    r = radius_deg * math.sqrt(((h >> 12) % 1000) / 1000)
+    out_lat = lat + r * math.cos(angle)
+    out_lng = lng + (r * math.sin(angle)) / max(math.cos(math.radians(lat)), 0.2)
+    return (max(-89.9, min(89.9, out_lat)),
+            ((out_lng + 180) % 360 + 360) % 360 - 180)
+
+
+def _candidate_points(iso: str, cities: list, seed: str, centroid) -> list:
+    """Ordered (lat, lng) candidates for a plot in `iso`, best first.
+
+    Pure — no DB, no geography, no clock — so the ordering is testable on its
+    own. `cities` arrives population-ordered and is filtered here so that order
+    survives."""
+    code = iso.strip().upper()
+    local = [c for c in cities if (c.get("country_iso") or "").upper() == code]
+    out = []
+    if local:
+        # Which of the country's big cities a plot belongs to is itself part of
+        # the spread: consecutive plots in one country usually get different
+        # cities, not two dots 5 km apart in the same one.
+        pool = local[:_CITY_POOL]
+        pick = _fnv1a(f"{code}:{seed}") % len(pool)
+        for i in range(len(pool)):
+            city = pool[(pick + i) % len(pool)]
+            out.append(_offset_from(city["lat"], city["lng"], f"{seed}:{city['id']}"))
+            # The city itself, un-nudged: if a 5 km offset fell in the sea, the
+            # place it was measured from did not.
+            out.append((city["lat"], city["lng"]))
+    if centroid:
+        out.append(centroid)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 
@@ -883,6 +1012,35 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             raise HTTPException(status_code=400, detail="ocean")
         city = geo.nearest_city(db, lat, lng, country_iso=iso, radius_km=CITY_SNAP_RADIUS_KM)
         return iso, (city["id"] if city else None)
+
+    def _derive_point_in_country(iso: str, seed: str):
+        """(lat, lng) for a plot in `iso`, confirmed by the same geography the
+        paid path is checked against. 400 when nothing lands inside.
+
+        The confirmation is the whole value of doing it here: a candidate is
+        only returned once `resolve_country` has agreed it is in `iso`, so a
+        free or operator-placed plot cannot end up in the sea or in the country
+        next door — the two failures the derived-coordinate model can produce.
+        """
+        code = iso.strip().upper()
+        country = db.get_world_country(code)
+        if not country:
+            raise HTTPException(status_code=400, detail="Unknown country code")
+        centroid = None
+        if country.get("centroid_lat") is not None and country.get("centroid_lng") is not None:
+            centroid = (country["centroid_lat"], country["centroid_lng"])
+        candidates = _candidate_points(code, db.list_world_cities(), seed, centroid)
+        for lat, lng in candidates[:_MAX_PROBES]:
+            try:
+                if geo.resolve_country(lat, lng) == code:
+                    return lat, lng
+            except RuntimeError as e:
+                logger.error("world: geography unavailable: %s", e)
+                raise HTTPException(status_code=503,
+                                    detail="Geography is not available on this server.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not place a plot inside {country['name']}. Try another country.")
 
     # ---- public reads -----------------------------------------------------
 
@@ -916,6 +1074,7 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
                 # and never a placeholder, when the buyer supplied no logo.
                 "logo_url": p.get("logo_url") or None,
                 "total_cents": p["total_cents"],
+                "founding": bool(p.get("founding")),
             })
         return {"plots": pins, "seeds": _encode_seed_layer(db.get_world_seed_companies())}
 
@@ -927,7 +1086,14 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
         if country_iso is None and city_id is None:
             rows = db.get_world_country_board(kind)
         else:
-            rows = db.get_world_plot_board(kind, country_iso=country_iso, city_id=city_id)
+            # 'richest' and 'rising' rank money, so a plot that has paid nothing
+            # is not on them — a free founding plot listed at $0 in a column of
+            # purchases is exactly the confusion the zero-stake design exists to
+            # avoid. 'planted' ranks presence and age, which is precisely the
+            # board a founding plot legitimately competes on, so it keeps them.
+            rows = db.get_world_plot_board(
+                kind, country_iso=country_iso, city_id=city_id,
+                exclude_unstaked=kind in ("richest", "rising"))
         return {"rows": [_board_row(r) for r in rows],
                 "cents_to_beat": _cents_to_beat(kind, rows)}
 
@@ -942,6 +1108,7 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             "total_cents": r["total_cents"], "created_at": r["created_at"],
             # Plot logo, else the linked company's thumb, else null.
             "logo_url": r.get("logo_url") or None,
+            "founding": bool(r.get("founding")),
         } for r in rows]}
 
     @router.get("/api/world/cities")
@@ -1010,10 +1177,14 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
         out["company"] = (_company_brief(db.get_company_brief(plot["company_id"]))
                           if plot.get("company_id") is not None else None)
         # Richest-board ranks for the share/OG surfaces. A pending plot is off
-        # the boards, so its ranks are honestly None (rendered as an em dash).
-        out["rank_world"] = _rank_of(db.get_world_plot_board("richest", limit=1_000_000), plot_id)
+        # the boards, so its ranks are honestly None (rendered as an em dash) —
+        # and so is a free founding plot, which has no money rank to report.
+        out["rank_world"] = _rank_of(
+            db.get_world_plot_board("richest", limit=1_000_000, exclude_unstaked=True),
+            plot_id)
         out["rank_country"] = _rank_of(
-            db.get_world_plot_board("richest", country_iso=plot["country_iso"], limit=1_000_000),
+            db.get_world_plot_board("richest", country_iso=plot["country_iso"],
+                                    limit=1_000_000, exclude_unstaked=True),
             plot_id)
         return out
 
@@ -1151,6 +1322,133 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             return {"status": "done", "plot_id": promo.get("plot_id")}
         return {"status": "pending", "plot_id": None}
 
+    # ---- founding plots: the capped, free, zero-stake launch promotion -----
+    #
+    # WHAT THIS IS AND IS NOT. The first FREE_PLOT_LIMIT companies get a plot
+    # without paying, so the globe on launch day carries real startups instead
+    # of nothing. It is a promotion, not a prop: every plot minted here names a
+    # real company, is labelled "Founding plot" on every surface that identifies
+    # it, and carries a stake of exactly zero. Zero is load-bearing —
+    #
+    #   * it CANNOT appear as money on 'richest' or 'rising', so "$5 takes #1"
+    #     stays literally true and no free plot displaces a paying one;
+    #   * it DOES count on 'planted', which ranks by plot count and age. That
+    #     board exists so participation can beat spending, and a company that
+    #     really planted a pin really did plant it;
+    #   * it is never rounded up to the $5 floor. A comped listing that reads as
+    #     a purchase is the one outcome this whole design exists to prevent.
+    #
+    # Stripe is not imported, called or configured on this path.
+
+    def _free_slots() -> dict:
+        taken = db.count_world_founding_plots()
+        return {"remaining": max(0, FREE_PLOT_LIMIT - taken), "limit": FREE_PLOT_LIMIT}
+
+    def _resolve_claim_point(lat, lng, country_iso, seed):
+        """(lat, lng, country_iso, city_id) for a claim that supplied either a
+        coordinate or a country.
+
+        Both roads end at _resolve_geography, so the country and the city snap
+        are decided in exactly one place no matter which way the caller came
+        in — a derived point is not trusted any further than a posted one."""
+        if lat is not None and lng is not None:
+            iso, city_id = _resolve_geography(lat, lng)
+            return lat, lng, iso, city_id
+        if not country_iso:
+            raise HTTPException(status_code=400,
+                                detail="Provide either lat and lng, or a country_iso.")
+        lat, lng = _derive_point_in_country(country_iso, seed)
+        iso, city_id = _resolve_geography(lat, lng)
+        return lat, lng, iso, city_id
+
+    def _checked_country(country_iso: str) -> dict:
+        """The world_countries row, or a 500 — the same pre-write proof the paid
+        path takes before it charges anybody."""
+        country = db.get_world_country(country_iso)
+        if not country:
+            logger.error("world: resolved iso %s missing from world_countries", country_iso)
+            raise HTTPException(status_code=500,
+                                detail="Could not place that point. Try somewhere else.")
+        return country
+
+    @router.get("/api/world/free-slots")
+    def world_free_slots():
+        """How many founding plots are left, and out of how many.
+
+        A real count, straight from the table. `remaining: 0` is the honest
+        answer when they are gone, and the UI's contract is to drop the offer
+        entirely rather than advertise "0 of 20 left"."""
+        return _free_slots()
+
+    @router.post("/api/world/claim-free")
+    def world_claim_free(payload: FreeClaimRequest,
+                         session: dict = Depends(verify_dev_session)):
+        """Claim one of the free founding plots. Never touches Stripe.
+
+        Every guard the paid path applies is applied here, in the same order and
+        by the same functions: https-only links, server-owned geography, the
+        already-claimed-company rule, and the moderation screen that holds a
+        hostile listing in 'pending'. A free plot is a plot; the only thing it
+        skips is the payment.
+        """
+        user_id = session["user_id"]
+
+        # Links first, as at checkout: a bad one costs a 400 here rather than a
+        # stored javascript: href later.
+        validate_link(payload.url, "url")
+        validate_link(payload.founder_link, "founder_link")
+
+        # Seeded on the account and on how many founding plots already exist, so
+        # consecutive founders in one country land on different beads and a
+        # retry by the same person lands on the same one.
+        seed = f"founding:{user_id}:{db.count_world_founding_plots()}"
+        lat, lng, country_iso, city_id = _resolve_claim_point(
+            payload.lat, payload.lng, payload.country_iso, seed)
+        _checked_country(country_iso)
+
+        if payload.company_id is not None and db.get_world_plot_by_company(payload.company_id):
+            raise HTTPException(status_code=409, detail="That company has already been claimed.")
+
+        # A moderation hit holds the render, exactly as it does for a payment.
+        status = status_for_listing(payload.name, payload.tagline, payload.founder_name,
+                                    payload.founder_title, payload.founder_link, payload.url)
+
+        # THE GUARD. Not the count above — that is a convenience read and two
+        # requests can both pass it. This is a single conditional INSERT the
+        # database serializes (SQLite: writer lock; Postgres: advisory
+        # transaction lock), plus a partial UNIQUE index for one-per-account.
+        # total_cents is not a parameter: the method writes 0 itself.
+        result = db.claim_world_founding_plot({
+            "user_id": user_id,
+            "company_id": payload.company_id,
+            "name": payload.name.strip(),
+            "url": (payload.url or "").strip() or None,
+            "tagline": (payload.tagline or "").strip() or None,
+            "founder_name": (payload.founder_name or "").strip() or None,
+            "founder_title": (payload.founder_title or "").strip() or None,
+            "founder_link": (payload.founder_link or "").strip() or None,
+            "lat": lat,
+            "lng": lng,
+            "country_iso": country_iso,
+            "city_id": city_id,
+            "status": status,
+        }, FREE_PLOT_LIMIT)
+
+        if result["reason"] == "already_claimed":
+            raise HTTPException(
+                status_code=409,
+                detail=(f"You already have a founding plot. Stake from "
+                        f"${MIN_STAKE_CENTS / 100:.0f} to plant another."))
+        if result["reason"] == "cap":
+            raise HTTPException(
+                status_code=409,
+                detail=(f"All {FREE_PLOT_LIMIT} founding plots are taken. You can still "
+                        f"claim a plot from ${MIN_STAKE_CENTS / 100:.0f}."))
+
+        plot = db.get_world_plot(result["id"])
+        logger.info("world: founding plot=%s status=%s user=%s", result["id"], status, user_id)
+        return {"plot": _public_plot(plot, is_mine=True), **_free_slots()}
+
     # ---- checkout (auth; sync def — the Stripe SDK blocks and FastAPI runs
     # sync handlers in the threadpool) ---------------------------------------
 
@@ -1196,10 +1494,7 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
         # Prove the resolved ISO exists in world_countries before taking money:
         # a bad code here costs a 400; in the webhook it costs a captured
         # payment with no listing behind it.
-        country = db.get_world_country(country_iso)
-        if not country:
-            logger.error("world: resolved iso %s missing from world_countries", country_iso)
-            raise HTTPException(status_code=500, detail="Could not place that point. Try somewhere else.")
+        country = _checked_country(country_iso)
 
         metadata = {
             "product": "world_plot",
@@ -1406,5 +1701,141 @@ def create_world_router(db, verify_dev_session, verify_admin_session=None) -> AP
             if not db.revoke_world_promotion(promo_id):
                 raise HTTPException(status_code=404, detail="Promotion not found")
             return {"success": True}
+
+        # ---- admin plot placement -----------------------------------------
+        #
+        # The operator's own hand on the map: place a named company, or take a
+        # placement back. It exists for the launch window, and the thing it is
+        # most likely to be used for is a hurried placement an hour before a
+        # launch — which is exactly why DELETE is here too.
+        #
+        # WHAT IT DOES NOT BUY YOU. Not a bypass of moderation, not a bypass of
+        # link validation, and not a fabricated customer. Every field goes
+        # through the same screen() and validate_link() as a paid claim, and a
+        # plot placed with total_cents = 0 is a plot with a stake of zero on
+        # every board that counts money. `total_cents` is available for the one
+        # honest case it serves — recording an anchor listing that really was
+        # paid for out of band — and defaults to 0 rather than to a number.
+
+        class AdminPlotRequest(BaseModel):
+            name: str = Field(min_length=1, max_length=40)
+            country_iso: Optional[str] = Field(None, min_length=2, max_length=2)
+            lat: Optional[float] = Field(None, ge=-90, le=90)
+            lng: Optional[float] = Field(None, ge=-180, le=180)
+            url: Optional[str] = Field(None, max_length=2048)
+            tagline: Optional[str] = Field(None, max_length=140)
+            logo_url: Optional[str] = None
+            founder_name: Optional[str] = Field(None, max_length=80)
+            founder_title: Optional[str] = Field(None, max_length=80)
+            founder_link: Optional[str] = Field(None, max_length=2048)
+            company_id: Optional[int] = None
+            #: Stake in cents. 0 (the default) keeps the plot off every
+            #: money-ranked board; a non-zero value must correspond to money
+            #: that actually changed hands.
+            total_cents: int = Field(0, ge=0, le=MAX_STAKE_CENTS)
+            #: Label it a founding plot. Independent of total_cents on purpose:
+            #: a promotion and a stake are two different facts about a listing.
+            founding: bool = False
+
+        def _operator_user_id() -> int:
+            """The account an operator-placed plot belongs to.
+
+            A plot row must have an owner — world_plots.user_id is NOT NULL —
+            and inventing a company's account for them would be the exact kind
+            of fabrication this feature is built to avoid. So an operator
+            placement honestly belongs to the operator, in a dedicated account
+            with an unusable password hash, until the company it names comes
+            and claims it."""
+            existing = db.get_api_user_by_email(ADMIN_PLOT_OWNER_EMAIL)
+            if existing:
+                return existing["id"]
+            return db.create_api_user(
+                ADMIN_PLOT_OWNER_EMAIL,
+                # sha256 of a random token: no password hashes to this, so the
+                # account cannot be logged into.
+                hash_token(secrets.token_urlsafe(48)),
+                company_name="ExploreYC World operator")
+
+        @router.post("/api/admin/world/plots")
+        def admin_create_plot(payload: AdminPlotRequest,
+                              _: dict = Depends(verify_admin_session)):
+            validate_link(payload.url, "url")
+            validate_link(payload.founder_link, "founder_link")
+
+            seed = f"admin:{payload.name}:{db.count_world_founding_plots()}"
+            lat, lng, country_iso, city_id = _resolve_claim_point(
+                payload.lat, payload.lng, payload.country_iso, seed)
+            _checked_country(country_iso)
+
+            if payload.company_id is not None and db.get_world_plot_by_company(payload.company_id):
+                raise HTTPException(status_code=409,
+                                    detail="That company already has a plot.")
+
+            status = status_for_listing(payload.name, payload.tagline, payload.founder_name,
+                                        payload.founder_title, payload.founder_link,
+                                        payload.url)
+            user_id = _operator_user_id()
+
+            if payload.founding:
+                # Founding placements go through the capped path like everyone
+                # else's — the operator does not get to mint slot 21.
+                result = db.claim_world_founding_plot({
+                    "user_id": user_id, "company_id": payload.company_id,
+                    "name": payload.name.strip(),
+                    "url": (payload.url or "").strip() or None,
+                    "tagline": (payload.tagline or "").strip() or None,
+                    "founder_name": (payload.founder_name or "").strip() or None,
+                    "founder_title": (payload.founder_title or "").strip() or None,
+                    "founder_link": (payload.founder_link or "").strip() or None,
+                    "lat": lat, "lng": lng, "country_iso": country_iso,
+                    "city_id": city_id, "status": status,
+                }, FREE_PLOT_LIMIT)
+                if result["reason"] == "already_claimed":
+                    raise HTTPException(
+                        status_code=409,
+                        detail=("The operator account already holds a founding plot. "
+                                "Place this one without the founding flag."))
+                if result["reason"] == "cap":
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"All {FREE_PLOT_LIMIT} founding plots are taken.")
+                plot_id = result["id"]
+                if payload.logo_url:
+                    db.update_world_plot(plot_id, {"logo_url": payload.logo_url})
+            else:
+                plot_id = db.create_world_plot({
+                    "user_id": user_id, "company_id": payload.company_id,
+                    "name": payload.name.strip(),
+                    "url": (payload.url or "").strip() or None,
+                    "tagline": (payload.tagline or "").strip() or None,
+                    "logo_url": payload.logo_url,
+                    "founder_name": (payload.founder_name or "").strip() or None,
+                    "founder_title": (payload.founder_title or "").strip() or None,
+                    "founder_link": (payload.founder_link or "").strip() or None,
+                    "lat": lat, "lng": lng, "country_iso": country_iso,
+                    "city_id": city_id, "total_cents": payload.total_cents,
+                    "status": status,
+                })
+
+            logger.info("world: admin placed plot=%s iso=%s status=%s founding=%s cents=%s",
+                        plot_id, country_iso, status, payload.founding, payload.total_cents)
+            return {"plot": _public_plot(db.get_world_plot(plot_id)), **_free_slots()}
+
+        @router.delete("/api/admin/world/plots/{plot_id}")
+        def admin_delete_plot(plot_id: int, _: dict = Depends(verify_admin_session)):
+            """Undo a placement. Refuses anything money has touched.
+
+            delete_world_plot_if_unreferenced is the guard, and it is the same
+            one the webhook's orphan cleanup uses: a plot with a payment or a
+            promotion against it is somebody's purchase, and the answer to a
+            hasty click is a 409, not a deleted receipt."""
+            if not db.get_world_plot(plot_id):
+                raise HTTPException(status_code=404, detail="Plot not found")
+            if not db.delete_world_plot_if_unreferenced(plot_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail="That plot has a payment or promotion against it and cannot be deleted.")
+            logger.info("world: admin deleted plot=%s", plot_id)
+            return {"success": True, **_free_slots()}
 
     return router
