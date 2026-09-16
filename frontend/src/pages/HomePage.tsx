@@ -11,6 +11,7 @@ import { ApiShowcase } from '../components/ApiShowcase';
 import { HomeFaq } from '../components/HomeFaq';
 import { EmailSubscription } from '../components/EmailSubscription';
 import { HomeWorld } from '../components/home/HomeWorld';
+import { LiveTrafficBadge } from '../components/LiveTrafficBadge';
 import { CountUp } from '../components/world/boards/CountUp';
 import { HackerCard } from '../components/ui/hacker-card';
 import { DotPattern } from '../components/ui/dot-pattern';
@@ -218,6 +219,14 @@ export function HomePage() {
                 className="h-[54px] w-auto max-w-full rounded-md transition-shadow duration-200 group-hover:shadow-[0_0_22px_rgba(251,101,30,0.35)]"
               />
             </a>
+
+            {/* The third credential, and the only live one. Product Hunt says a
+                jury liked this in October; this says who is on the site right
+                now and how many came this month — which is the question a $5
+                plot is actually bought against. Same 54px box as the two
+                badges, so it belongs to the row; renders nothing at all when it
+                has no measured figure to show. */}
+            <LiveTrafficBadge />
             </motion.div>
           </motion.div>
         </div>

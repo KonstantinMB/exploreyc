@@ -42,6 +42,7 @@ import { DevLoginPage } from './pages/DevLoginPage';
 import { DeveloperDashboard } from './pages/DeveloperDashboard';
 import { ApiDocsPage } from './pages/ApiDocsPage';
 import { CompanyDetailModal } from './components/CompanyDetailModal';
+import { useSitePresence } from './hooks/useSitePresence';
 import './index.css';
 
 // ExploreYC World — the one globe. Lazy-loaded so the three.js bundle never
@@ -104,6 +105,29 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * The site-wide heartbeat, mounted once and rendering nothing.
+ *
+ * "N viewing now" is printed on the homepage as a credential, so it has to
+ * count the whole site. The beat used to ride along with the World's audience
+ * components, which meant a visitor reading /database, /hiring or a company
+ * page was invisible to it and the number on the homepage understated itself —
+ * the one direction a proof number must not be wrong in, since the fix looks
+ * like inflation.
+ *
+ * It sits HERE rather than in <Layout> because a third of the routes (company
+ * pages, the validator, /research, the batch wrapped pages) render outside
+ * Layout entirely. This is the only node every route in the app shares.
+ *
+ * It is first among its siblings on purpose: it subscribes to the audience
+ * query before any reader does, so the observer that owns the interval is also
+ * the one that issues the first request — and readers stay pure reads.
+ */
+function SitePresence() {
+  useSitePresence();
+  return null;
+}
 
 // AnimatedOutlet: use useOutlet() so AnimatePresence can properly track exit/enter.
 // Using <Outlet /> directly inside AnimatePresence causes blank screens on nav (Outlet unmounts before exit).
@@ -420,6 +444,7 @@ function AnimatedRoutes() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <SitePresence />
       <HelmetProvider>
         <BrowserRouter>
           <PageTitleManager />
