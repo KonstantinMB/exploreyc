@@ -359,6 +359,12 @@ export default function WorldCountryPage() {
                       title={plot.name}
                       trailing={
                         <>
+                          {/* "Planted here" is a list of who is PRESENT, so a
+                              free founding plot belongs on it — chipped, and
+                              sorted last by its $0 stake, so it displaces
+                              nobody who paid. The chip is what stops that zero
+                              reading as a bug. */}
+                          {plot.founding && <WorldChip tone="founding" />}
                           {plot.promoted && <WorldChip tone="promoted" />}
                           <Money cents={plot.total_cents} score />
                         </>

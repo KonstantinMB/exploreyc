@@ -14,8 +14,10 @@
  *     GET /api/world/audience. The backend caches the read; this never causes
  *     an outbound request to Vercel.
  *
- *   <WatchingNow>    — distinct anonymous sessions on a World surface in the
- *     last ~60 seconds, counted from our own presence heartbeats.
+ *   <WatchingNow>    — distinct anonymous sessions anywhere on exploreyc.com in
+ *     the last ~60 seconds, counted from our own presence heartbeats. The beat
+ *     itself lives in hooks/useSitePresence.ts and is mounted once for the whole
+ *     app, so every page contributes one; these components only read it.
  *
  * THE THREE RULES EVERY CALL SITE INHERITS, encoded here rather than left to
  * discipline at four call sites:
@@ -31,89 +33,38 @@
  *      <InfoTip> naming the source, the window and when it was measured. A
  *      number nobody can check is a number nobody believes.
  *
- * PRESENCE IS ANONYMOUS. The heartbeat carries one opaque id generated in this
- * file, kept in sessionStorage, and thrown away with the tab. No cookie is set,
- * no personal data is collected, and the backend stores the id with a timestamp
- * and nothing else.
+ * PRESENCE IS ANONYMOUS. The heartbeat carries one opaque id generated in
+ * hooks/useSitePresence.ts, kept in sessionStorage, and thrown away with the
+ * tab. No cookie is set, no personal data is collected, and the backend stores
+ * the id with a timestamp and nothing else.
  */
 
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Eye, Users } from 'lucide-react'
 
 import { cn } from '../../../lib/utils'
-import worldApi, { type AudienceResponse } from '../../../lib/worldApi'
+import { useAudience } from '../../../hooks/useSitePresence'
+import { type AudienceResponse } from '../../../lib/worldApi'
 import { InfoTip, WORLD_OVERLAY_PILL } from '../ui'
-
-/** Where the tab's presence id lives. Session, not local: it must not outlive the tab. */
-const SESSION_KEY = 'exploreyc.world.presence'
-
-/** Fallback beat cadence, in seconds, until the server states its own. */
-const FALLBACK_BEAT_SECONDS = 20
-
-/**
- * The tab's presence id, or null when we may not store one.
- *
- * Opaque and random — it identifies a TAB for about a minute, and nothing else.
- * Returning null (Safari private mode, storage disabled, an embed with a null
- * origin) is a supported outcome: the surface still reads the audience, it just
- * does not add itself to the count. Better to be missing from a live number
- * than to invent a session that cannot be de-duplicated.
- */
-function presenceSessionId(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const existing = window.sessionStorage.getItem(SESSION_KEY)
-    if (existing) return existing
-    const fresh =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2).padEnd(12, '0') +
-          Date.now().toString(36)
-    window.sessionStorage.setItem(SESSION_KEY, fresh)
-    return fresh
-  } catch {
-    return null
-  }
-}
 
 /**
  * One shared audience read for the whole app.
  *
- * Every surface uses the same query key, so React Query collapses them into one
- * request and one interval no matter how many of these components are mounted —
- * the homepage section, /world and the stake modal on top of it do not each
- * beat.
+ * A pure READ: the site-wide heartbeat in `useSitePresence` owns the timer and
+ * populates this cache entry, and every component here subscribes to it. So the
+ * homepage section, the badge in the hero, /world and the stake modal on top of
+ * it can all be mounted at once and still cost one request per beat.
  *
- * The request IS the heartbeat when we have a session id (POST /api/world/beat
- * answers with the same body as the GET), so watching the globe is what puts
- * you in the count — there is no separate ping and no second round trip.
- *
- * `refetchInterval` pauses while the tab is in the background, which is the
- * behaviour we want and not a compromise: somebody who has switched away is not
- * watching, and within ~60s they correctly drop out of "watching now".
+ * Kept as a named export under the old name because it is the World's vocabulary
+ * for "give me the audience numbers"; `useAudience` is the same hook.
  */
-export function useWorldAudience(enabled = true) {
-  const sessionId = useMemo(presenceSessionId, [])
-
-  return useQuery<AudienceResponse>({
-    queryKey: ['world', 'audience'],
-    queryFn: () =>
-      (sessionId ? worldApi.beat(sessionId) : worldApi.getAudience()).then((r) => r.data),
-    enabled,
-    staleTime: 10_000,
-    // Server-stated cadence, so the client's beat and the server's window can
-    // never drift apart into a count that flickers.
-    refetchInterval: (query) =>
-      (query.state.data?.beat_seconds ?? FALLBACK_BEAT_SECONDS) * 1000,
-  })
-}
+export const useWorldAudience = useAudience
 
 /* ────────────────────────────────────────────────────────────────────────────
    Formatting
    ──────────────────────────────────────────────────────────────────────────── */
 
-function count(n: number): string {
+/** Grouped integer — "2,329". Exported so every audience surface counts alike. */
+export function count(n: number): string {
   return n.toLocaleString('en-US')
 }
 
@@ -122,7 +73,7 @@ function count(n: number): string {
  * capped — in which case the count is a floor and saying it flat would be
  * claiming a total we do not have.
  */
-function countriesLabel(data: AudienceResponse): string | null {
+export function countriesLabel(data: AudienceResponse): string | null {
   if (data.countries_count == null || data.countries_count <= 0) return null
   return `${count(data.countries_count)}${data.countries_capped ? '+' : ''} countries`
 }
@@ -143,24 +94,36 @@ function measuredOn(at: string | null): string | null {
  * The provenance note, identical on every surface that prints a figure.
  *
  * Says the source, the window and the date, and separates the two numbers —
- * because "2,329 in 30 days" and "3 watching now" are measured completely
+ * because "2,329 in 30 days" and "3 viewing now" are measured completely
  * differently and blurring them would be the easiest way to mislead here.
  */
 export function AudienceInfoTip({
   data,
   align = 'start',
+  className,
 }: {
   data: AudienceResponse
   align?: 'start' | 'center' | 'end'
+  /** Positioning only — forwarded to the ⓘ wrapper. */
+  className?: string
 }) {
   const on = measuredOn(data.updated_at)
   return (
-    <InfoTip label="Where these audience numbers come from" align={align}>
-      Unique visitors and countries are Vercel Web Analytics for exploreyc.com
-      over the last {data.window_days ?? 30} days
-      {on ? `, measured ${on}` : ''}. “Watching now” is live presence — distinct
-      anonymous sessions on a World page in the last {data.window_seconds}{' '}
-      seconds. Nothing here is estimated.
+    <InfoTip label="Where these audience numbers come from" align={align} className={className}>
+      {/* Only describe a figure that is actually on screen. With no analytics
+          token the reach line is absent, and a tip that explains where the
+          visitor count comes from would be footnoting a number nobody can
+          see — which reads as a number we are hiding. */}
+      {data.visitors_30d != null ? (
+        <>
+          Unique visitors and countries are Vercel Web Analytics for
+          exploreyc.com over the last {data.window_days ?? 30} days
+          {on ? `, measured ${on}` : ''}.{' '}
+        </>
+      ) : null}
+      The live figure is presence — distinct anonymous sessions anywhere on
+      exploreyc.com in the last {data.window_seconds} seconds. Nothing here is
+      estimated.
     </InfoTip>
   )
 }
@@ -176,7 +139,7 @@ export interface WatchingNowProps {
 }
 
 /**
- * "3 watching now", live.
+ * "3 viewing now", live.
  *
  * The dot is the ACCENT, not green. A live indicator is green by convention
  * everywhere else on the web, and it was tempting here — but this product has
@@ -185,7 +148,7 @@ export interface WatchingNowProps {
  * "now", both of which survive being read in monochrome, which green does not.
  *
  * At one viewer the pulse stops and the copy changes. That reading is almost
- * always the visitor themselves, and "1 watching now" over their own screen is
+ * always the visitor themselves, and "1 viewing now" over their own screen is
  * the exact moment a proof number turns into a joke.
  */
 export function WatchingNow({ className, pill = false }: WatchingNowProps) {
@@ -223,7 +186,7 @@ export function WatchingNow({ className, pill = false }: WatchingNowProps) {
       ) : (
         <>
           <span className="world-num font-bold text-foreground">{count(n)}</span>
-          <span className="-ml-1 text-muted-foreground">watching now</span>
+          <span className="-ml-1 text-muted-foreground">viewing now</span>
         </>
       )}
     </p>

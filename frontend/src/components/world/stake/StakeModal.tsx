@@ -29,6 +29,18 @@
  * INSIDE this card rather than a redirect that loses the country, the link and
  * the amount they had already chosen.
  *
+ * THE LAUNCH-WINDOW OFFER. While free founding plots remain, this card leads
+ * with them: one tap, no card, no Stripe. It is a promotion for real startups,
+ * not a way to make the map look busy, and three rules keep that true —
+ *
+ *   * a founding plot carries a stake of exactly ZERO. It is never rounded up
+ *     to the $5 floor, so "$5 takes #1" stays literally true and the money
+ *     boards are untouched by it;
+ *   * it is labelled "Founding plot" on every surface that identifies it;
+ *   * the counter is the server's real count. At `remaining === 0` the offer is
+ *     removed entirely rather than shown as "0 of 20 left", and this card is
+ *     byte-for-byte what it was before the promotion existed.
+ *
  * HONESTY, unchanged from every other World surface: `cents_to_beat === null`
  * renders the word "unknown" (<Money> enforces it), the $5 floor is announced
  * with role="alert", the pay button is type="button" so a stray Enter can never
@@ -37,14 +49,15 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import type { AxiosError } from 'axios'
-import { ArrowRight, Crown, Loader2, MapPin } from 'lucide-react'
+import { ArrowRight, Crown, Flag, Loader2, MapPin } from 'lucide-react'
 
 import { cn } from '../../../lib/utils'
 import worldApi, { type WorldCheckoutRequest } from '../../../lib/worldApi'
 import { useDevAuth } from '../../../contexts/DevAuthContext'
-import { MIN_STAKE_CENTS, formatDollars } from '../constants'
+import { FREE_PLOT_LIMIT, MIN_STAKE_CENTS, formatDollars } from '../constants'
 import { InfoTip, Money, WorldButton, worldButtonClass } from '../ui'
 import { AudienceReach } from '../audience/WorldAudience'
 import { isoFlag } from '../boards/format'
@@ -74,15 +87,18 @@ export interface StakeModalProps {
   onClose: () => void
 }
 
-function messageFrom(err: unknown): string {
+function messageFrom(err: unknown, fallback = 'Checkout could not start.'): string {
   const e = err as AxiosError<{ detail?: string }>
   const detail = e?.response?.data?.detail
   if (detail === 'ocean') {
     return 'That spot came back as open water. Try another country.'
   }
+  // The server's own words, verbatim — a 409 on the free path says whether the
+  // cap ran out or this account already holds a founding plot, and both of
+  // those are more useful than anything this file could guess.
   if (typeof detail === 'string' && detail.length > 0) return detail
-  if (e?.response?.status) return `Checkout could not start (${e.response.status}).`
-  return 'Checkout could not start.'
+  if (e?.response?.status) return `${fallback.replace(/\.$/, '')} (${e.response.status}).`
+  return fallback
 }
 
 export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModalProps) {
@@ -92,13 +108,31 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
   const readoutId = `${baseId}-readout`
   const contentRef = useRef<HTMLDivElement>(null)
   const { user } = useDevAuth()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const [kind, setKind] = useState<StakeKind>('product')
   const [link, setLink] = useState('')
   const [showLinkError, setShowLinkError] = useState(false)
   const [step, setStep] = useState<'form' | 'auth'>('form')
   const [submitting, setSubmitting] = useState(false)
+  const [claimingFree, setClaimingFree] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
+
+  // ---- the founding-plot offer --------------------------------------------
+  // The server counts the slots; this card only reports what it is told. While
+  // the query is in flight `remaining` is undefined and the offer is NOT
+  // rendered — a promotion that flashes in after the card has settled is worse
+  // than one that arrives a beat late, and an optimistic "20 left" that turns
+  // out to be 0 is a promise we did not keep.
+  const freeSlotsQuery = useQuery({
+    queryKey: ['world', 'free-slots'],
+    queryFn: () => worldApi.getFreeSlots().then((r) => r.data),
+    staleTime: 15_000,
+  })
+  const freeRemaining = freeSlotsQuery.data?.remaining ?? 0
+  const freeLimit = freeSlotsQuery.data?.limit ?? FREE_PLOT_LIMIT
+  const offerFree = freeRemaining > 0
 
   // ---- the amount ---------------------------------------------------------
   // Defaulted to the payment that takes #1 here, floored at $5. That is the
@@ -167,6 +201,50 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
         ? Math.min(MAX_STAKE_CENTS, Math.max(0, Math.round(cents)))
         : MIN_STAKE_CENTS,
     )
+  }
+
+  // ---- the free claim ------------------------------------------------------
+  //
+  // Same link, same account requirement, same server-side moderation as a
+  // purchase. What it does NOT do: touch Stripe, ask for an amount, or leave
+  // the page. The coordinate is derived on the server from `country_iso` —
+  // `derivePoint` has a Python twin precisely so this path does not need a
+  // browser round trip to place a plot inside the country.
+
+  const claimFree = async () => {
+    if (claimingFree || submitting) return
+    setCheckoutError(null)
+
+    if (!identity.ok) {
+      setShowLinkError(true)
+      document.getElementById(linkId)?.focus()
+      return
+    }
+    if (!user) {
+      setStep('auth')
+      return
+    }
+
+    setClaimingFree(true)
+    try {
+      const { data } = await worldApi.claimFree({
+        country_iso: iso,
+        name: identity.value.name,
+        url: identity.value.url,
+      })
+      // The globe, the boards and the counter are all stale the instant this
+      // lands — a founding plot is a new pin and a new row on `planted`.
+      void queryClient.invalidateQueries({ queryKey: ['world'] })
+      navigate(`/world/p/${data.plot.id}`)
+      onClose()
+    } catch (err) {
+      // A 409 means somebody else took the slot, or this account already has
+      // one. Either way the honest next move is to re-read the counter, which
+      // may now be 0 — at which point the offer disappears on its own.
+      void freeSlotsQuery.refetch()
+      setCheckoutError(messageFrom(err, 'Could not claim a founding plot.'))
+      setClaimingFree(false)
+    }
   }
 
   // ---- checkout ------------------------------------------------------------
@@ -302,6 +380,49 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
               </>
             ) : (
               <>
+                {/* ---- THE LEAD, while there are founding plots left ------
+                    Rendered only when the server says `remaining > 0`. At zero
+                    it is gone — not greyed out, not "0 of 20 left" — and every
+                    line below it is exactly what this card was before the
+                    promotion existed. */}
+                {offerFree ? (
+                  /* Bordered card on the card's own ground, NOT an orange wash.
+                     `--w-accent-ink` is calibrated against the card; over an
+                     accent tint it measures 4.2:1, under AA for the 12-14px
+                     type in here. Border-only keeps the accent loud, keeps
+                     every word above 4.5:1 in both themes, and is the
+                     thin-bordered rounded-sm card this platform is made of. */
+                  <div className="mt-3 rounded-sm border border-[#FB651E]/60 bg-card p-3.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <Flag
+                        aria-hidden
+                        className="h-4 w-4 shrink-0 text-[color:var(--w-accent-ink)]"
+                      />
+                      <span className="font-mono text-sm font-bold text-[color:var(--w-accent-ink)]">
+                        Founding plot — free
+                      </span>
+                      {/* The real count, from the server. */}
+                      <span
+                        className="ml-auto font-mono text-xs font-bold text-[color:var(--w-accent-ink)]"
+                        style={TABULAR}
+                      >
+                        {freeRemaining} of {freeLimit} left
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-snug text-muted-foreground">
+                      The first {freeLimit} startups get a plot on the globe without paying.{' '}
+                      <InfoTip label="What a founding plot is and is not">
+                        A founding plot is a real listing with a stake of <strong>$0</strong>. It
+                        shows on the globe and counts on the <strong>planted</strong> board, which
+                        ranks by how many plots a country has. It is deliberately absent from the
+                        money boards, so {formatDollars(MIN_STAKE_CENTS)} still takes #1 — a free
+                        plot never outranks somebody who paid. Every one is labelled “Founding
+                        plot” wherever it appears.
+                      </InfoTip>
+                    </p>
+                  </div>
+                ) : null}
+
                 {/* ONE explainer sentence. Everything else that used to be a
                     paragraph here is an InfoTip now. */}
                 {/* Normal text flow, NOT a flex row: as a flex item the whole
@@ -309,16 +430,25 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
                     icon was pushed onto a line of its own and read as an
                     orphan. Inline, it trails the full stop the way a footnote
                     mark does. */}
-                <p className="mt-1.5 text-sm leading-snug text-muted-foreground">
-                  Your rank in {name} is your{' '}
-                  <strong className="text-foreground">total stake</strong> there.{' '}
-                  <InfoTip label={`How rank works in ${name}`}>
-                    Ranks are cumulative. Top up later and you only pay the difference — the stake
-                    you already hold still counts. No prize, no payout, no refund.
-                  </InfoTip>
-                </p>
+                {/* With the offer live this sentence belongs to the PAID half
+                    of the card, so it moves down to sit with the amount field.
+                    Without it, the card is unchanged. */}
+                {offerFree ? null : (
+                  <p className="mt-1.5 text-sm leading-snug text-muted-foreground">
+                    Your rank in {name} is your{' '}
+                    <strong className="text-foreground">total stake</strong> there.{' '}
+                    <InfoTip label={`How rank works in ${name}`}>
+                      Ranks are cumulative. Top up later and you only pay the difference — the
+                      stake you already hold still counts. No prize, no payout, no refund.
+                    </InfoTip>
+                  </p>
+                )}
 
-                {/* ---- what goes on the plot ------------------------------ */}
+                {/* ---- what goes on the plot ------------------------------
+                    ONE input, SHARED by both paths. Whether this ends in a
+                    free claim or a payment, the plot says the same thing —
+                    which is what makes the free one a real listing rather than
+                    a lesser one. */}
                 <div
                   role="group"
                   aria-label="What to put on the plot"
@@ -385,6 +515,30 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
                     On the board as{' '}
                     <strong className="text-foreground">{identity.value.name}</strong>
                   </p>
+                ) : null}
+
+                {/* ---- the paid half -------------------------------------- */}
+                {offerFree ? (
+                  <>
+                    {/* Not a wall between two products — a seam between two
+                        ways into the same one. Anyone who wants a money rank
+                        on day one can still buy it, immediately, below. */}
+                    <div className="mt-5 flex items-center gap-3" aria-hidden="true">
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        or stake to rank now
+                      </span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                    <p className="mt-3 text-sm leading-snug text-muted-foreground">
+                      Your rank in {name} is your{' '}
+                      <strong className="text-foreground">total stake</strong> there.{' '}
+                      <InfoTip label={`How rank works in ${name}`}>
+                        Ranks are cumulative. Top up later and you only pay the difference — the
+                        stake you already hold still counts. No prize, no payout, no refund.
+                      </InfoTip>
+                    </p>
+                  </>
                 ) : null}
 
                 {/* ---- the amount ----------------------------------------- */}
@@ -518,13 +672,52 @@ export function StakeModal({ iso, countryName, centsToBeat, onClose }: StakeModa
           {/* ---- the one button ------------------------------------------- */}
           {step === 'form' ? (
             <div className="shrink-0 border-t border-border bg-card px-5 py-4">
+              {/* THE OFFER IS THE PRIMARY ACTION WHILE IT LASTS, and it sits in
+                  the sticky footer rather than halfway up a scrolling card —
+                  "lead with it" has to survive a 375px phone. The paid button
+                  steps down to secondary beside it and is never removed: anyone
+                  who wants a money rank today can still buy one in one tap. */}
+              {offerFree ? (
+                <>
+                  <WorldButton
+                    variant="primary"
+                    size="lg"
+                    block
+                    disabled={claimingFree || submitting}
+                    onClick={() => void claimFree()}
+                  >
+                    {claimingFree ? (
+                      <>
+                        <Loader2
+                          aria-hidden
+                          className="h-[1.125rem] w-[1.125rem] animate-spin motion-reduce:animate-none"
+                        />
+                        Claiming your plot…
+                      </>
+                    ) : (
+                      <>
+                        <Flag aria-hidden className="h-[1.125rem] w-[1.125rem]" />
+                        {user ? 'Claim a founding plot — free' : 'Continue — free'}
+                      </>
+                    )}
+                  </WorldButton>
+                  {/* What the free one is, said where the decision is made. No
+                      refund line: nothing is charged, so promising not to
+                      refund it would be theatre. */}
+                  <p className="mt-2 text-center text-[11px] leading-tight text-muted-foreground">
+                    No card. Carries a $0 stake and is labelled “Founding plot”.
+                  </p>
+                </>
+              ) : null}
+
               {/* type="button", always: a stray Enter anywhere in this card
                   must never charge anybody. */}
               <WorldButton
-                variant="primary"
+                variant={offerFree ? 'secondary' : 'primary'}
                 size="lg"
                 block
-                disabled={submitting}
+                className={offerFree ? 'mt-3' : undefined}
+                disabled={submitting || claimingFree}
                 onClick={() => void submit()}
               >
                 {submitting ? (

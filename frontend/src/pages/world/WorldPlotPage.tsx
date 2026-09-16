@@ -416,14 +416,25 @@ export default function WorldPlotPage() {
     <div className="world-root relative min-h-screen overflow-x-hidden">
       <Helmet>
         <title>{`${plot.name} — ExploreYC World`}</title>
+        {/* A founding plot has a $0 stake, so "with $0 staked" would be a
+            truthful sentence that reads as a broken one. The share card says
+            what it actually is instead. */}
         <meta
           name="description"
-          content={`${plot.name} holds a plot in ${plot.country_name} with ${formatDollars(plot.total_cents)} staked on ExploreYC World.`}
+          content={
+            plot.founding
+              ? `${plot.name} holds a founding plot in ${plot.country_name} on ExploreYC World.`
+              : `${plot.name} holds a plot in ${plot.country_name} with ${formatDollars(plot.total_cents)} staked on ExploreYC World.`
+          }
         />
         <meta property="og:title" content={`${plot.name} — ExploreYC World`} />
         <meta
           property="og:description"
-          content={`${formatDollars(plot.total_cents)} staked in ${plot.country_name}.`}
+          content={
+            plot.founding
+              ? `A founding plot in ${plot.country_name}.`
+              : `${formatDollars(plot.total_cents)} staked in ${plot.country_name}.`
+          }
         />
         <meta property="og:image" content={ogImage} />
         <meta name="twitter:card" content="summary_large_image" />
@@ -479,6 +490,10 @@ export default function WorldPlotPage() {
                   className="font-mono text-sm font-bold tabular-nums text-[#FB651E] sm:text-base"
                 />
               </span>
+              {/* The chip sits BESIDE the stake, not instead of it. A founding
+                  plot shows "$0" — the chip is what turns that zero from a
+                  number that looks broken into a fact that explains itself. */}
+              {plot.founding && <WorldChip tone="founding" />}
               {plot.promoted && <WorldChip tone="promoted" />}
             </div>
           </div>

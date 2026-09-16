@@ -24,7 +24,7 @@ import world_audience
 from billing import handle_stripe_event
 from database import Database
 from world import fulfill_world_checkout, screen, status_for_listing
-from world_constants import MIN_STAKE_CENTS, OVERTAKE_MARGIN_CENTS
+from world_constants import FREE_PLOT_LIMIT, MIN_STAKE_CENTS, OVERTAKE_MARGIN_CENTS
 
 # Sofia city centre — resolves to BG and snaps to the seeded Sofia row.
 SOFIA = (42.6977, 23.3219)
@@ -113,8 +113,13 @@ class FakeStripe:
         self.checkout = SimpleNamespace(Session=_Session)
 
 
-def _client(db, user_id=None, monkeypatch=None, fake_stripe=None):
-    """TestClient over the world router with a fake dev session."""
+def _client(db, user_id=None, monkeypatch=None, fake_stripe=None, admin=False):
+    """TestClient over the world router with a fake dev session.
+
+    `admin` controls the admin dependency the router is mounted with, and there
+    are three distinct states on purpose: None (not passed at all — the admin
+    routes are never registered), a dependency that 401s, and one that passes.
+    """
     if user_id is None:
         def session_dep():
             raise HTTPException(status_code=401, detail="Missing authorization header")
@@ -124,8 +129,15 @@ def _client(db, user_id=None, monkeypatch=None, fake_stripe=None):
     if monkeypatch is not None:
         monkeypatch.setattr(world, "stripe", fake_stripe or FakeStripe())
         monkeypatch.setattr(world, "STRIPE_SECRET_KEY", "sk_test_stub")
+    admin_dep = None
+    if admin is True:
+        def admin_dep():  # noqa: F811 - a passing admin session
+            return {"username": "admin"}
+    elif admin == "reject":
+        def admin_dep():  # noqa: F811 - a caller with no admin session
+            raise HTTPException(status_code=401, detail="Missing authorization header")
     app = FastAPI()
-    app.include_router(world.create_world_router(db, session_dep))
+    app.include_router(world.create_world_router(db, session_dep, admin_dep))
     return TestClient(app)
 
 
@@ -577,7 +589,8 @@ def test_globe_paid_plots_keep_objects_and_exact_coordinates(db):
     assert plot == {"id": plot_id, "lat": 42.698123456, "lng": 23.321987654,
                     "name": "Paid", "tier": 3, "promoted": False,
                     "kind": "plot", "company_slug": None,
-                    "logo_url": None, "total_cents": 30_000}
+                    "logo_url": None, "total_cents": 30_000,
+                    "founding": False}
     assert body["seeds"]["rows"] == []
 
 
@@ -980,3 +993,326 @@ def test_country_breakdown_drops_non_countries_and_flags_a_capped_count(monkeypa
     assert payload["countries_count"] == 1
     assert payload["top_countries"] == [{"iso": "US", "visitors": 6}]
     assert payload["countries_capped"] is True   # 3 rows back on a 3-row page
+
+
+# ---- founding plots: the capped, free, zero-stake launch promotion ---------
+#
+# The honesty rules of this feature, as executable assertions. A founding plot
+# is a REAL company that did not pay during the launch window — so it must be
+# visible on the globe, countable on the board that ranks participation, and
+# absent from every board that ranks money. The cap and the one-per-account
+# rule are enforced by the database, not by a check the router runs, which is
+# what the concurrency test below exists to prove.
+
+def _free_payload(**overrides):
+    payload = {"country_iso": "BG", "name": "Acme",
+               "url": "https://acme.example", "tagline": "We do things"}
+    payload.update(overrides)
+    return payload
+
+
+def _seed_founding(db, n, start=0):
+    """n founding plots, one per fresh account, straight through the DB guard."""
+    ids = []
+    for i in range(n):
+        uid = _user(db, f"founder{start + i}@example.com")
+        result = db.claim_world_founding_plot(
+            {"user_id": uid, "name": f"Seeded {start + i}", "lat": SOFIA[0],
+             "lng": SOFIA[1], "country_iso": "BG"}, FREE_PLOT_LIMIT)
+        assert result["created"] is True, result
+        ids.append(result["id"])
+    return ids
+
+
+def test_free_slots_reports_a_real_count(db):
+    client = _client(db, _user(db))
+    assert client.get("/api/world/free-slots").json() == {
+        "remaining": FREE_PLOT_LIMIT, "limit": FREE_PLOT_LIMIT}
+    _seed_founding(db, 3)
+    assert client.get("/api/world/free-slots").json() == {
+        "remaining": FREE_PLOT_LIMIT - 3, "limit": FREE_PLOT_LIMIT}
+
+
+def test_free_claim_requires_auth(db):
+    assert _client(db, user_id=None).post(
+        "/api/world/claim-free", json=_free_payload()).status_code == 401
+
+
+def test_free_claim_derives_a_point_inside_the_chosen_country(db):
+    """No coordinate is asked for. The server derives one and confirms it
+    against the same geography the paid path is checked against."""
+    uid = _user(db)
+    body = _client(db, uid).post("/api/world/claim-free", json=_free_payload()).json()
+    plot = body["plot"]
+    assert plot["country_iso"] == "BG"
+    assert plot["founding"] is True
+    assert plot["status"] == "active"
+    assert world.get_world_geo().resolve_country(plot["lat"], plot["lng"]) == "BG"
+    assert body == {"plot": plot, "remaining": FREE_PLOT_LIMIT - 1, "limit": FREE_PLOT_LIMIT}
+
+
+def test_free_plot_has_a_zero_stake_and_is_never_rounded_up(db):
+    """THE rule. $5 is the floor for a purchase; a free plot is not a purchase,
+    so it is worth exactly nothing and says so."""
+    uid = _user(db)
+    plot = _client(db, uid).post("/api/world/claim-free", json=_free_payload()).json()["plot"]
+    assert plot["total_cents"] == 0
+    assert plot["total_cents"] != MIN_STAKE_CENTS
+    with db.get_connection() as conn:
+        # ...and no payment row was invented to explain the plot away.
+        assert conn.execute("SELECT COUNT(*) FROM world_payments").fetchone()[0] == 0
+
+
+def test_free_plot_is_off_the_money_board_but_counts_on_planted(db):
+    """It appears where presence is ranked and nowhere money is ranked, so
+    '$5 takes #1' stays literally true and no paying plot is displaced."""
+    payer, freeloader = _user(db, "pays@x.com"), _user(db, "free@x.com")
+    paid_id = _plant(db, payer, name="Payer", iso="BG", cents=MIN_STAKE_CENTS)
+    free_id = _client(db, freeloader).post(
+        "/api/world/claim-free", json=_free_payload(name="Founder")).json()["plot"]["id"]
+    client = _client(db, payer)
+
+    richest = client.get("/api/world/board?kind=richest&scope=country:BG").json()
+    assert [r["plot_id"] for r in richest["rows"]] == [paid_id]
+    assert richest["cents_to_beat"] == MIN_STAKE_CENTS + OVERTAKE_MARGIN_CENTS
+
+    planted = client.get("/api/world/board?kind=planted&scope=country:BG").json()
+    assert free_id in [r["plot_id"] for r in planted["rows"]]
+    assert planted["cents_to_beat"] is None          # count/age cannot be bought
+
+    # The chip's data source travels with the row, on every board it is on.
+    founding_flags = {r["plot_id"]: r["founding"] for r in planted["rows"]}
+    assert founding_flags == {paid_id: False, free_id: True}
+
+    # Visible on the globe — the entire point of the promotion.
+    assert free_id in [p["id"] for p in client.get("/api/world/globe").json()["plots"]]
+
+    # And it has no money rank to report, rather than a flattering one.
+    detail = client.get(f"/api/world/plots/{free_id}").json()
+    assert detail["rank_world"] is None and detail["rank_country"] is None
+    assert client.get(f"/api/world/plots/{paid_id}").json()["rank_world"] == 1
+
+
+def test_free_plot_still_shows_in_the_country_panel(db):
+    """The country panel lists who is present, not who paid — so a founding
+    plot belongs there, labelled."""
+    uid = _user(db)
+    free_id = _client(db, uid).post(
+        "/api/world/claim-free", json=_free_payload()).json()["plot"]["id"]
+    body = _client(db, uid).get("/api/world/country/BG").json()
+    rows = {r["id"]: r for r in body["plots"]}
+    assert rows[free_id]["founding"] is True
+    assert rows[free_id]["total_cents"] == 0
+    assert body["plots_count"] == 1
+    assert body["total_cents"] == 0     # presence, not money
+
+
+def test_one_free_plot_per_account(db):
+    uid = _user(db)
+    client = _client(db, uid)
+    assert client.post("/api/world/claim-free", json=_free_payload()).status_code == 200
+    second = client.post("/api/world/claim-free", json=_free_payload(name="Again"))
+    assert second.status_code == 409
+    assert "already have a founding plot" in second.json()["detail"]
+    assert db.count_world_founding_plots() == 1
+    # The rule is the partial UNIQUE index, so it holds below the router too.
+    direct = db.claim_world_founding_plot(
+        {"user_id": uid, "name": "Third", "lat": SOFIA[0], "lng": SOFIA[1],
+         "country_iso": "BG"}, FREE_PLOT_LIMIT)
+    assert direct["created"] is False and direct["reason"] == "already_claimed"
+
+
+def test_the_offer_runs_out_and_then_409s(db):
+    _seed_founding(db, FREE_PLOT_LIMIT)
+    latecomer = _user(db, "late@example.com")
+    client = _client(db, latecomer)
+    assert client.get("/api/world/free-slots").json()["remaining"] == 0
+    r = client.post("/api/world/claim-free", json=_free_payload())
+    assert r.status_code == 409
+    # ...and the refusal points at the path that still works.
+    assert "$5" in r.json()["detail"]
+    assert db.count_world_founding_plots() == FREE_PLOT_LIMIT
+
+
+def test_cap_holds_under_concurrent_claims(db):
+    """One slot left, eight accounts going for it at once: exactly one wins.
+
+    This is the test that would fail on a read-then-write check — every thread
+    would read 19, and every thread would insert the 20th. The guard is a
+    single conditional INSERT the database serializes, so the losers see the
+    row the winner committed.
+    """
+    import threading
+
+    _seed_founding(db, FREE_PLOT_LIMIT - 1)
+    contenders = [_user(db, f"racer{i}@example.com") for i in range(8)]
+    results, lock = [], threading.Lock()
+    start = threading.Barrier(len(contenders))
+
+    def claim(uid):
+        start.wait()
+        outcome = db.claim_world_founding_plot(
+            {"user_id": uid, "name": f"Racer {uid}", "lat": SOFIA[0],
+             "lng": SOFIA[1], "country_iso": "BG"}, FREE_PLOT_LIMIT)
+        with lock:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=claim, args=(uid,)) for uid in contenders]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == len(contenders)
+    assert sum(1 for r in results if r["created"]) == 1
+    assert all(r["reason"] == "cap" for r in results if not r["created"])
+    assert db.count_world_founding_plots() == FREE_PLOT_LIMIT
+    with db.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COALESCE(SUM(total_cents), 0) FROM world_plots WHERE founding = 1"
+        ).fetchone()[0] == 0
+
+
+def test_free_claim_runs_the_same_moderation(db):
+    """A hit holds the render here exactly as it holds it after a payment — and
+    the slot is spent either way, so the denylist is not a way past the cap."""
+    uid = _user(db)
+    body = _client(db, uid).post(
+        "/api/world/claim-free", json=_free_payload(name="Fuck Yeah Inc")).json()
+    assert body["plot"]["status"] == "pending"
+    assert body["remaining"] == FREE_PLOT_LIMIT - 1
+    assert db.count_world_founding_plots() == 1
+    # Held listings are off the globe, the same as a paid pending plot.
+    assert _client(db, uid).get("/api/world/globe").json()["plots"] == []
+
+
+def test_free_claim_moderates_founder_fields_and_taglines(db):
+    for field, value in (("tagline", "buy free bitcoin here"),
+                         ("founder_name", "Fuck You Inc")):
+        uid = _user(db, f"{field}@example.com")
+        body = _client(db, uid).post(
+            "/api/world/claim-free", json=_free_payload(**{field: value})).json()
+        assert body["plot"]["status"] == "pending", field
+
+
+def test_free_claim_rejects_non_https_links(db):
+    """url / founder_link render straight into an <a href> whether or not money
+    was involved."""
+    for i, (field, value) in enumerate((
+        ("url", "javascript:alert(1)"),
+        ("url", "http://acme.example"),
+        ("url", "data:text/html,<script>1</script>"),
+        ("url", "java\nscript:alert(1)"),
+        ("founder_link", "javascript:alert(1)"),
+    )):
+        uid = _user(db, f"link{i}@example.com")
+        r = _client(db, uid).post("/api/world/claim-free",
+                                  json=_free_payload(**{field: value}))
+        assert r.status_code == 400, (field, value, r.text)
+    assert db.count_world_founding_plots() == 0
+
+
+def test_free_claim_refuses_ocean_and_an_already_claimed_company(db):
+    uid = _user(db)
+    ocean = _client(db, uid).post(
+        "/api/world/claim-free",
+        json=_free_payload(country_iso=None, lat=OCEAN[0], lng=OCEAN[1]))
+    assert ocean.status_code == 400 and ocean.json()["detail"] == "ocean"
+
+    _plant(db, _user(db, "owner@x.com"), company_id=77)
+    taken = _client(db, uid).post("/api/world/claim-free",
+                                  json=_free_payload(company_id=77))
+    assert taken.status_code == 409
+
+
+def test_free_claim_never_touches_stripe(db, monkeypatch):
+    """Not configured, not imported, not called. A free plot that needed a
+    payment processor would not be a free plot."""
+    def _explode(*args, **kwargs):
+        pytest.fail("the free claim path reached Stripe")
+
+    monkeypatch.setattr(world, "stripe", SimpleNamespace(
+        checkout=SimpleNamespace(Session=SimpleNamespace(create=_explode))))
+    monkeypatch.setattr(world, "STRIPE_SECRET_KEY", None)   # 503s the paid path
+    uid = _user(db)
+    client = _client(db, uid)
+    assert client.post("/api/world/claim-free", json=_free_payload()).status_code == 200
+    assert client.post("/api/world/checkout", json=_claim_payload()).status_code == 503
+
+
+# ---- the admin placement tool ----------------------------------------------
+
+def test_admin_plot_routes_are_absent_without_the_dependency(db):
+    """Mounted only when the caller provides an admin dependency — the same
+    pattern the sponsor-slot routes use."""
+    client = _client(db, _user(db))          # admin dep not passed at all
+    assert client.post("/api/admin/world/plots", json={"name": "X"}).status_code == 404
+    assert client.delete("/api/admin/world/plots/1").status_code == 404
+
+
+def test_admin_plot_rejected_without_an_admin_session(db):
+    client = _client(db, _user(db), admin="reject")
+    assert client.post("/api/admin/world/plots",
+                       json={"name": "X", "country_iso": "BG"}).status_code == 401
+    assert client.delete("/api/admin/world/plots/1").status_code == 401
+    assert db.get_world_plots_for_globe() == []
+
+
+def test_admin_creates_and_deletes_a_plot(db):
+    client = _client(db, _user(db), admin=True)
+    body = client.post("/api/admin/world/plots", json={
+        "name": "Real Co", "country_iso": "BG", "url": "https://real.example",
+        "tagline": "A real company", "logo_url": "https://cdn.example/real.png",
+    }).json()
+    plot = body["plot"]
+    assert plot["name"] == "Real Co"
+    assert plot["total_cents"] == 0          # defaults to nothing, never to $5
+    assert plot["founding"] is False
+    assert plot["logo_url"] == "https://cdn.example/real.png"
+    assert plot["country_iso"] == "BG"
+    # Owned by the operator account, not by an invented company account.
+    owner = db.get_api_user_by_email(world.ADMIN_PLOT_OWNER_EMAIL)
+    assert owner is not None
+    assert db.get_world_plot(plot["id"])["user_id"] == owner["id"]
+
+    assert client.delete(f"/api/admin/world/plots/{plot['id']}").json()["success"] is True
+    assert db.get_world_plot(plot["id"]) is None
+    assert client.delete(f"/api/admin/world/plots/{plot['id']}").status_code == 404
+
+
+def test_admin_can_place_an_anchor_with_a_real_stake_or_a_founding_flag(db):
+    client = _client(db, _user(db), admin=True)
+    anchor = client.post("/api/admin/world/plots", json={
+        "name": "Anchor", "country_iso": "US", "total_cents": 25_000}).json()["plot"]
+    assert anchor["total_cents"] == 25_000
+    assert anchor["founding"] is False
+    # A real stake ranks on the money board; nothing else does.
+    rows = client.get("/api/world/board?kind=richest&scope=country:US").json()["rows"]
+    assert [r["plot_id"] for r in rows] == [anchor["id"]]
+
+    founding = client.post("/api/admin/world/plots", json={
+        "name": "Comped", "country_iso": "FR", "founding": True}).json()
+    assert founding["plot"]["founding"] is True
+    assert founding["plot"]["total_cents"] == 0
+    assert founding["remaining"] == FREE_PLOT_LIMIT - 1
+
+
+def test_admin_placement_is_moderated_and_link_validated(db):
+    client = _client(db, _user(db), admin=True)
+    assert client.post("/api/admin/world/plots", json={
+        "name": "X", "country_iso": "BG",
+        "url": "javascript:alert(1)"}).status_code == 400
+    held = client.post("/api/admin/world/plots", json={
+        "name": "Fuck Yeah Inc", "country_iso": "BG"}).json()["plot"]
+    assert held["status"] == "pending"       # admin is not a moderation bypass
+
+
+def test_admin_delete_refuses_a_plot_money_has_touched(db):
+    """The tool most likely to be used hastily must not be able to destroy a
+    receipt."""
+    admin = _client(db, _user(db), admin=True)
+    paid_id = _plant(db, _user(db, "buyer@x.com"), cents=5_000)
+    db.insert_world_payment(paid_id, 1, "cs_admin_guard", 5_000)
+    r = admin.delete(f"/api/admin/world/plots/{paid_id}")
+    assert r.status_code == 409
+    assert db.get_world_plot(paid_id) is not None

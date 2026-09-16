@@ -434,6 +434,7 @@ class Database:
                     city_id INTEGER,
                     total_cents INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending')),
+                    founding INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES api_users(id),
@@ -548,6 +549,11 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_plots_total ON world_plots(total_cents DESC)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_plots_user ON world_plots(user_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_plots_company ON world_plots(company_id) WHERE company_id IS NOT NULL')
+            # Founding plots (mirrors 20260913000000_world_founding_plots.sql).
+            # The partial UNIQUE index IS the one-free-plot-per-account rule —
+            # held by the database, not by a check in application code.
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_world_plots_founding_user ON world_plots(user_id) WHERE founding = 1')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_plots_founding ON world_plots(founding) WHERE founding = 1')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_payments_plot ON world_payments(plot_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_payments_created ON world_payments(created_at)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_world_promotions_active ON world_promotions(status, ends_at)')
@@ -587,6 +593,14 @@ class Database:
         for col, ddl in additions.items():
             if col not in existing:
                 cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {ddl}")
+
+        # ExploreYC World: `founding` on an older world_plots table. Must run
+        # before the index pass, which builds a partial index on this column.
+        world_plot_cols = {row[1] for row in
+                           cursor.execute("PRAGMA table_info(world_plots)").fetchall()}
+        if world_plot_cols and "founding" not in world_plot_cols:
+            cursor.execute(
+                "ALTER TABLE world_plots ADD COLUMN founding INTEGER NOT NULL DEFAULT 0")
 
         # Backfill provenance for pre-existing (YC) rows
         cursor.execute("UPDATE companies SET source='yc' WHERE source IS NULL")
@@ -2554,6 +2568,79 @@ class Database:
             )
             return cursor.lastrowid
 
+    # ---- founding plots: the capped, zero-stake launch promotion -----------
+    #
+    # See world_constants.FREE_PLOT_LIMIT for the policy. The rules that live
+    # down here rather than in the router, because a rule enforced in the
+    # application is a rule two concurrent requests can walk past:
+    #
+    #   * total_cents is hardcoded to 0 below. A founding plot has no stake, so
+    #     it can never appear as money on 'richest'/'rising' and can never
+    #     displace a paying plot on a money-ranked board. There is deliberately
+    #     no parameter for a caller to pass a different number.
+    #   * The global cap is a conditional INSERT ... SELECT ... WHERE COUNT < n:
+    #     one statement, so SQLite's single-writer lock makes the count and the
+    #     insert inseparable. (database_postgres.py takes an advisory
+    #     transaction lock to get the same guarantee under MVCC.)
+    #   * One per account is the partial UNIQUE index uq_world_plots_founding_user,
+    #     restated in the NOT EXISTS clause only so the refusal can be reported
+    #     as "you already have one" rather than as a constraint error.
+
+    def count_world_founding_plots(self) -> int:
+        """How many founding (free) plots have been claimed, any status.
+
+        Pending ones count: a listing held for moderation still consumed a
+        slot, and releasing it back would let the cap be walked past by
+        submitting something that trips the denylist."""
+        with self.get_connection() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM world_plots WHERE founding = 1").fetchone()[0]
+
+    def get_world_founding_plot_for_user(self, user_id: int) -> Optional[Dict]:
+        """The user's founding plot, or None. One per account, by index."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM world_plots WHERE founding = 1 AND user_id = ?",
+                (user_id,)).fetchone()
+            return dict(row) if row else None
+
+    def claim_world_founding_plot(self, plot: Dict[str, Any], limit: int) -> Dict:
+        """Atomically claim one of `limit` free founding plots.
+
+        Same required/optional keys as create_world_plot, except total_cents,
+        which is always 0 here and is not read from `plot`.
+
+        Returns {'id', 'created', 'reason'} where reason is None on success,
+        'cap' when all `limit` slots are gone, or 'already_claimed' when this
+        account already holds one (then 'id' is the existing plot's).
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                '''INSERT INTO world_plots
+                     (user_id, company_id, name, url, tagline, founder_name,
+                      founder_title, founder_link, logo_url, lat, lng,
+                      country_iso, city_id, total_cents, status, founding)
+                   SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1
+                   WHERE (SELECT COUNT(*) FROM world_plots WHERE founding = 1) < ?
+                     AND NOT EXISTS (SELECT 1 FROM world_plots
+                                     WHERE founding = 1 AND user_id = ?)''',
+                (plot["user_id"], plot.get("company_id"), plot["name"],
+                 plot.get("url"), plot.get("tagline"), plot.get("founder_name"),
+                 plot.get("founder_title"), plot.get("founder_link"),
+                 plot.get("logo_url"), plot["lat"], plot["lng"],
+                 plot["country_iso"].upper(), plot.get("city_id"),
+                 plot.get("status", "active"), limit, plot["user_id"]),
+            )
+            if cursor.rowcount:
+                return {"id": cursor.lastrowid, "created": True, "reason": None}
+            existing = conn.execute(
+                "SELECT id FROM world_plots WHERE founding = 1 AND user_id = ?",
+                (plot["user_id"],)).fetchone()
+            if existing:
+                return {"id": existing["id"], "created": False,
+                        "reason": "already_claimed"}
+            return {"id": None, "created": False, "reason": "cap"}
+
     def get_world_plot(self, plot_id: int) -> Optional[Dict]:
         """Full plot row plus country_name, city_name, company_slug and a
         `promoted` flag (active featured promotion). None when missing."""
@@ -2574,6 +2661,7 @@ class Database:
                 return None
             plot = dict(row)
             plot["promoted"] = bool(plot["promoted"])
+            plot["founding"] = bool(plot.get("founding"))
             return plot
 
     def get_world_plot_by_company(self, company_id: int) -> Optional[Dict]:
@@ -2598,7 +2686,8 @@ class Database:
         with self.get_connection() as conn:
             rows = conn.execute(
                 '''SELECT p.id, p.lat, p.lng, p.name, p.total_cents,
-                          p.country_iso, p.company_id, co.slug AS company_slug,
+                          p.country_iso, p.company_id, p.founding,
+                          co.slug AS company_slug,
                           COALESCE(NULLIF(p.logo_url, ''),
                                    NULLIF(co.small_logo_thumb_url, '')) AS logo_url,
                           EXISTS(SELECT 1 FROM world_promotions pr
@@ -2613,6 +2702,7 @@ class Database:
             for r in rows:
                 d = dict(r)
                 d["promoted"] = bool(d["promoted"])
+                d["founding"] = bool(d["founding"])
                 out.append(d)
             return out
 
@@ -2759,13 +2849,25 @@ class Database:
 
     def get_world_plot_board(self, kind: str, country_iso: Optional[str] = None,
                              city_id: Optional[int] = None,
-                             limit: int = 100) -> List[Dict]:
+                             limit: int = 100,
+                             exclude_unstaked: bool = False) -> List[Dict]:
         """Plot leaderboard, optionally scoped to a country or a city.
 
         kind: 'richest' (stake desc), 'planted' (earliest first) or 'rising'
         (payments in trailing 24h, delta_cents carries the sum). Joint ranks
         via rank() over the full filtered set. Rows: rank, plot_id, name, iso,
-        total_cents, delta_cents (None unless rising), created_at, logo_url.
+        total_cents, founding, delta_cents (None unless rising), created_at,
+        logo_url.
+
+        exclude_unstaked drops rows whose total_cents is 0 — i.e. the free
+        founding plots. Set it on a MONEY-ranked board and nowhere else: the
+        'richest' board is a ranking of what has been paid, and a comped plot
+        has paid nothing, so listing it there at $0 would put a free plot in a
+        column of purchases. It stays False for the country panel, which lists
+        who is present rather than who paid, and where a founding plot appears
+        with its "Founding plot" chip. A founding plot that later tops up has
+        real money and reappears on the money boards by itself — the filter is
+        on the stake, never on the flag.
 
         logo_url is the plot's own logo, falling back to the linked company's
         small_logo_thumb_url (one LEFT JOIN, never a per-row lookup). Blank
@@ -2774,6 +2876,8 @@ class Database:
         what lets a ranked list say who each plot is rather than only what it
         paid."""
         where, params = ["p.status = 'active'"], []
+        if exclude_unstaked:
+            where.append("p.total_cents > 0")
         if country_iso:
             where.append("p.country_iso = ?")
             params.append(country_iso.upper())
@@ -2788,7 +2892,7 @@ class Database:
         if kind == "rising":
             sql = f'''
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
-                       p.total_cents, agg.delta_cents, p.created_at,
+                       p.total_cents, p.founding, agg.delta_cents, p.created_at,
                        {logo_sql},
                        rank() OVER (ORDER BY agg.delta_cents DESC) AS rank
                 FROM (SELECT plot_id, SUM(amount_cents) AS delta_cents
@@ -2802,7 +2906,7 @@ class Database:
         elif kind == "planted":
             sql = f'''
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
-                       p.total_cents, NULL AS delta_cents, p.created_at,
+                       p.total_cents, p.founding, NULL AS delta_cents, p.created_at,
                        {logo_sql},
                        rank() OVER (ORDER BY p.created_at ASC) AS rank
                 FROM world_plots p
@@ -2812,7 +2916,7 @@ class Database:
         else:
             sql = f'''
                 SELECT p.id AS plot_id, p.name, p.country_iso AS iso,
-                       p.total_cents, NULL AS delta_cents, p.created_at,
+                       p.total_cents, p.founding, NULL AS delta_cents, p.created_at,
                        {logo_sql},
                        rank() OVER (ORDER BY p.total_cents DESC) AS rank
                 FROM world_plots p
@@ -2820,7 +2924,10 @@ class Database:
                 WHERE {where_sql}
                 ORDER BY rank, p.id LIMIT ?'''
         with self.get_connection() as conn:
-            return [dict(r) for r in conn.execute(sql, (*params, limit)).fetchall()]
+            rows = [dict(r) for r in conn.execute(sql, (*params, limit)).fetchall()]
+        for r in rows:
+            r["founding"] = bool(r.get("founding"))
+        return rows
 
     def get_world_founder_board(self, kind: str, limit: int = 100) -> List[Dict]:
         """Founder leaderboard over active plots that carry a founder_name.
@@ -2833,7 +2940,7 @@ class Database:
             rows = conn.execute(
                 f'''SELECT rank() OVER (ORDER BY {order}) AS rank,
                            p.founder_name, p.id AS plot_id, p.name,
-                           p.total_cents, p.created_at,
+                           p.total_cents, p.founding, p.created_at,
                            COALESCE(NULLIF(p.logo_url, ''),
                                     NULLIF(co.small_logo_thumb_url, '')) AS logo_url
                     FROM world_plots p
@@ -2841,7 +2948,10 @@ class Database:
                     WHERE p.status = 'active' AND p.founder_name IS NOT NULL
                       AND p.founder_name != ''
                     ORDER BY rank, p.id LIMIT ?''', (limit,)).fetchall()
-            return [dict(r) for r in rows]
+            out = [dict(r) for r in rows]
+            for r in out:
+                r["founding"] = bool(r.get("founding"))
+            return out
 
     def get_company_brief(self, company_id: int) -> Optional[Dict]:
         """The handful of company columns the World detail card renders.
@@ -3059,7 +3169,10 @@ class Database:
                    LEFT JOIN world_cities ci ON ci.id = p.city_id
                    WHERE p.user_id = ?
                    ORDER BY p.created_at DESC, p.id DESC''', (user_id,)).fetchall()
-            return [dict(r) for r in rows]
+            out = [dict(r) for r in rows]
+            for r in out:
+                r["founding"] = bool(r.get("founding"))
+            return out
 
     def get_world_promotions_for_user(self, user_id: int) -> List[Dict]:
         """A user's promotions (any status), newest first, with plot names."""

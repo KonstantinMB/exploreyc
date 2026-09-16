@@ -328,19 +328,21 @@ export function WorldHeading({
    WorldChip
    ──────────────────────────────────────────────────────────────────────────── */
 
-export type WorldChipTone = 'neutral' | 'accent' | 'promoted' | 'sponsor'
+export type WorldChipTone = 'neutral' | 'accent' | 'promoted' | 'sponsor' | 'founding'
 
 export interface WorldChipProps extends HTMLAttributes<HTMLSpanElement> {
   tone?: WorldChipTone
-  /** Omit for the paid-placement tones — they label themselves. */
+  /** Omit for the disclosure tones — they label themselves. */
   children?: ReactNode
 }
 
 /** Default copy for the disclosure tones. A promoted row cannot be rendered
- *  without the word "Promoted" appearing on it. */
+ *  without the word "Promoted" appearing on it, and a comped founding plot
+ *  cannot be rendered without the words "Founding plot" appearing on it. */
 const CHIP_DEFAULT_LABEL: Partial<Record<WorldChipTone, string>> = {
   promoted: 'Promoted',
   sponsor: 'Sponsor',
+  founding: 'Founding plot',
 }
 
 const CHIP_TONE: Record<WorldChipTone, string> = {
@@ -350,6 +352,29 @@ const CHIP_TONE: Record<WorldChipTone, string> = {
   // the product makes, not decoration.
   promoted: 'border-[#FB651E] bg-[#FB651E] text-white',
   sponsor: 'border-foreground bg-foreground text-background',
+  /*
+   * OUTLINED, NOT FILLED, AND THAT IS THE POINT.
+   *
+   * "Promoted" is a solid orange slab because somebody paid for placement and
+   * the disclosure has to shout. A founding plot is the opposite claim — this
+   * company was early and did NOT pay — so it wears the accent as an outline:
+   * unmistakably the same family, unmistakably not the paid one.
+   *
+   * TWO DELIBERATE CHOICES, BOTH MEASURED:
+   *
+   *   `text-[color:var(--w-accent-ink)]`, not #FB651E. This label is 10px bold,
+   *   which WCAG counts as normal text (bold only qualifies as "large" from
+   *   18.66px), so it owes 4.5:1. The raw accent gives 3.01:1 on a white card;
+   *   the ink token gives 4.59:1 in light and 6.58:1 in dark.
+   *
+   *   `bg-card`, not the 8% accent tint the `accent` tone uses. The ink token is
+   *   calibrated against the CARD, and on an 8% orange wash it drops to 4.21:1
+   *   — under AA. An opaque background also means the chip keeps its contrast
+   *   when a leaderboard row washes orange underneath it on hover.
+   *
+   * Fills stay #FB651E: the border here is the accent at full strength.
+   */
+  founding: 'border-[#FB651E]/60 bg-card text-[color:var(--w-accent-ink)]',
 }
 
 export function WorldChip({ tone = 'neutral', className, children, ...rest }: WorldChipProps) {

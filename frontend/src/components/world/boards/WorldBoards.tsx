@@ -27,6 +27,7 @@ import {
   Rank,
   WorldButton,
   WorldCard,
+  WorldChip,
   WorldHeading,
   WorldLogo,
   WorldRowButton,
@@ -348,6 +349,10 @@ function CountryBoardList({
         valueLabel: kind === 'rising' ? 'Last 24 hours' : 'Total staked',
         flag: row.plot_id ? undefined : isoFlag(row.iso),
         logoUrl: row.logo_url,
+        // Only ever true on `planted`: the money boards exclude unstaked rows
+        // server-side, so a founding plot cannot reach a podium that ranks
+        // money. On `planted` it very much can, and must say what it is.
+        founding: row.founding,
       }))
     : []
   const listRows = showPodium ? data.rows.slice(3) : data.rows
@@ -396,7 +401,21 @@ function CountryBoardList({
                       )}
                     </>
                   }
-                  title={label}
+                  title={
+                    // A founding plot reaches this list only through `planted`,
+                    // which ranks participation rather than money — the server
+                    // keeps unstaked rows off `richest` and `rising` entirely.
+                    // It still gets the chip here, because a row on ANY board
+                    // that shows $0 has to say why.
+                    row.founding ? (
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate">{label}</span>
+                        <WorldChip tone="founding" className="flex-none" />
+                      </span>
+                    ) : (
+                      label
+                    )
+                  }
                   trailing={<RowValue kind={kind} row={row} />}
                 />
               </motion.li>
@@ -475,6 +494,7 @@ function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: nu
         value: kind === 'pioneers' ? shortDate(row.created_at) : formatDollars(row.total_cents),
         valueLabel: kind === 'pioneers' ? 'Planted' : 'Total staked',
         logoUrl: row.logo_url,
+        founding: row.founding,
       }))
     : []
   const listRows = showPodium ? data.rows.slice(3) : data.rows
@@ -496,7 +516,16 @@ function FoundersBoardList({ kind, maxPx }: { kind: FoundersBoardKind; maxPx: nu
                   <WorldLogo src={row.logo_url} name={row.name} size={24} />
                 </>
               }
-              title={row.founder_name || row.name}
+              title={
+                row.founding ? (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{row.founder_name || row.name}</span>
+                    <WorldChip tone="founding" className="flex-none" />
+                  </span>
+                ) : (
+                  row.founder_name || row.name
+                )
+              }
               subtitle={row.name}
               trailing={
                 kind === 'pioneers' ? (

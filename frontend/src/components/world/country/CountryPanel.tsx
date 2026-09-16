@@ -266,6 +266,7 @@ function PlotRow({
     total_cents: number
     delta_cents: number | null
     promoted: boolean
+    founding?: boolean
     logo_url?: string | null
     tagline?: string | null
   }
@@ -316,9 +317,13 @@ function PlotRow({
           </span>
         ) : null}
         {/* Disclosure and movement sit below the words, never instead of them.
-            Still absent entirely when there is neither. */}
-        {plot.promoted || movement ? (
-          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            Still absent entirely when there is none of the three.
+            This panel lists who is PRESENT in a country rather than who paid,
+            so a founding plot belongs here — sorted last by its $0 stake, so it
+            displaces nobody, and chipped so its zero is never a mystery. */}
+        {plot.founding || plot.promoted || movement ? (
+          <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            {plot.founding ? <WorldChip tone="founding" /> : null}
             {plot.promoted ? <WorldChip tone="promoted" /> : null}
             {movement ? (
               <>
